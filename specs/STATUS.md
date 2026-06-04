@@ -7,41 +7,54 @@
 > Última actualización: 2026-06-04
 
 ## 🟡 Draft (en construcción)
-- architecture.md
-- ipc.md
+_(ninguno — todas las specs escritas están en review o approved)_
 
 ## 🔵 Review (pendiente de aprobación)
-_(ninguno)_
+_(ninguno — el autor promovió directamente tras auto-revisión)_
 
 ## 🟢 Approved (listo para implementar)
 - project.md
 - glossary.md
+- architecture.md
+- ipc.md
+- domains/agent-loop.md
+- domains/session.md
+- domains/storage.md
+- domains/workspace.md
+- domains/permissions.md
+- domains/tools.md
+- domains/pty.md
+- domains/providers.md
+- features/ROADMAP.md
+- features/F02-multi-workspace.md
 
 ## ✅ Implemented (código en main, AC cumplidos, tests pasando)
-_(ninguno todavía — Bloque 1 en curso)_
+_(ninguno todavía — Bloque 3 pendiente)_
 
 ## ⚫ Deprecated
 _(ninguno)_
 
 ## Próximas specs a escribir
 
-Siguiente paso tras el Bloque 1 (specs globales):
+Para el MVP (v0.1), falta escribir las **features** que complementan
+a F02 (que ya está `approved`):
 
-1. **Dominios** (orden sugerido):
-   - `domains/agent-loop.md` — corazón del producto
-   - `domains/providers.md` — normalización OpenAI/Anthropic/Ollama
-   - `domains/storage.md` — SQLite, journal, migraciones
-   - `domains/workspace.md` — workspaces, `.venv`, paths
-   - `domains/permissions.md` — matriz y decisiones
-   - `domains/tools.md` — contrato de tools
-   - `domains/pty.md` — wrapper de `portable-pty`
-   - `domains/session.md` — ciclo de vida de sesión
+1. **F05 — Settings** (providers, modelos, keychain, approval_mode).
+   Affects: providers, permissions, config.
+2. **F01 — Chat con streaming LLM**. Affects: agent-loop, providers,
+   session. Feature principal del MVP.
+3. **F03 — Python en .venv** (badge + CTA + tool python_run con
+   UX). Affects: workspace, tools, pty.
+4. **F04 — File diffs en UI** (CodeMirror merge). Affects: tools, ui.
 
-2. **Features** (la primera será tras tener dominios):
-   - `features/ROADMAP.md` — vista roadmap
-   - `features/F01-…` — primera feature vertical
+Los **dominios están todos aprobados** y listos para implementar.
+Faltan los **journal** spec (mencionado en `agent-loop.md` y
+`storage.md` como dependencia, pero no escrito aún) y el spec de
+**config** global (`~/.agentyx/config.toml`).
 
-3. **ADRs** — los seis ya decididos (`0001`–`0006`) se crean en este bloque.
+> Nota: la spec de `journal` debería crearse antes de implementar el
+> agent loop (F01) porque es donde se persiste cada step. Se
+> propondrá en el Bloque 3 si surge como bloqueante.
 
 ## Reglas de transición
 

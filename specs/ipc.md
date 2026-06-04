@@ -1,6 +1,6 @@
 # IPC — Inter-Process Communication
 
-**Status**: draft
+**Status**: approved
 **Owner**: @miglesias
 **Last update**: 2026-06-04
 

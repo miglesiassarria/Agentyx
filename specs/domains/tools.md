@@ -1,6 +1,6 @@
 # Tools
 
-**Status**: draft
+**Status**: approved
 **Owner**: @miglesias
 **Last update**: 2026-06-04
 **Affects**: — (las tools son invocadas por `agent-loop.md` con

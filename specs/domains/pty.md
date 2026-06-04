@@ -1,6 +1,6 @@
 # PTY (Pseudo-Terminal)
 
-**Status**: draft
+**Status**: approved
 **Owner**: @miglesias
 **Last update**: 2026-06-04
 **Affects**: — (la PTY es consumida por `tools.md` cuando una tool

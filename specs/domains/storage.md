@@ -1,6 +1,6 @@
 # Storage
 
-**Status**: draft
+**Status**: approved
 **Owner**: @miglesias
 **Last update**: 2026-06-04
 **Affects**: — (todos los demás dominios leen/escriben vía este wrapper).

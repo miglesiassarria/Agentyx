@@ -1,6 +1,6 @@
 # Session
 
-**Status**: draft
+**Status**: approved
 **Owner**: @miglesias
 **Last update**: 2026-06-04
 **Affects**: — (la sesión es el contenedor que el agent loop y el UI consumen).

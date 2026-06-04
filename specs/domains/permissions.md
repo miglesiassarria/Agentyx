@@ -1,6 +1,6 @@
 # Permissions
 
-**Status**: draft
+**Status**: approved
 **Owner**: @miglesias
 **Last update**: 2026-06-04
 **Affects**: — (las permissions son consultadas por `agent-loop.md`

@@ -1,6 +1,6 @@
 # LLM Providers
 
-**Status**: draft
+**Status**: approved
 **Owner**: @miglesias
 **Last update**: 2026-06-04
 **Affects**: — (los providers son consumidos por `agent-loop.md`).

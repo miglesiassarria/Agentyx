@@ -1,6 +1,6 @@
 # Workspace
 
-**Status**: draft
+**Status**: approved
 **Owner**: @miglesias
 **Last update**: 2026-06-04
 **Affects**: — (workspace es el contenedor raíz de todo el estado por proyecto).
