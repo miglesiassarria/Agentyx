@@ -29,11 +29,6 @@
     },
     "types": ["svelte", "vite/client", "node"]
   },
-  "include": [
-    "src/**/*.ts",
-    "src/**/*.js",
-    "src/**/*.svelte",
-    "tests/**/*.ts"
-  ],
+  "include": ["src/**/*.ts", "src/**/*.js", "src/**/*.svelte", "tests/**/*.ts"],
   "exclude": ["node_modules", "dist", ".svelte-kit"]
 }

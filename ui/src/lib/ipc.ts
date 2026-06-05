@@ -12,10 +12,13 @@ import { listen as tauriListen, type UnlistenFn } from '@tauri-apps/api/event';
 
 import type {
   AtMention,
+  EffectivePathsDto,
+  ExtraPathDto,
   PermissionMatrixDto,
   RunHandle,
   SessionSummaryDto,
   TestConnectionResult,
+  VenvSpec,
   WorkspaceDto,
 } from './ipc-types';
 
@@ -44,10 +47,7 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
  * Subscribe to a Tauri event. Returns an unlisten function.
  * Auto-typed with the payload shape so the UI gets a typed arg.
  */
-async function listen<T>(
-  event: string,
-  handler: (payload: T) => void,
-): Promise<UnlistenFn> {
+async function listen<T>(event: string, handler: (payload: T) => void): Promise<UnlistenFn> {
   return tauriListen<T>(event, (e) => handler(e.payload));
 }
 
@@ -58,8 +58,7 @@ export const session = {
     workspaceId: string,
     agentId?: string,
     title?: string,
-  ): Promise<unknown /* SessionDto */> =>
-    call('create', { workspaceId, agentId, title }),
+  ): Promise<unknown /* SessionDto */> => call('create', { workspaceId, agentId, title }),
 
   send: (sessionId: string, content: string, mentions: AtMention[] = []): Promise<RunHandle> =>
     call('send', { sessionId, content, mentions }),
@@ -73,8 +72,7 @@ export const session = {
     sessionId: string,
     limit?: number,
     before?: string,
-  ): Promise<unknown /* JournalEntry[] */> =>
-    call('get_history', { sessionId, limit, before }),
+  ): Promise<unknown /* JournalEntry[] */> => call('get_history', { sessionId, limit, before }),
 
   setActiveAgent: (sessionId: string, agentId: string): Promise<void> =>
     call('set_active_agent', { sessionId, agentId }),
@@ -99,11 +97,8 @@ export const workspace = {
   detectVenv: (workspaceId: string): Promise<VenvSpec | null> =>
     call('detect_venv', { workspaceId }),
 
-  addExtraPath: (
-    workspaceId: string,
-    path: string,
-    label?: string,
-  ): Promise<ExtraPathDto> => call('add_extra_path', { workspaceId, path, label }),
+  addExtraPath: (workspaceId: string, path: string, label?: string): Promise<ExtraPathDto> =>
+    call('add_extra_path', { workspaceId, path, label }),
 
   removeExtraPath: (workspaceId: string, path: string): Promise<void> =>
     call('remove_extra_path', { workspaceId, path }),
@@ -120,8 +115,7 @@ export const workspace = {
 export const config = {
   getGlobal: (): Promise<unknown /* GlobalConfigDto */> => call('get_global'),
   updateGlobal: (patch: unknown): Promise<unknown> => call('update_global', { patch }),
-  getWorkspace: (workspaceId: string): Promise<unknown> =>
-    call('get_workspace', { workspaceId }),
+  getWorkspace: (workspaceId: string): Promise<unknown> => call('get_workspace', { workspaceId }),
   updateWorkspace: (workspaceId: string, patch: unknown): Promise<unknown> =>
     call('update_workspace', { workspaceId, patch }),
 };
@@ -143,8 +137,7 @@ export const providers = {
 // === Secrets (F05 keychain) ===
 
 export const secrets = {
-  set: (providerId: string, value: string): Promise<void> =>
-    call('set', { providerId, value }),
+  set: (providerId: string, value: string): Promise<void> => call('set', { providerId, value }),
   delete: (providerId: string): Promise<void> => call('delete', { providerId }),
   listProviders: (): Promise<string[]> => call('list_providers'),
 };
@@ -170,8 +163,9 @@ export const events = {
     listen('chat.run.started.v1', cb),
   chatMessageStart: (cb: (p: { sessionId: string; runId: string; messageId: string }) => void) =>
     listen('chat.message.start.v1', cb),
-  chatContentDelta: (cb: (p: { sessionId: string; runId: string; messageId: string; text: string }) => void) =>
-    listen('chat.content.delta.v1', cb),
+  chatContentDelta: (
+    cb: (p: { sessionId: string; runId: string; messageId: string; text: string }) => void,
+  ) => listen('chat.content.delta.v1', cb),
   chatToolCall: (
     cb: (p: {
       sessionId: string;
@@ -213,10 +207,20 @@ export const events = {
     }) => void,
   ) => listen('chat.run.finished.v1', cb),
   chatRunError: (
-    cb: (p: { sessionId: string; runId: string; code: string; message: string; retryable: boolean }) => void,
+    cb: (p: {
+      sessionId: string;
+      runId: string;
+      code: string;
+      message: string;
+      retryable: boolean;
+    }) => void,
   ) => listen('chat.run.error.v1', cb),
   chatRunAborted: (
-    cb: (p: { sessionId: string; runId: string; reason: 'user' | 'timeout' | 'error' | 'max_steps' }) => void,
+    cb: (p: {
+      sessionId: string;
+      runId: string;
+      reason: 'user' | 'timeout' | 'error' | 'max_steps';
+    }) => void,
   ) => listen('chat.run.aborted.v1', cb),
   permissionRequested: (
     cb: (p: {
@@ -246,7 +250,6 @@ export const events = {
   workspaceExtraPathAdded: (
     cb: (p: { workspaceId: string; path: string; label?: string }) => void,
   ) => listen('workspace.extra_path_added.v1', cb),
-  workspaceExtraPathRemoved: (
-    cb: (p: { workspaceId: string; path: string }) => void,
-  ) => listen('workspace.extra_path_removed.v1', cb),
+  workspaceExtraPathRemoved: (cb: (p: { workspaceId: string; path: string }) => void) =>
+    listen('workspace.extra_path_removed.v1', cb),
 };

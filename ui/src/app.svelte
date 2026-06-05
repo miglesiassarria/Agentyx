@@ -16,9 +16,7 @@
 
   <section class="placeholder">
     <p>Bootstrap OK. La UI se implementa en Fase D.</p>
-    <p class="hint">
-      Tauri commands y eventos streaming se montan en F01-F05.
-    </p>
+    <p class="hint">Tauri commands y eventos streaming se montan en F01-F05.</p>
     {@render children?.()}
   </section>
 </main>

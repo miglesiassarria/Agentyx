@@ -105,3 +105,25 @@ opt-level = 3
 
 # Target-specific deps live in each crate's Cargo.toml
 # (virtual manifests don't allow [target] sections).
+
+# Shared lints — applied to all crates via `[lints] workspace = true`.
+# See crates/clippy.toml for project-level clippy config
+# (avoid-breaking-exported-api, msrv, etc.).
+[workspace.lints.clippy]
+warn = [
+    "clippy::correctness",
+    "clippy::suspicious",
+    "clippy::perf",
+    "clippy::style",
+    "clippy::dbg_macro",
+    "clippy::print_stdout",
+    "clippy::print_stderr",
+    "clippy::todo",
+]
+deny = [
+    "clippy::unwrap_used",
+    "clippy::expect_used",
+    "clippy::panic",
+    "clippy::panic_in_result_fn",
+    "clippy::unwrap_in_result",
+]

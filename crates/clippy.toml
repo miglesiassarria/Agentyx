@@ -1,34 +1,11 @@
-# clippy config — applied to all crates in the workspace.
+# clippy config — project-level settings only.
 #
-# Strategy for v0.1:
-# - `correctness` and `suspicious` are real bugs → enabled.
-# - `perf` and `style` are low-cost wins → enabled.
-# - `pedantic` and `nursery` are nice-to-haves but generate
-#   hundreds of warnings on placeholder code → disabled in v0.1;
-#   re-evaluate when the surface stabilizes.
-# - `unwrap_used` / `expect_used` / `panic` are security policy
-#   (AGENTS.md §4.1: "Sin `unwrap` en código de producción") →
-#   denied in production code. Test modules opt out via
-#   `#[allow(clippy::unwrap_used, ...)]` on the `mod tests` block.
+# Lint levels (warn/deny) live in [workspace.lints] in the
+# workspace Cargo.toml and are inherited by each crate via
+# `[lints] workspace = true`.
+#
+# This file keeps settings that aren't lint levels
+# (avoid-breaking-exported-api, msrv, etc.).
 
 avoid-breaking-exported-api = false
 msrv = "1.80"
-
-allowed = []
-warn = [
-    "clippy::correctness",
-    "clippy::suspicious",
-    "clippy::perf",
-    "clippy::style",
-    "clippy::dbg_macro",
-    "clippy::print_stdout",
-    "clippy::print_stderr",
-    "clippy::todo",
-]
-deny = [
-    "clippy::unwrap_used",
-    "clippy::expect_used",
-    "clippy::panic",
-    "clippy::panic_in_result_fn",
-    "clippy::unwrap_in_result",
-]
