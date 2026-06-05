@@ -7,10 +7,7 @@
 > Última actualización: 2026-06-05
 
 ## 🟡 Draft (en construcción)
-- **features/F05-settings.md** (Fase B — Providers/Models/Approval/Workspace tabs, 15 ACs)
-- **features/F01-chat-streaming.md** (Fase B — chat con streaming LLM + multi-agent, 15 ACs)
-- **features/F04-file-diffs.md** (Fase B — CodeMirror merge read-only en v0.1, 12 ACs)
-- **features/F-agents-ui.md** (Fase B — AgentChip + Cmd+[/] + @mention popover + SessionTree, 15 ACs)
+_(vacío)_
 
 ## 🔵 Review (pendiente de aprobación)
 _(vacío)_
@@ -26,13 +23,17 @@ _(vacío)_
 - domains/permissions.md (revisado en PR 3)
 - domains/tools.md (revisado en PR 3)
 - domains/providers.md (revisado en PR 3 — reescritura mayor: Ollama / Groq / Minimax)
-- domains/journal.md (revisado en este PR — log append-only SQLite puro)
-- domains/config.md (revisado en este PR — TOML + SecretRef/env/keychain)
+- domains/journal.md (revisado en PR de foundational — log append-only SQLite puro)
+- domains/config.md (revisado en PR de foundational — TOML + SecretRef/env/keychain)
 - domains/session.md
 - domains/storage.md
 - domains/pty.md
 - features/ROADMAP.md (revisado en PR 5: v0.1 sin F03; F-agents-ui nuevo; F-extra-paths-* en v0.1.x)
-- features/F02-multi-workspace.md (revisado en este PR — sin venv obligatorio, UI de extra paths)
+- features/F02-multi-workspace.md (revisado en PR de F02 — sin venv obligatorio, UI de extra paths)
+- features/F05-settings.md (revisado en este PR — Providers/Models/Approval/Workspace tabs)
+- features/F01-chat-streaming.md (revisado en este PR — chat streaming LLM + multi-agent)
+- features/F04-file-diffs.md (revisado en este PR — CodeMirror merge read-only v0.1)
+- features/F-agents-ui.md (revisado en este PR — AgentChip + Cmd+[/] + @mention + SessionTree)
 
 ## ADRs
 
