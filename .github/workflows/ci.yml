@@ -124,8 +124,8 @@ jobs:
       - run: bun install --frozen-lockfile
       - uses: actions/upload-artifact@v4
         with:
-          name: ui-node_modules
-          path: ui/node_modules
+          name: node_modules
+          path: node_modules
           retention-days: 1
 
   ui-typecheck:
@@ -139,8 +139,8 @@ jobs:
           bun-version: 1.1.0
       - uses: actions/download-artifact@v4
         with:
-          name: ui-node_modules
-          path: ui/node_modules
+          name: node_modules
+          path: node_modules
       - working-directory: ui
         run: bunx tsc --noEmit
 
@@ -155,8 +155,8 @@ jobs:
           bun-version: 1.1.0
       - uses: actions/download-artifact@v4
         with:
-          name: ui-node_modules
-          path: ui/node_modules
+          name: node_modules
+          path: node_modules
       - working-directory: ui
         run: bunx eslint .
 
@@ -169,7 +169,8 @@ jobs:
         with:
           bun-version: 1.1.0
       - run: bun install --frozen-lockfile
-      - run: bunx prettier --check .
+      - working-directory: ui
+        run: bunx prettier --check .
 
   ui-test:
     name: UI test (vitest)
@@ -182,8 +183,8 @@ jobs:
           bun-version: 1.1.0
       - uses: actions/download-artifact@v4
         with:
-          name: ui-node_modules
-          path: ui/node_modules
+          name: node_modules
+          path: node_modules
       - working-directory: ui
         run: bunx vitest run
 
@@ -198,8 +199,8 @@ jobs:
           bun-version: 1.1.0
       - uses: actions/download-artifact@v4
         with:
-          name: ui-node_modules
-          path: ui/node_modules
+          name: node_modules
+          path: node_modules
       - working-directory: ui
         run: bun run build
 
