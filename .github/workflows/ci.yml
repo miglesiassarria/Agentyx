@@ -142,7 +142,7 @@ jobs:
           name: node_modules
           path: node_modules
       - working-directory: ui
-        run: bunx tsc --noEmit
+        run: bun run typecheck
 
   ui-lint:
     name: UI lint
@@ -158,7 +158,7 @@ jobs:
           name: node_modules
           path: node_modules
       - working-directory: ui
-        run: bunx eslint .
+        run: bun run lint
 
   ui-format:
     name: UI format
@@ -170,7 +170,7 @@ jobs:
           bun-version: 1.1.0
       - run: bun install --frozen-lockfile
       - working-directory: ui
-        run: bunx prettier --check .
+        run: bun run format:check
 
   ui-test:
     name: UI test (vitest)
@@ -186,7 +186,7 @@ jobs:
           name: node_modules
           path: node_modules
       - working-directory: ui
-        run: bunx vitest run
+        run: bun run test
 
   ui-build:
     name: UI build
