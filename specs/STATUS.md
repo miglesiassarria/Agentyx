@@ -7,8 +7,6 @@
 > Última actualización: 2026-06-05
 
 ## 🟡 Draft (en construcción)
-- **agents.md** (PR 2 — sistema multi-agente)
-- **domains/providers.md** (PR 3 — reescritura mayor: 3 providers en vez de 4)
 - **domains/journal.md** (Fase B — log append-only SQLite puro, 16 ACs)
 - **domains/config.md** (Fase B — TOML global + workspace, SecretRef/env/keychain, 18 ACs)
 - **features/F05-settings.md** (Fase B — Providers/Models/Approval/Workspace tabs, 15 ACs)
@@ -17,10 +15,6 @@
 - **features/F-agents-ui.md** (Fase B — AgentChip + Cmd+[/] + @mention popover + SessionTree, 15 ACs)
 
 ## 🔵 Review (pendiente de aprobación)
-- **domains/agent-loop.md** (PR 2)
-- **domains/workspace.md** (PR 3)
-- **domains/permissions.md** (PR 3)
-- **domains/tools.md** (PR 3)
 - **features/F02-multi-workspace.md** (PR 4 — sin venv obligatorio, UI de extra paths)
 
 ## 🟢 Approved (listo para implementar)
@@ -28,6 +22,12 @@
 - glossary.md (revisado en PR 1)
 - architecture.md (revisado en PR 1)
 - ipc.md (revisado en PR 2)
+- agents.md (revisado en este PR — sistema multi-agente)
+- domains/agent-loop.md (revisado en este PR)
+- domains/workspace.md (revisado en este PR)
+- domains/permissions.md (revisado en este PR)
+- domains/tools.md (revisado en este PR)
+- domains/providers.md (revisado en este PR — reescritura mayor: Ollama / Groq / Minimax)
 - domains/session.md
 - domains/storage.md
 - domains/pty.md
