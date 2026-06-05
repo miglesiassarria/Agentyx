@@ -5,8 +5,13 @@
 //! `../../../specs/features/F05-settings.md` and
 //! `../../../specs/domains/config.md`.
 
-use agentyx_core::AppResult;
+// Placeholder commands are not yet wired into `generate_handler!`;
+// see AGENTS.md §17 (Spec-Driven Development) — implementations
+// are deferred to F05 in Fase D.
+#![allow(dead_code)]
+
 use agentyx_core::ids::WorkspaceId;
+use agentyx_core::AppResult;
 use std::sync::Arc;
 use tauri::State;
 
@@ -14,9 +19,7 @@ use crate::state::AppState;
 
 /// Get the global config (without secrets).
 #[tauri::command]
-pub async fn get_global(
-    _state: State<'_, Arc<AppState>>,
-) -> AppResult<serde_json::Value> {
+pub async fn get_global(_state: State<'_, Arc<AppState>>) -> AppResult<serde_json::Value> {
     Err(agentyx_core::AppError::Internal {
         message: "config::get_global not yet implemented (F05 in Fase D)".into(),
     })
@@ -35,7 +38,7 @@ pub async fn update_global(
 
 /// Get a workspace's config overrides (if any).
 #[tauri::command]
-pub async fn get_workspace(
+pub async fn get_workspace_config(
     _state: State<'_, Arc<AppState>>,
     _workspace_id: WorkspaceId,
 ) -> AppResult<serde_json::Value> {
@@ -46,7 +49,7 @@ pub async fn get_workspace(
 
 /// Patch and persist a workspace's config overrides.
 #[tauri::command]
-pub async fn update_workspace(
+pub async fn update_workspace_config(
     _state: State<'_, Arc<AppState>>,
     _workspace_id: WorkspaceId,
     _patch: serde_json::Value,

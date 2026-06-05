@@ -1,0 +1,13 @@
+# cargo-audit config for Agentyx.
+#
+# We treat `unmaintained` and `unsound` warnings as informational
+# only (they do not fail CI) because the RustSec DB still lists
+# several transitive deps from the Tauri/wry stack that are not
+# critical for v0.1 and will be cleaned up as upstream ships
+# fixes. See specs/security.md §9 for the policy.
+#
+# Refs: specs/security.md#advisories-policy
+
+[advisories]
+informational_warnings = ["unmaintained", "unsound"]
+ignore = []

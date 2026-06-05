@@ -58,10 +58,15 @@ pub fn detect_venv(root: &Path, config_override: Option<&Path>) -> AppResult<Opt
 
     // (4) pyenv
     if let Some(python) = pyenv_python(root) {
+        let python_path = PathBuf::from(python);
+        let venv_path = python_path
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_default();
         return Ok(Some(VenvSpec {
             kind: VenvKind::Venv,
-            path: PathBuf::from(python).parent().map(Path::to_path_buf).unwrap_or_default(),
-            python: PathBuf::from(python),
+            path: venv_path,
+            python: python_path,
             version: String::new(), // caller queries --version
         }));
     }
@@ -138,12 +143,10 @@ fn pyenv_python(root: &Path) -> Option<String> {
     if version.is_empty() {
         return None;
     }
-    // Try `pythonX.Y` on PATH (e.g. `python3.12`).
-    let candidate = if cfg!(target_os = "windows") {
-        format!("python{version}")
-    } else {
-        format!("python{version}")
-    };
+    // Try `pythonX.Y` on PATH (e.g. `python3.12`). Same
+    // candidate on all platforms; Windows resolves `.exe`
+    // transparently via the OS.
+    let candidate = format!("python{version}");
     // Look up via `which`/`where` to get absolute path; fall back
     // to the relative name (the user will get a clear "not
     // found" when invoking `python_run`).
@@ -161,9 +164,12 @@ fn pyproject_venv(root: &Path) -> AppResult<Option<VenvSpec>> {
     }
     let bytes = std::fs::read(&path).map_err(|e| AppError::Io {
         op: format!("read {}", path.display()),
-        source: e.to_string(),
+        reason: e.to_string(),
     })?;
-    let value: toml::Value = toml::from_slice(&bytes).map_err(|e| AppError::Internal {
+    let text = std::str::from_utf8(&bytes).map_err(|e| AppError::Internal {
+        message: format!("pyproject.toml is not valid UTF-8: {e}"),
+    })?;
+    let value: toml::Value = toml::from_str(text).map_err(|e| AppError::Internal {
         message: format!("pyproject.toml is malformed: {e}"),
     })?;
 

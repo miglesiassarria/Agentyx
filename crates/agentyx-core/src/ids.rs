@@ -154,5 +154,12 @@ id_type! {
     pub struct ExtraPathId;
 }
 
+id_type! {
+    /// A tool identifier (e.g. `"read_file"`, `"shell"`). Used by
+    /// the permission matrix to decide which tools a workspace
+    /// may invoke without prompting.
+    pub struct ToolId;
+}
+
 /// Re-export the underlying `ulid` crate for advanced uses.
 pub use ulid;

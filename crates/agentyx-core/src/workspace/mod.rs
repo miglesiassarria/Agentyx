@@ -6,17 +6,17 @@
 //!
 //! ## Module layout
 //!
-//! - [`types`]    — `Workspace`, `ExtraPath`, `WorkspaceConfig`,
-//!                  `VenvSpec`, `VenvKind` (the data types).
-//! - [`paths`]    — `canonicalize`, `is_within`, root whitelist
-//!                  (the security primitives).
+//! - [`types`] — `Workspace`, `ExtraPath`, `WorkspaceConfig`,
+//!   `VenvSpec`, `VenvKind` (the data types).
+//! - [`paths`] — `canonicalize`, `is_within`, root whitelist
+//!   (the security primitives).
 //! - [`registry`] — `WorkspaceRegistry`, the global `state.json`
-//!                  persistence layer.
-//! - [`service`]  — high-level operations (`open`, `list`, `get`,
-//!                  `delete`, `add_extra_path`, `remove_extra_path`,
-//!                  `list_extra_paths`, `effective_paths`).
-//! - [`venv`]     — `detect_venv` (basic detection only; creation
-//!                  is a v0.1.x feature, see F03).
+//!   persistence layer.
+//! - [`service`] — high-level operations (`open`, `list`, `get`,
+//!   `delete`, `add_extra_path`, `remove_extra_path`,
+//!   `list_extra_paths`, `effective_paths`).
+//! - [`venv`] — `detect_venv` (basic detection only; creation
+//!   is a v0.1.x feature, see F03).
 //!
 //! ## What's in this PR
 //!
@@ -58,3 +58,4 @@ pub use paths::{canonicalize, is_within, is_within_sandbox, root_whitelist};
 pub use registry::{WorkspaceRegistry, REGISTRY_VERSION};
 pub use service::{OpenOptions, WorkspaceService};
 pub use types::{ExtraPath, VenvKind, VenvSpec, Workspace, WorkspaceConfig};
+pub use venv::detect_venv;

@@ -22,7 +22,6 @@ use std::sync::Arc;
 
 use agentyx_core::AppResult;
 use anyhow::Context;
-use tauri::Manager;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 mod commands;
@@ -47,12 +46,11 @@ fn main() -> anyhow::Result<()> {
 
     tracing::info!(
         version = env!("CARGO_PKG_VERSION"),
-        target = tauri::utils::platform::target_triple().unwrap_or("unknown"),
+        target = tauri::utils::platform::target_triple().unwrap_or_else(|_| "unknown".to_string()),
         "agentyx starting"
     );
 
-    let app_state = AppState::initialize()
-        .context("initializing AppState")?;
+    let app_state = AppState::initialize().context("initializing AppState")?;
 
     let state = Arc::new(app_state);
 
@@ -66,18 +64,18 @@ fn main() -> anyhow::Result<()> {
         .manage(state.clone())
         .setup(move |app| {
             window::configure_main_window(app)?;
-            let _ = menu::build_menu(&app.handle());
+            let _ = menu::build_menu(app.handle());
             deep_link::register(app);
             events::register_event_handlers(app, state.clone());
             updater::check_on_startup(app)?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            commands::workspace::list,
+            commands::workspace::list_workspaces,
             commands::workspace::open,
-            commands::workspace::get,
-            commands::workspace::delete,
-            commands::workspace::detect_venv,
+            commands::workspace::get_workspace,
+            commands::workspace::delete_workspace,
+            commands::workspace::detect_workspace_venv,
             commands::workspace::add_extra_path,
             commands::workspace::remove_extra_path,
             commands::workspace::list_extra_paths,

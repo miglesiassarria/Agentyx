@@ -130,10 +130,13 @@ jobs:
         run: cargo install --locked cargo-audit
       - name: cargo audit
         working-directory: crates
-        # Transitive unmaintained (proc-macro-error, gtk3, unic-*, etc.)
-        # are Tauri platform shims; we still fail on real vulnerabilities
-        # and unsound code. Re-evaluate when bumping Tauri.
-        run: cargo audit --deny warnings --informational-warnings unmaintained --informational-warnings unsound
+        # `informational_warnings` for `unmaintained` and `unsound`
+        # is configured in `crates/.cargo/audit.toml`. Real CVEs and
+        # yanked crates still fail the build. Re-evaluate the
+        # advisory policy when bumping Tauri/wry (they pull in
+        # several transitive `unic-*` and `proc-macro-error`
+        # unmaintained warnings).
+        run: cargo audit --deny warnings
 
   # -------- Frontend --------
 

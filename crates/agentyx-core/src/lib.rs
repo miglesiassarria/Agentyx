@@ -13,21 +13,21 @@
 //!
 //! ## Module layout (planned, see `../specs/architecture.md`)
 //!
-//! - `agent`     — the ReAct agent loop, tool calls, prompts.
-//! - `agents`    — multi-agent registry: `AgentSpec`, `AgentRegistry`,
-//!                 `Primary | Subagent | Hidden`.
-//! - `llm`       — LLM provider trait + Ollama / Groq / Minimax impls.
-//! - `tools`     — read_file, write_file, edit_file, search,
-//!                 shell, python_run, list_dir, apply_patch.
-//! - `storage`   — SQLite, migrations, repos for sessions/messages/journal.
-//! - `journal`   — append-only action log (in `state.db`).
+//! - `agent` — the ReAct agent loop, tool calls, prompts.
+//! - `agents` — multi-agent registry: `AgentSpec`, `AgentRegistry`,
+//!   `Primary | Subagent | Hidden`.
+//! - `llm` — LLM provider trait + Ollama / Groq / Minimax impls.
+//! - `tools` — read_file, write_file, edit_file, search,
+//!   shell, python_run, list_dir, apply_patch.
+//! - `storage` — SQLite, migrations, repos for sessions/messages/journal.
+//! - `journal` — append-only action log (in `state.db`).
 //! - `permissions` — permission matrix and gate.
-//! - `config`    — TOML config + `SecretRef` (env / keychain).
+//! - `config` — TOML config + `SecretRef` (env / keychain).
 //! - `workspace` — workspace model + `extra_paths` (ADR-0007). [implemented]
-//! - `session`   — sessions, runs, messages, child sessions.
-//! - `pty`       — PTY wrapper on `portable-pty`.
-//! - `error`     — `AppError` + `From` impls.
-//! - `ids`       — `Ulid` newtype wrappers (`SessionId`, `RunId`, ...).
+//! - `session` — sessions, runs, messages, child sessions.
+//! - `pty` — PTY wrapper on `portable-pty`.
+//! - `error` — `AppError` + `From` impls.
+//! - `ids` — `Ulid` newtype wrappers (`SessionId`, `RunId`, ...).
 //!
 //! ## Conventions (see `../../AGENTS.md` §4)
 //!

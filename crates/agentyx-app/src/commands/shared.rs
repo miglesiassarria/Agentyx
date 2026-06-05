@@ -1,6 +1,4 @@
-//! Re-exports and shared types for the `commands` module.
-
-pub use super::session::*;
+//! Shared types for the `commands` module.
 
 /// An `@<agent-id>` mention in a user message. Extracted from
 /// `content` by the `AgentLoop::expand_at_mentions` function.

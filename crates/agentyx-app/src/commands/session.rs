@@ -4,8 +4,13 @@
 //! implemented in Fase D (post-bootstrap) following the contracts
 //! in `../../../specs/features/F01-chat-streaming.md`.
 
-use agentyx_core::AppResult;
+// Placeholder commands are not yet wired into `generate_handler!`;
+// see AGENTS.md §17 (Spec-Driven Development) — implementations
+// are deferred to F01 in Fase D.
+#![allow(dead_code)]
+
 use agentyx_core::ids::SessionId;
+use agentyx_core::AppResult;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tauri::State;
@@ -37,7 +42,7 @@ pub struct SessionSummaryDto {
 
 /// Create a new session in a workspace.
 #[tauri::command]
-pub async fn create(
+pub async fn create_session(
     _state: State<'_, Arc<AppState>>,
     _workspace_id: agentyx_core::ids::WorkspaceId,
     _agent_id: Option<agentyx_core::ids::AgentId>,
@@ -65,10 +70,7 @@ pub async fn send(
 
 /// Abort the currently active run of a session, if any. Idempotent.
 #[tauri::command]
-pub async fn abort(
-    _state: State<'_, Arc<AppState>>,
-    _session_id: SessionId,
-) -> AppResult<()> {
+pub async fn abort(_state: State<'_, Arc<AppState>>, _session_id: SessionId) -> AppResult<()> {
     // TODO(F01): implement in Fase D.
     Err(agentyx_core::AppError::Internal {
         message: "session::abort not yet implemented (F01 in Fase D)".into(),
@@ -77,7 +79,7 @@ pub async fn abort(
 
 /// List sessions in a workspace, ordered by `updated_at DESC`.
 #[tauri::command]
-pub async fn list(
+pub async fn list_sessions(
     _state: State<'_, Arc<AppState>>,
     _workspace_id: agentyx_core::ids::WorkspaceId,
     _limit: Option<u32>,

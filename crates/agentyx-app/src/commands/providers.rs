@@ -1,4 +1,9 @@
 //! `providers` Tauri commands — F05 test-connection surface.
+//!
+//! See `../../../specs/domains/llm-providers.md` for the contracts.
+
+// Placeholder command, not yet wired into `generate_handler!`.
+#![allow(dead_code)]
 
 use agentyx_core::AppResult;
 use serde::{Deserialize, Serialize};

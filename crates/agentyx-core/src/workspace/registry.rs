@@ -80,7 +80,7 @@ impl WorkspaceRegistry {
 
         let bytes = std::fs::read(&path).map_err(|e| AppError::Io {
             op: format!("read state.json ({})", path.display()),
-            source: e.to_string(),
+            reason: e.to_string(),
         })?;
 
         let registry: Self = serde_json::from_slice(&bytes).map_err(|e| AppError::Internal {
@@ -105,7 +105,7 @@ impl WorkspaceRegistry {
     pub fn save(&self, agentyx_home: &Path) -> Result<(), AppError> {
         std::fs::create_dir_all(agentyx_home).map_err(|e| AppError::Io {
             op: format!("create_dir_all {}", agentyx_home.display()),
-            source: e.to_string(),
+            reason: e.to_string(),
         })?;
 
         let final_path = agentyx_home.join("state.json");
@@ -117,12 +117,15 @@ impl WorkspaceRegistry {
 
         std::fs::write(&tmp_path, &bytes).map_err(|e| AppError::Io {
             op: format!("write state.json.tmp ({})", tmp_path.display()),
-            source: e.to_string(),
+            reason: e.to_string(),
         })?;
 
         std::fs::rename(&tmp_path, &final_path).map_err(|e| AppError::Io {
-            op: format!("rename state.json.tmp -> state.json ({})", final_path.display()),
-            source: e.to_string(),
+            op: format!(
+                "rename state.json.tmp -> state.json ({})",
+                final_path.display()
+            ),
+            reason: e.to_string(),
         })?;
 
         // Best-effort: tighten permissions to 0o600 (user-only).
@@ -141,14 +144,22 @@ impl WorkspaceRegistry {
         self.workspaces.iter().find(|w| w.id == *id)
     }
 
+    /// Look up a workspace by id, mutably. Used by callers that
+    /// need to update workspace fields in place (e.g. extra_paths,
+    /// venv) while holding a registry lock.
+    #[must_use]
+    pub fn get_mut(&mut self, id: &crate::ids::WorkspaceId) -> Option<&mut Workspace> {
+        self.workspaces.iter_mut().find(|w| w.id == *id)
+    }
+
     /// Look up a workspace by `root_path` (canonical). Used by
     /// `WorkspaceService::open` to detect re-registration of an
     /// already-known workspace.
     #[must_use]
     pub fn find_by_root(&self, root_path: &Path) -> Option<&Workspace> {
-        self.workspaces
-            .iter()
-            .find(|w| w.root_path == canonicalize(root_path).unwrap_or_else(|_| root_path.to_path_buf()))
+        self.workspaces.iter().find(|w| {
+            w.root_path == canonicalize(root_path).unwrap_or_else(|_| root_path.to_path_buf())
+        })
     }
 
     /// Insert a new workspace. If a workspace with the same
@@ -162,9 +173,10 @@ impl WorkspaceRegistry {
             }
             None => {
                 self.workspaces.push(workspace);
+                // SAFETY: we just pushed, so `last_mut` is guaranteed `Some`.
                 self.workspaces
                     .last_mut()
-                    .expect("just pushed, must be Some")
+                    .expect("invariant: just pushed a workspace")
             }
         }
     }

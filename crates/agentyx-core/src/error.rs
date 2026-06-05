@@ -81,15 +81,15 @@ pub enum AppError {
     },
 
     /// I/O error (file system, network, PTY, SQLite I/O). The
-    /// `source` field is a short, non-sensitive description; the
+    /// `reason` field is a short, non-sensitive description; the
     /// original `io::Error` is logged via `tracing::error!` but
     /// never serialized to the UI.
-    #[error("io error during {op}: {source}")]
+    #[error("io error during {op}: {reason}")]
     Io {
         /// What was being attempted.
         op: String,
         /// Short description (e.g. "permission denied", "no such file").
-        source: String,
+        reason: String,
     },
 
     /// Provider (LLM) error. Wraps both transport failures and

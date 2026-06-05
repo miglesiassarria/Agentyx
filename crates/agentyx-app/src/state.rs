@@ -23,12 +23,15 @@
 //! For now we hold only the home dir + a `WorkspaceService`, which
 //! is enough to wire up the F02 Tauri commands.
 
+// v0.1 fields are wired but not yet read by any registered command;
+// keep the surface stable and let the next PR add the readers.
+#![allow(dead_code)]
+
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use agentyx_core::AppResult;
 use agentyx_core::workspace::WorkspaceService;
-use anyhow::Context;
+use agentyx_core::AppResult;
 
 use crate::events::EventBus;
 
@@ -60,12 +63,9 @@ impl AppState {
     /// In v0.1 the rest of the state (config, storage, agents,
     /// providers) is left as future work. See the module docs.
     pub fn initialize() -> AppResult<Self> {
-        let agentyx_home = agentyx_home()
-            .context("resolving ~/.agentyx")?
-            .to_path_buf();
+        let agentyx_home = agentyx_home()?.to_path_buf();
 
-        let workspaces =
-            Arc::new(WorkspaceService::new(&agentyx_home).context("loading workspace service")?);
+        let workspaces = Arc::new(WorkspaceService::new(&agentyx_home)?);
 
         Ok(Self {
             agentyx_home,
@@ -89,7 +89,7 @@ fn agentyx_home() -> AppResult<PathBuf> {
     let path = home.join(".agentyx");
     std::fs::create_dir_all(&path).map_err(|e| agentyx_core::AppError::Io {
         op: format!("create_dir_all {}", path.display()),
-        source: e.to_string(),
+        reason: e.to_string(),
     })?;
     Ok(path)
 }

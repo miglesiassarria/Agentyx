@@ -9,7 +9,7 @@
 //! - `providers`   — test provider connection (F05).
 //! - `secrets`     — set/delete/list API key secrets via keychain (F05).
 //! - `permissions` — get/set permission matrix, respond to prompts
-//!                   (F01, F12 in v0.2).
+//!   (F01, F12 in v0.2).
 //!
 //! Conventions (see `../../specs/ipc.md`):
 //! - All commands are `async fn` and return `Result<T, AppError>`.
@@ -20,13 +20,13 @@
 //! - Long-running work is spawned on the Tokio runtime; commands
 //!   that initiate a run return a `RunHandle` immediately.
 
-pub mod session;
-pub mod workspace;
-pub mod config;
 pub mod agents;
+pub mod config;
+pub mod permissions;
 pub mod providers;
 pub mod secrets;
-pub mod permissions;
+pub mod session;
+pub mod workspace;
 
 mod shared;
 pub use shared::*;

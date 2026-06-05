@@ -17,15 +17,13 @@ use crate::AppError;
 pub fn canonicalize(path: &Path) -> Result<PathBuf, AppError> {
     match std::fs::canonicalize(path) {
         Ok(p) => Ok(p),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            Err(AppError::NotFound {
-                kind: "path".into(),
-                id: path.display().to_string(),
-            })
-        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(AppError::NotFound {
+            kind: "path".into(),
+            id: path.display().to_string(),
+        }),
         Err(e) => Err(AppError::Io {
             op: format!("canonicalize({})", path.display()),
-            source: e.to_string(),
+            reason: e.to_string(),
         }),
     }
 }
@@ -118,12 +116,7 @@ pub fn root_whitelist() -> Vec<PathBuf> {
     }
     if cfg!(target_os = "windows") {
         roots.push(PathBuf::from(r"C:\Users"));
-        for r in [
-            r"C:\Projets",
-            r"C:\Code",
-            r"C:\Source",
-            r"C:\Proyectos",
-        ] {
+        for r in [r"C:\Projets", r"C:\Code", r"C:\Source", r"C:\Proyectos"] {
             roots.push(PathBuf::from(r));
         }
     }

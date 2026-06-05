@@ -54,9 +54,6 @@ chrono = { workspace = true }
 # URL
 url = { workspace = true }
 
-# Validation
-validator = { workspace = true }
-
 # Keychain
 keyring = { workspace = true }
 

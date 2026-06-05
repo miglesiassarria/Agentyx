@@ -61,7 +61,10 @@ pub struct ExtraPath {
 /// fields are collected into [`WorkspaceConfig::extra`] (a
 /// flat `BTreeMap`) so user-added `[tool.X]` sections
 /// round-trip cleanly. Per workspace.md §Open questions Q2.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// Note: no `Eq` derive because `toml::Value` only implements
+/// `PartialEq` (TOML floats can be NaN, which breaks `Eq`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceConfig {
     /// Schema version. Must be `1` in v0.1.
@@ -141,10 +144,14 @@ pub enum VenvBackend {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PermissionsConfig {
+    /// Tools allowed without prompting in this workspace.
+    /// Glob-style patterns (e.g. `"read_file"`, `"shell:git *"`).
     #[serde(default)]
     pub allow: Vec<String>,
+    /// Tools explicitly denied in this workspace.
     #[serde(default)]
     pub deny: Vec<String>,
+    /// Tools that always require an interactive approval prompt.
     #[serde(default)]
     pub ask: Vec<String>,
     /// Fine-grained rules applied **within** the extra paths.
@@ -159,6 +166,8 @@ pub struct PermissionsConfig {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExtraPathsPermissionsConfig {
+    /// Glob-style patterns for paths **inside** the extra paths
+    /// that are denied (e.g. `"**/.env"`).
     #[serde(default)]
     pub deny: Vec<String>,
 }

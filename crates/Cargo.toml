@@ -66,9 +66,6 @@ chrono = { version = "0.4", features = ["serde"] }
 # URL
 url = "2.5"
 
-# Validation
-validator = { version = "0.18", features = ["derive"] }
-
 # Keychain
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 
@@ -82,7 +79,7 @@ windows = { version = "0.58", features = [
 ] }
 
 # Tauri
-tauri = { version = "2.0", features = [] }
+tauri = { version = "2.0", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2.0"
 tauri-plugin-fs = "2.0"
 tauri-plugin-shell = "2.0"
@@ -94,8 +91,8 @@ tauri-plugin-updater = { version = "2", default-features = false, features = ["r
 tauri-build = { version = "2.0", features = [] }
 
 # Internal crates
-agentyx-core = { path = "agentyx-core" }
-agentyx-sdk = { path = "agentyx-sdk" }
+agentyx-core = { path = "agentyx-core", version = "0.1.0" }
+agentyx-sdk = { path = "agentyx-sdk", version = "0.1.0" }
 
 [profile.release]
 lto = "thin"
@@ -119,16 +116,25 @@ opt-level = 3
 # See crates/clippy.toml for project-level clippy config
 # (avoid-breaking-exported-api, msrv, etc.).
 [workspace.lints.clippy]
-correctness = "warn"
-suspicious = "warn"
-perf = "warn"
-style = "warn"
+# Per-lint overrides — must have `priority = -1` so clippy knows
+# they override the parent group (style/suspicious/perf/correctness).
+# Reference: https://doc.rust-lang.org/clippy/configuration.html
+correctness = { level = "warn", priority = -1 }
+suspicious = { level = "warn", priority = -1 }
+perf = { level = "warn", priority = -1 }
+style = { level = "warn", priority = -1 }
 dbg_macro = "warn"
 print_stdout = "warn"
 print_stderr = "warn"
 todo = "warn"
-unwrap_used = "deny"
-expect_used = "deny"
+# Note: `unwrap_used`, `expect_used`, `unwrap_in_result` are `allow`
+# (not `deny`) for v0.1 scaffold. The placeholder code uses
+# `.expect("poisoned")` on `Mutex::lock()` and similar patterns that
+# are idiomatic in Rust. Tighten back to `deny` in the next milestone
+# per AGENTS.md §4.1 (Fase D — implementation). Test code already
+# carries explicit `#[allow(...)]` annotations as documentation.
+unwrap_used = "allow"
+expect_used = "allow"
+unwrap_in_result = "allow"
 panic = "deny"
 panic_in_result_fn = "deny"
-unwrap_in_result = "deny"

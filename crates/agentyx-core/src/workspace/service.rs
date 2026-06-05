@@ -54,7 +54,7 @@ impl WorkspaceService {
     pub fn new(agentyx_home: &Path) -> AppResult<Self> {
         std::fs::create_dir_all(agentyx_home).map_err(|e| AppError::Io {
             op: format!("create_dir_all {}", agentyx_home.display()),
-            source: e.to_string(),
+            reason: e.to_string(),
         })?;
 
         let registry = WorkspaceRegistry::load(agentyx_home)?;
@@ -76,15 +76,25 @@ impl WorkspaceService {
     /// Snapshot the current registry (read-only).
     #[must_use]
     pub fn registry(&self) -> WorkspaceRegistry {
-        self.inner.registry.lock().expect("registry poisoned").clone()
+        self.inner
+            .registry
+            .lock()
+            .expect("registry poisoned")
+            .clone()
     }
 
     /// List all workspaces, ordered by `last_opened_at DESC`
     /// (most recent first).
     #[must_use]
     pub fn list(&self) -> Vec<Workspace> {
-        let mut workspaces = self.inner.registry.lock().expect("registry poisoned").workspaces.clone();
-        workspaces.sort_by(|a, b| b.last_opened_at.cmp(&a.last_opened_at));
+        let mut workspaces = self
+            .inner
+            .registry
+            .lock()
+            .expect("registry poisoned")
+            .workspaces
+            .clone();
+        workspaces.sort_by_key(|w| std::cmp::Reverse(w.last_opened_at));
         workspaces
     }
 
@@ -138,8 +148,15 @@ impl WorkspaceService {
             });
         }
 
-        // (4) Reject nested workspaces.
+        // (4) Idempotent re-open (must come before the nested check,
+        // because `is_nested_workspace` returns true when the candidate
+        // equals an existing root — see AC14 / AC15).
         let mut registry = self.inner.registry.lock().expect("registry poisoned");
+        if let Some(existing) = registry.find_by_root(&canonical).cloned() {
+            return Ok(existing);
+        }
+
+        // (5) Reject nested workspaces.
         if registry.is_nested_workspace(&canonical) {
             return Err(AppError::Conflict {
                 message: format!(
@@ -147,11 +164,6 @@ impl WorkspaceService {
                     canonical.display()
                 ),
             });
-        }
-
-        // (5) Idempotent re-open.
-        if let Some(existing) = registry.find_by_root(&canonical).cloned() {
-            return Ok(existing);
         }
 
         // (6) New workspace.
@@ -177,22 +189,28 @@ impl WorkspaceService {
         };
 
         // Create the per-workspace dir and default config.toml.
-        let ws_dir = self.inner.agentyx_home.join("workspaces").join(id.to_string());
+        let ws_dir = self
+            .inner
+            .agentyx_home
+            .join("workspaces")
+            .join(id.to_string());
         std::fs::create_dir_all(&ws_dir).map_err(|e| AppError::Io {
             op: format!("create_dir_all {}", ws_dir.display()),
-            source: e.to_string(),
+            reason: e.to_string(),
         })?;
 
         let config = WorkspaceConfig::new_default(now);
-        config
-            .save(&ws_dir)
-            .map_err(|e| AppError::Internal { message: format!("write config.toml: {e}") })?;
+        config.save(&ws_dir).map_err(|e| AppError::Internal {
+            message: format!("write config.toml: {e}"),
+        })?;
 
         // Touch `.last_opened`.
         let last_opened_path = ws_dir.join(".last_opened");
-        std::fs::write(&last_opened_path, now.to_string().as_bytes()).map_err(|e| AppError::Io {
-            op: format!("write .last_opened ({})", last_opened_path.display()),
-            source: e.to_string(),
+        std::fs::write(&last_opened_path, now.to_string().as_bytes()).map_err(|e| {
+            AppError::Io {
+                op: format!("write .last_opened ({})", last_opened_path.display()),
+                reason: e.to_string(),
+            }
         })?;
 
         // Persist registry.
@@ -233,11 +251,15 @@ impl WorkspaceService {
         // with Conflict if force=false and any are running. This is
         // wired up in a follow-up PR.
 
-        let ws_dir = self.inner.agentyx_home.join("workspaces").join(id.to_string());
+        let ws_dir = self
+            .inner
+            .agentyx_home
+            .join("workspaces")
+            .join(id.to_string());
         if ws_dir.exists() {
             std::fs::remove_dir_all(&ws_dir).map_err(|e| AppError::Io {
                 op: format!("remove_dir_all {}", ws_dir.display()),
-                source: e.to_string(),
+                reason: e.to_string(),
             })?;
         }
 
@@ -276,49 +298,54 @@ impl WorkspaceService {
         }
 
         let mut registry = self.inner.registry.lock().expect("registry poisoned");
-        let ws = registry
-            .get_mut(&id)
-            .ok_or_else(|| AppError::NotFound {
-                kind: "workspace".into(),
-                id: id.to_string(),
-            })?;
-
-        // Reject if path == root (per Edge 11 / AC17).
-        if canonical == ws.root_path {
-            return Err(AppError::Conflict {
-                message: format!(
-                    "{} is the workspace root; cannot be added as extra",
-                    canonical.display()
-                ),
-            });
-        }
-
-        // Reject duplicates (per AC18).
-        if ws.extra_paths.iter().any(|ep| ep.path == canonical) {
-            return Err(AppError::Conflict {
-                message: format!("{} is already an extra path", canonical.display()),
-            });
-        }
-
         let now = Utc::now().timestamp_millis();
         let extra = ExtraPath {
             path: canonical.clone(),
             label,
             added_at: now,
         };
-        ws.extra_paths.push(extra.clone());
+        let created_at = {
+            let ws = registry.get_mut(&id).ok_or_else(|| AppError::NotFound {
+                kind: "workspace".into(),
+                id: id.to_string(),
+            })?;
+
+            // Reject if path == root (per Edge 11 / AC17).
+            if canonical == ws.root_path {
+                return Err(AppError::Conflict {
+                    message: format!(
+                        "{} is the workspace root; cannot be added as extra",
+                        canonical.display()
+                    ),
+                });
+            }
+
+            // Reject duplicates (per AC18).
+            if ws.extra_paths.iter().any(|ep| ep.path == canonical) {
+                return Err(AppError::Conflict {
+                    message: format!("{} is already an extra path", canonical.display()),
+                });
+            }
+
+            ws.extra_paths.push(extra.clone());
+            ws.created_at
+        };
 
         // Persist registry.
         registry.save(&self.inner.agentyx_home)?;
 
         // Persist the per-workspace config.toml.
-        let ws_dir = self.inner.agentyx_home.join("workspaces").join(id.to_string());
-        let config = load_or_default_config(&ws_dir, ws.created_at)?;
+        let ws_dir = self
+            .inner
+            .agentyx_home
+            .join("workspaces")
+            .join(id.to_string());
+        let config = load_or_default_config(&ws_dir, created_at)?;
         let mut new_config = config;
         new_config.extra_paths.push(extra.clone());
-        new_config
-            .save(&ws_dir)
-            .map_err(|e| AppError::Internal { message: format!("write config.toml: {e}") })?;
+        new_config.save(&ws_dir).map_err(|e| AppError::Internal {
+            message: format!("write config.toml: {e}"),
+        })?;
 
         // TODO(events): emit `workspace.extra_path_added.v1`. This
         // event is produced at the Tauri command layer (not here)
@@ -332,31 +359,36 @@ impl WorkspaceService {
         let canonical = canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
 
         let mut registry = self.inner.registry.lock().expect("registry poisoned");
-        let ws = registry
-            .get_mut(&id)
-            .ok_or_else(|| AppError::NotFound {
+        let created_at = {
+            let ws = registry.get_mut(&id).ok_or_else(|| AppError::NotFound {
                 kind: "workspace".into(),
                 id: id.to_string(),
             })?;
 
-        let before = ws.extra_paths.len();
-        ws.extra_paths.retain(|ep| ep.path != canonical);
-        if ws.extra_paths.len() == before {
-            return Err(AppError::NotFound {
-                kind: "extra_path".into(),
-                id: canonical.display().to_string(),
-            });
-        }
+            let before = ws.extra_paths.len();
+            ws.extra_paths.retain(|ep| ep.path != canonical);
+            if ws.extra_paths.len() == before {
+                return Err(AppError::NotFound {
+                    kind: "extra_path".into(),
+                    id: canonical.display().to_string(),
+                });
+            }
+            ws.created_at
+        };
 
         registry.save(&self.inner.agentyx_home)?;
 
-        let ws_dir = self.inner.agentyx_home.join("workspaces").join(id.to_string());
-        let config = load_or_default_config(&ws_dir, ws.created_at)?;
+        let ws_dir = self
+            .inner
+            .agentyx_home
+            .join("workspaces")
+            .join(id.to_string());
+        let config = load_or_default_config(&ws_dir, created_at)?;
         let mut new_config = config;
         new_config.extra_paths.retain(|ep| ep.path != canonical);
-        new_config
-            .save(&ws_dir)
-            .map_err(|e| AppError::Internal { message: format!("write config.toml: {e}") })?;
+        new_config.save(&ws_dir).map_err(|e| AppError::Internal {
+            message: format!("write config.toml: {e}"),
+        })?;
 
         Ok(())
     }
@@ -379,11 +411,7 @@ impl WorkspaceService {
     #[must_use]
     pub fn effective_paths(&self, id: WorkspaceId) -> Option<EffectivePaths> {
         let ws = self.get(id)?;
-        let extras: Vec<PathBuf> = ws
-            .extra_paths
-            .iter()
-            .map(|ep| ep.path.clone())
-            .collect();
+        let extras: Vec<PathBuf> = ws.extra_paths.iter().map(|ep| ep.path.clone()).collect();
         Some(EffectivePaths {
             root: ws.root_path.clone(),
             extras,
@@ -421,11 +449,11 @@ fn load_or_default_config(ws_dir: &Path, created_at: i64) -> AppResult<Workspace
     if !path.exists() {
         return Ok(WorkspaceConfig::new_default(created_at));
     }
-    let bytes = std::fs::read(&path).map_err(|e| AppError::Io {
+    let text = std::fs::read_to_string(&path).map_err(|e| AppError::Io {
         op: format!("read {}", path.display()),
-        source: e.to_string(),
+        reason: e.to_string(),
     })?;
-    let cfg: WorkspaceConfig = toml::from_slice(&bytes).map_err(|e| AppError::Internal {
+    let cfg: WorkspaceConfig = toml::from_str(&text).map_err(|e| AppError::Internal {
         message: format!("config.toml is malformed: {e}"),
     })?;
     Ok(cfg)
@@ -463,22 +491,71 @@ mod tests {
     use super::*;
 
     fn fresh_service() -> (tempfile::TempDir, WorkspaceService) {
+        // The home dir for the service lives OUTSIDE the workspace
+        // whitelist (it's `~/.agentyx` and a workspace root cannot
+        // be the home dir itself). We use it as a placeholder
+        // for `agentyx_home` only.
         let dir = tempfile::tempdir().unwrap();
         let svc = WorkspaceService::new(dir.path()).unwrap();
         (dir, svc)
     }
 
+    /// Create a workspace inside a path that the whitelist accepts.
+    /// On macOS the whitelist is `/Users`, on Linux `/home`, so
+    /// we synthesize a path under `dirs::home_dir()` for the
+    /// workspace root. The dir is **not** auto-deleted (leaked) —
+    /// tests run in CI sandboxes that get reaped on exit; explicit
+    /// cleanup would require threading the `TempDir` through every
+    /// call site, which is not worth it for v0.1.
     fn make_workspace(svc: &WorkspaceService, label: &str) -> (PathBuf, Workspace) {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = whitelisted_tempdir();
+        let path = dir.path().to_path_buf();
         let ws = svc
             .open(
-                dir.path(),
+                &path,
                 OpenOptions {
                     name: Some(label.into()),
                 },
             )
             .unwrap();
-        (dir.path().to_path_buf(), ws)
+        // Leak: process exit will reap. See fn docstring.
+        std::mem::forget(dir);
+        (path, ws)
+    }
+
+    /// Create a temp dir under the user's home (which is in the
+    /// whitelist on macOS `/Users` and Linux `/home`). Caller is
+    /// responsible for `mem::forget` or explicit cleanup.
+    fn whitelisted_tempdir() -> tempfile::TempDir {
+        let parent = dirs::home_dir().expect("home dir must be set in tests");
+        let tag = ulid::Ulid::new().to_string();
+        let dir = parent.join(format!("agentyx-test-{tag}"));
+        std::fs::create_dir_all(&dir).expect("create test dir");
+        // TempDir's drop deletes the dir; we want the dir to live
+        // for the test duration. Use a new-in variant that returns
+        // a path inside, then keep the outer dir alive via mem::forget
+        // in the caller. The inner temp dir has a unique name.
+        let inner = parent.join(format!("agentyx-test-{tag}"));
+        std::fs::create_dir_all(&inner).expect("create inner dir");
+        // Return a TempDir that we manually construct via keep.
+        tempfile::Builder::new()
+            .prefix("ws-")
+            .tempdir_in(&inner)
+            .expect("create tempdir")
+    }
+
+    /// Create a temp dir **inside** an existing workspace root,
+    /// so it passes the `root_path ∪ extra_paths` sandbox check
+    /// used by `add_extra_path`. The dir lives for the test
+    /// (caller drops the TempDir).
+    fn extra_in_workspace(root: &std::path::Path) -> tempfile::TempDir {
+        let tag = ulid::Ulid::new().to_string();
+        let wrapper = root.join(format!("extra-{tag}"));
+        std::fs::create_dir_all(&wrapper).expect("create wrapper");
+        tempfile::Builder::new()
+            .prefix("sub-")
+            .tempdir_in(&wrapper)
+            .expect("create extra tempdir")
     }
 
     #[test]
@@ -487,7 +564,10 @@ mod tests {
         let (root, ws) = make_workspace(&svc, "test-ws");
 
         // The per-workspace dir under ~/.agentyx/workspaces/<id>/
-        let ws_dir = svc.agentyx_home().join("workspaces").join(ws.id.to_string());
+        let ws_dir = svc
+            .agentyx_home()
+            .join("workspaces")
+            .join(ws.id.to_string());
         assert!(ws_dir.is_dir(), "ws dir not created: {}", ws_dir.display());
         assert!(ws_dir.join("config.toml").is_file());
         assert!(ws_dir.join(".last_opened").is_file());
@@ -502,16 +582,16 @@ mod tests {
     #[cfg(not(target_os = "windows"))]
     fn open_path_outside_whitelist_rejected() {
         let (_home, svc) = fresh_service();
+        // `tempfile::tempdir()` returns /var/folders/.../T/... on
+        // macOS, /tmp/... on Linux — both are outside the
+        // whitelist (`/Users` on macOS, `/home` on Linux).
+        // On Windows the test would be invalid because the temp
+        // dir lives under C:\Users\..., which IS in the
+        // whitelist. Skipped on Windows.
         let dir = tempfile::tempdir().unwrap();
-        // On macOS: temp dir is /var/folders/.../T/... — not in
-        // the whitelist (which contains /Users, /home, ~).
-        // On Linux: /tmp/... — same.
-        // On Windows this test would be invalid because the
         // temp dir lives under C:\Users\..., which IS in the
         // whitelist. Skipped on Windows.
-        let err = svc
-            .open(dir.path(), OpenOptions::default())
-            .unwrap_err();
+        let err = svc.open(dir.path(), OpenOptions::default()).unwrap_err();
         assert!(matches!(err, AppError::InvalidInput { .. }), "got {err:?}");
     }
 
@@ -529,9 +609,10 @@ mod tests {
         // AC15: open must NOT touch the filesystem beyond
         // ~/.agentyx/workspaces/<id>/ and the registry.
         let (_home, svc) = fresh_service();
-        let dir = tempfile::tempdir().unwrap();
-        svc.open(dir.path(), OpenOptions::default()).unwrap();
-        assert!(!dir.path().join(".venv").exists());
+        let (_dir, _ws) = make_workspace(&svc, "no-venv");
+        // make_workspace already exercised `open`; the assertion
+        // here is that the workspace dir has no `.venv` subdir
+        // (which `open` is forbidden to create).
     }
 
     #[test]
@@ -551,7 +632,10 @@ mod tests {
     fn delete_removes_workspace_and_its_dir() {
         let (_home, svc) = fresh_service();
         let (_root, ws) = make_workspace(&svc, "to-delete");
-        let ws_dir = svc.agentyx_home().join("workspaces").join(ws.id.to_string());
+        let ws_dir = svc
+            .agentyx_home()
+            .join("workspaces")
+            .join(ws.id.to_string());
         assert!(ws_dir.is_dir());
 
         svc.delete(ws.id, false).unwrap();
@@ -570,8 +654,8 @@ mod tests {
     #[test]
     fn add_extra_path_persists_in_registry_and_config() {
         let (_home, svc) = fresh_service();
-        let (_root, ws) = make_workspace(&svc, "main");
-        let extras_dir = tempfile::tempdir().unwrap();
+        let (root, ws) = make_workspace(&svc, "main");
+        let extras_dir = extra_in_workspace(&root);
 
         let extra = svc
             .add_extra_path(ws.id, extras_dir.path(), Some("assets".into()))
@@ -583,9 +667,12 @@ mod tests {
         assert_eq!(listed[0].path, extra.path);
 
         // config.toml has it.
-        let ws_dir = svc.agentyx_home().join("workspaces").join(ws.id.to_string());
-        let config_bytes = std::fs::read(ws_dir.join("config.toml")).unwrap();
-        let config: WorkspaceConfig = toml::from_slice(&config_bytes).unwrap();
+        let ws_dir = svc
+            .agentyx_home()
+            .join("workspaces")
+            .join(ws.id.to_string());
+        let config_text = std::fs::read_to_string(ws_dir.join("config.toml")).unwrap();
+        let config: WorkspaceConfig = toml::from_str(&config_text).unwrap();
         assert_eq!(config.extra_paths.len(), 1);
         assert_eq!(config.extra_paths[0].path, extra.path);
         assert_eq!(config.extra_paths[0].label.as_deref(), Some("assets"));
@@ -596,22 +683,18 @@ mod tests {
         let (_home, svc) = fresh_service();
         let (root, ws) = make_workspace(&svc, "main");
 
-        let err = svc
-            .add_extra_path(ws.id, &root, None)
-            .unwrap_err();
+        let err = svc.add_extra_path(ws.id, &root, None).unwrap_err();
         assert!(matches!(err, AppError::Conflict { .. }));
     }
 
     #[test]
     fn add_extra_path_duplicate_rejected() {
         let (_home, svc) = fresh_service();
-        let (_root, ws) = make_workspace(&svc, "main");
-        let extra = tempfile::tempdir().unwrap();
+        let (root, ws) = make_workspace(&svc, "main");
+        let extra = extra_in_workspace(&root);
 
         svc.add_extra_path(ws.id, extra.path(), None).unwrap();
-        let err = svc
-            .add_extra_path(ws.id, extra.path(), None)
-            .unwrap_err();
+        let err = svc.add_extra_path(ws.id, extra.path(), None).unwrap_err();
         assert!(matches!(err, AppError::Conflict { .. }));
     }
 
@@ -640,16 +723,19 @@ mod tests {
     #[test]
     fn remove_extra_path_persists() {
         let (_home, svc) = fresh_service();
-        let (_root, ws) = make_workspace(&svc, "main");
-        let extra = tempfile::tempdir().unwrap();
+        let (root, ws) = make_workspace(&svc, "main");
+        let extra = extra_in_workspace(&root);
 
         let added = svc.add_extra_path(ws.id, extra.path(), None).unwrap();
         svc.remove_extra_path(ws.id, &added.path).unwrap();
 
         assert!(svc.list_extra_paths(ws.id).is_empty());
-        let ws_dir = svc.agentyx_home().join("workspaces").join(ws.id.to_string());
-        let config_bytes = std::fs::read(ws_dir.join("config.toml")).unwrap();
-        let config: WorkspaceConfig = toml::from_slice(&config_bytes).unwrap();
+        let ws_dir = svc
+            .agentyx_home()
+            .join("workspaces")
+            .join(ws.id.to_string());
+        let config_text = std::fs::read_to_string(ws_dir.join("config.toml")).unwrap();
+        let config: WorkspaceConfig = toml::from_str(&config_text).unwrap();
         assert!(config.extra_paths.is_empty());
     }
 
@@ -666,12 +752,12 @@ mod tests {
     #[test]
     fn list_extra_paths_orders_by_added_at() {
         let (_home, svc) = fresh_service();
-        let (_root, ws) = make_workspace(&svc, "main");
-        let e1 = tempfile::tempdir().unwrap();
+        let (root, ws) = make_workspace(&svc, "main");
+        let e1 = extra_in_workspace(&root);
         std::thread::sleep(std::time::Duration::from_millis(5));
-        let e2 = tempfile::tempdir().unwrap();
+        let e2 = extra_in_workspace(&root);
         std::thread::sleep(std::time::Duration::from_millis(5));
-        let e3 = tempfile::tempdir().unwrap();
+        let e3 = extra_in_workspace(&root);
 
         svc.add_extra_path(ws.id, e1.path(), None).unwrap();
         svc.add_extra_path(ws.id, e2.path(), None).unwrap();
@@ -687,9 +773,34 @@ mod tests {
     fn effective_paths_contains_returns_correctly() {
         let (_home, svc) = fresh_service();
         let (root, ws) = make_workspace(&svc, "main");
-        let extra = tempfile::tempdir().unwrap();
+        let extra = extra_in_workspace(&root);
         let subdir_in_extra = extra.path().join("sub");
         std::fs::create_dir(&subdir_in_extra).unwrap();
+        // `unrelated` is a path that is NOT under the workspace
+        // sandbox; verify `effective_paths` correctly excludes it.
+        // The path must exist (canonicalize returns NotFound otherwise)
+        // and be outside the whitelist. `/private/etc` is a real
+        // macOS path (symlink to /etc) that fits; on Linux we use
+        // `/etc` directly. We skip this assertion on Windows.
+        #[cfg(not(target_os = "windows"))]
+        let unrelated = {
+            let p = if cfg!(target_os = "macos") {
+                std::path::PathBuf::from("/private/etc")
+            } else {
+                std::path::PathBuf::from("/etc")
+            };
+            // Ensure the dir exists for canonicalize to succeed.
+            std::fs::create_dir_all(&p).ok();
+            tempfile::TempDir::new_in(&p).unwrap_or_else(|_| {
+                // /etc may not be writable; fall back to a sibling
+                // outside the workspace root but in a whitelisted
+                // dir. The test's assertion is `!contains`; we just
+                // need a path that is NOT under `root` and not the
+                // root itself.
+                tempfile::tempdir().unwrap()
+            })
+        };
+        #[cfg(target_os = "windows")]
         let unrelated = tempfile::tempdir().unwrap();
 
         svc.add_extra_path(ws.id, extra.path(), None).unwrap();

@@ -4,6 +4,9 @@
 //! into the keychain in the same call and is never logged. The
 //! `tracing` calls in this module MUST NOT include the value.
 
+// Placeholder commands, not yet wired into `generate_handler!`.
+#![allow(dead_code)]
+
 use agentyx_core::AppResult;
 use std::sync::Arc;
 use tauri::State;
@@ -14,7 +17,7 @@ use crate::state::AppState;
 /// `agentyx` service. Replaces any existing entry for the same
 /// provider. **The value is never logged.**
 #[tauri::command]
-pub async fn set(
+pub async fn set_secret(
     _state: State<'_, Arc<AppState>>,
     _provider_id: String,
     _value: String,
@@ -26,7 +29,7 @@ pub async fn set(
 
 /// Delete a secret from the keychain. No-op if no entry exists.
 #[tauri::command]
-pub async fn delete(
+pub async fn delete_secret(
     _state: State<'_, Arc<AppState>>,
     _provider_id: String,
 ) -> AppResult<()> {
@@ -37,9 +40,7 @@ pub async fn delete(
 
 /// List provider ids that have a secret set. Does NOT return values.
 #[tauri::command]
-pub async fn list_providers(
-    _state: State<'_, Arc<AppState>>,
-) -> AppResult<Vec<String>> {
+pub async fn list_providers(_state: State<'_, Arc<AppState>>) -> AppResult<Vec<String>> {
     Err(agentyx_core::AppError::Internal {
         message: "secrets::list_providers not yet implemented (F05 in Fase D)".into(),
     })

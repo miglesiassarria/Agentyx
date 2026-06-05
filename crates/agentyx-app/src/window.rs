@@ -3,7 +3,7 @@
 //! In v0.1 only the main window exists. v0.2+ may add a separate
 //! settings window (currently a Svelte route within the main webview).
 
-use tauri::{App, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{App, WebviewUrl, WebviewWindowBuilder};
 
 /// Build the main application window and configure its properties
 /// (title, size, decorations, dev URL).

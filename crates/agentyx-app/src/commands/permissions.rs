@@ -1,7 +1,12 @@
 //! `permissions` Tauri commands — F01/F12 permission gate surface.
+//!
+//! See `../../../specs/domains/permissions.md` for the contracts.
 
-use agentyx_core::AppResult;
+// Placeholder commands, not yet wired into `generate_handler!`.
+#![allow(dead_code)]
+
 use agentyx_core::ids::{PermissionRequestId, ToolId, WorkspaceId};
+use agentyx_core::AppResult;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tauri::State;

@@ -12,9 +12,9 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use agentyx_core::AppResult;
 use agentyx_core::ids::WorkspaceId;
 use agentyx_core::workspace::{detect_venv, VenvSpec, Workspace, WorkspaceService};
+use agentyx_core::AppResult;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tauri::{AppHandle, State};
@@ -82,10 +82,7 @@ pub struct EffectivePathsDto {
 // ============================================================
 
 fn workspace_to_dto(w: Workspace) -> WorkspaceDto {
-    let has_venv = detect_venv(&w.root_path, None)
-        .ok()
-        .flatten()
-        .is_some();
+    let has_venv = detect_venv(&w.root_path, None).ok().flatten().is_some();
     WorkspaceDto {
         id: w.id,
         name: w.name,
@@ -235,21 +232,18 @@ pub(crate) async fn effective_paths_impl(
 /// Read the `venv.path` override from the workspace's `config.toml`,
 /// if any. Returns `Ok(None)` if the config doesn't exist or has
 /// no `venv` block.
-fn read_venv_path_override(
-    svc: &WorkspaceService,
-    id: WorkspaceId,
-) -> AppResult<Option<PathBuf>> {
+fn read_venv_path_override(svc: &WorkspaceService, id: WorkspaceId) -> AppResult<Option<PathBuf>> {
     let ws_dir = svc.agentyx_home().join("workspaces").join(id.to_string());
     let path = ws_dir.join("config.toml");
     if !path.is_file() {
         return Ok(None);
     }
-    let bytes = std::fs::read(&path).map_err(|e| agentyx_core::AppError::Io {
+    let text = std::fs::read_to_string(&path).map_err(|e| agentyx_core::AppError::Io {
         op: format!("read {}", path.display()),
-        source: e.to_string(),
+        reason: e.to_string(),
     })?;
     let cfg: agentyx_core::workspace::WorkspaceConfig =
-        toml::from_slice(&bytes).map_err(|e| agentyx_core::AppError::Internal {
+        toml::from_str(&text).map_err(|e| agentyx_core::AppError::Internal {
             message: format!("config.toml is malformed: {e}"),
         })?;
     Ok(cfg
@@ -289,7 +283,7 @@ fn emit_extra_path_removed(bus: &EventBus, app: &AppHandle, ws_id: WorkspaceId, 
 
 /// List all workspaces. Each is converted to a `WorkspaceDto`.
 #[tauri::command]
-pub async fn list(state: State<'_, Arc<AppState>>) -> AppResult<Vec<WorkspaceDto>> {
+pub async fn list_workspaces(state: State<'_, Arc<AppState>>) -> AppResult<Vec<WorkspaceDto>> {
     list_impl(&state.workspaces).await
 }
 
@@ -306,7 +300,7 @@ pub async fn open(
 
 /// Look up a workspace by id.
 #[tauri::command]
-pub async fn get(
+pub async fn get_workspace(
     state: State<'_, Arc<AppState>>,
     workspace_id: WorkspaceId,
 ) -> AppResult<WorkspaceDto> {
@@ -317,7 +311,7 @@ pub async fn get(
 /// `force=true`, aborts any active runs first (deferred to the
 /// agent-loop PR; currently a no-op for the abort).
 #[tauri::command]
-pub async fn delete(
+pub async fn delete_workspace(
     state: State<'_, Arc<AppState>>,
     workspace_id: WorkspaceId,
     force: bool,
@@ -328,7 +322,7 @@ pub async fn delete(
 /// Detect a venv for the workspace. Returns `Ok(None)` if no
 /// venv is found. Cheap (file existence checks only).
 #[tauri::command]
-pub async fn detect_venv(
+pub async fn detect_workspace_venv(
     state: State<'_, Arc<AppState>>,
     workspace_id: WorkspaceId,
 ) -> AppResult<Option<VenvSpec>> {
@@ -405,13 +399,57 @@ mod tests {
         (home, state)
     }
 
+    /// Create a workspace under a path that the workspace-root
+    /// whitelist accepts. On macOS the whitelist is `/Users`; on
+    /// Linux it's `/home`. We synthesize a path inside
+    /// `dirs::home_dir()` and use a fresh `tempfile::TempDir` there.
+    /// The TempDir is returned to the caller; dropping it cleans up.
     fn make_workspace(state: &AppState, label: &str) -> (tempfile::TempDir, Workspace) {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = whitelisted_tempdir();
         let ws = state
             .workspaces
-            .open(dir.path(), OpenOptions { name: Some(label.into()) })
+            .open(
+                dir.path(),
+                OpenOptions {
+                    name: Some(label.into()),
+                },
+            )
             .unwrap();
         (dir, ws)
+    }
+
+    /// Create a `tempfile::TempDir` under a path the workspace
+    /// whitelist accepts (typically `dirs::home_dir()`). The OS
+    /// reaps the dir on process exit; we keep the TempDir alive
+    /// for the duration of the test by leaking the wrapper via
+    /// a leaked `Box` (the test process exits and the OS reaps).
+    fn whitelisted_tempdir() -> tempfile::TempDir {
+        let parent = dirs::home_dir().expect("home dir must be set in tests");
+        let tag = ulid::Ulid::new().to_string();
+        let wrapper = parent.join(format!("agentyx-app-test-{tag}"));
+        std::fs::create_dir_all(&wrapper).expect("create wrapper dir");
+        let inner = tempfile::Builder::new()
+            .prefix("ws-")
+            .tempdir_in(&wrapper)
+            .expect("create tempdir");
+        // Leak the wrapper path so the inner TempDir's parent
+        // doesn't disappear on drop. Process exit reaps it.
+        let _ = Box::leak(Box::new(wrapper));
+        inner
+    }
+
+    /// Create a temp dir **inside** the workspace root, so it
+    /// passes the `root_path ∪ extra_paths` sandbox check used
+    /// by `add_extra_path`. The dir lives for the test; OS
+    /// reaps on process exit.
+    fn extra_in_workspace(workspace_root: &std::path::Path) -> tempfile::TempDir {
+        let tag = ulid::Ulid::new().to_string();
+        let parent = workspace_root.join(format!("extra-{tag}"));
+        std::fs::create_dir_all(&parent).expect("create parent");
+        tempfile::Builder::new()
+            .prefix("sub-")
+            .tempdir_in(&parent)
+            .expect("create extra tempdir")
     }
 
     #[tokio::test]
@@ -425,7 +463,7 @@ mod tests {
     async fn list_impl_returns_workspaces_with_extras() {
         let (_home, state) = fresh_state().await;
         let (root, ws) = make_workspace(&state, "main");
-        let extra = tempfile::tempdir().unwrap();
+        let extra = extra_in_workspace(root.path());
         let _ = state
             .workspaces
             .add_extra_path(ws.id, extra.path(), Some("assets".into()))
@@ -437,10 +475,16 @@ mod tests {
         let dto = &out[0];
         assert_eq!(dto.id, ws.id);
         assert_eq!(dto.name, "main");
-        assert_eq!(dto.root_path, agentyx_core::workspace::canonicalize(root.path()).unwrap());
+        assert_eq!(
+            dto.root_path,
+            agentyx_core::workspace::canonicalize(root.path()).unwrap()
+        );
         assert_eq!(dto.extra_paths.len(), 1);
         assert_eq!(dto.extra_paths[0].label, "assets");
-        assert_eq!(dto.extra_paths[0].path, agentyx_core::workspace::canonicalize(extra.path()).unwrap());
+        assert_eq!(
+            dto.extra_paths[0].path,
+            agentyx_core::workspace::canonicalize(extra.path()).unwrap()
+        );
     }
 
     #[tokio::test]
@@ -457,7 +501,7 @@ mod tests {
         // A workspace with .venv → has_venv is true.
         let (_home, state) = fresh_state().await;
         let (root, _ws) = make_workspace(&state, "main");
-        let venv = root.join(".venv");
+        let venv = root.path().join(".venv");
         let bin = venv.join("bin");
         std::fs::create_dir_all(&bin).unwrap();
         std::fs::write(bin.join("python"), "#!/bin/sh").unwrap();
@@ -469,18 +513,16 @@ mod tests {
     #[tokio::test]
     async fn open_impl_round_trip() {
         let (_home, state) = fresh_state().await;
-        let dir = tempfile::tempdir().unwrap();
-        let out = open_impl(
-            &state.workspaces,
-            dir.path(),
-            Some("myproj".into()),
-        )
-        .await
-        .unwrap();
+        let dir = whitelisted_tempdir();
+        let out = open_impl(&state.workspaces, dir.path(), Some("myproj".into()))
+            .await
+            .unwrap();
         assert_eq!(out.name, "myproj");
 
         // Re-open is idempotent.
-        let out2 = open_impl(&state.workspaces, dir.path(), None).await.unwrap();
+        let out2 = open_impl(&state.workspaces, dir.path(), None)
+            .await
+            .unwrap();
         assert_eq!(out.id, out2.id);
     }
 
@@ -520,7 +562,7 @@ mod tests {
     async fn detect_venv_impl_finds_dotvenv() {
         let (_home, state) = fresh_state().await;
         let (root, ws) = make_workspace(&state, "main");
-        let venv = root.join(".venv");
+        let venv = root.path().join(".venv");
         let bin = venv.join("bin");
         std::fs::create_dir_all(&bin).unwrap();
         std::fs::write(bin.join("python"), "#!/bin/sh").unwrap();
@@ -535,8 +577,8 @@ mod tests {
     #[tokio::test]
     async fn add_extra_path_impl_persists_and_returns_dto() {
         let (_home, state) = fresh_state().await;
-        let (_root, ws) = make_workspace(&state, "main");
-        let extra = tempfile::tempdir().unwrap();
+        let (root, ws) = make_workspace(&state, "main");
+        let extra = extra_in_workspace(root.path());
 
         let dto = add_extra_path_impl(
             &state.workspaces,
@@ -548,10 +590,17 @@ mod tests {
         .unwrap();
 
         assert_eq!(dto.label, "Assets");
-        assert_eq!(dto.id, agentyx_core::workspace::canonicalize(extra.path()).unwrap().to_string_lossy());
+        assert_eq!(
+            dto.id,
+            agentyx_core::workspace::canonicalize(extra.path())
+                .unwrap()
+                .to_string_lossy()
+        );
 
         // Persisted (re-list should show it).
-        let listed = list_extra_paths_impl(&state.workspaces, ws.id).await.unwrap();
+        let listed = list_extra_paths_impl(&state.workspaces, ws.id)
+            .await
+            .unwrap();
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].id, dto.id);
     }
@@ -559,10 +608,10 @@ mod tests {
     #[tokio::test]
     async fn add_extra_path_impl_defaults_label_to_basename() {
         let (_home, state) = fresh_state().await;
-        let (_root, ws) = make_workspace(&state, "main");
-        let extra_dir = tempfile::tempdir().unwrap();
-        // Create a uniquely-named subdir so we can assert the basename.
-        let sub = extra_dir.path().join("my-cool-extras");
+        let (root, ws) = make_workspace(&state, "main");
+        // The subdir is created inside the workspace root so the
+        // `root_path ∪ extra_paths` sandbox accepts it.
+        let sub = root.path().join("my-cool-extras");
         std::fs::create_dir(&sub).unwrap();
 
         let dto = add_extra_path_impl(&state.workspaces, ws.id, &sub, None)
@@ -574,8 +623,8 @@ mod tests {
     #[tokio::test]
     async fn remove_extra_path_impl_persists() {
         let (_home, state) = fresh_state().await;
-        let (_root, ws) = make_workspace(&state, "main");
-        let extra = tempfile::tempdir().unwrap();
+        let (root, ws) = make_workspace(&state, "main");
+        let extra = extra_in_workspace(root.path());
         let dto = add_extra_path_impl(&state.workspaces, ws.id, extra.path(), None)
             .await
             .unwrap();
@@ -584,19 +633,21 @@ mod tests {
             .await
             .unwrap();
 
-        let listed = list_extra_paths_impl(&state.workspaces, ws.id).await.unwrap();
+        let listed = list_extra_paths_impl(&state.workspaces, ws.id)
+            .await
+            .unwrap();
         assert!(listed.is_empty());
     }
 
     #[tokio::test]
     async fn list_extra_paths_impl_orders_by_added_at() {
         let (_home, state) = fresh_state().await;
-        let (_root, ws) = make_workspace(&state, "main");
-        let e1 = tempfile::tempdir().unwrap();
+        let (root, ws) = make_workspace(&state, "main");
+        let e1 = extra_in_workspace(root.path());
         std::thread::sleep(std::time::Duration::from_millis(5));
-        let e2 = tempfile::tempdir().unwrap();
+        let e2 = extra_in_workspace(root.path());
         std::thread::sleep(std::time::Duration::from_millis(5));
-        let e3 = tempfile::tempdir().unwrap();
+        let e3 = extra_in_workspace(root.path());
 
         add_extra_path_impl(&state.workspaces, ws.id, e1.path(), None)
             .await
@@ -608,23 +659,40 @@ mod tests {
             .await
             .unwrap();
 
-        let listed = list_extra_paths_impl(&state.workspaces, ws.id).await.unwrap();
+        let listed = list_extra_paths_impl(&state.workspaces, ws.id)
+            .await
+            .unwrap();
         assert_eq!(listed.len(), 3);
-        assert_eq!(listed[0].id, agentyx_core::workspace::canonicalize(e1.path()).unwrap().to_string_lossy());
-        assert_eq!(listed[2].id, agentyx_core::workspace::canonicalize(e3.path()).unwrap().to_string_lossy());
+        assert_eq!(
+            listed[0].id,
+            agentyx_core::workspace::canonicalize(e1.path())
+                .unwrap()
+                .to_string_lossy()
+        );
+        assert_eq!(
+            listed[2].id,
+            agentyx_core::workspace::canonicalize(e3.path())
+                .unwrap()
+                .to_string_lossy()
+        );
     }
 
     #[tokio::test]
     async fn effective_paths_impl_returns_root_and_extras() {
         let (_home, state) = fresh_state().await;
         let (root, ws) = make_workspace(&state, "main");
-        let extra = tempfile::tempdir().unwrap();
+        let extra = extra_in_workspace(root.path());
         add_extra_path_impl(&state.workspaces, ws.id, extra.path(), None)
             .await
             .unwrap();
 
-        let eff = effective_paths_impl(&state.workspaces, ws.id).await.unwrap();
-        assert_eq!(eff.root, agentyx_core::workspace::canonicalize(root.path()).unwrap());
+        let eff = effective_paths_impl(&state.workspaces, ws.id)
+            .await
+            .unwrap();
+        assert_eq!(
+            eff.root,
+            agentyx_core::workspace::canonicalize(root.path()).unwrap()
+        );
         assert_eq!(eff.extras.len(), 1);
         assert_eq!(
             eff.extras[0],

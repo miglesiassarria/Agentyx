@@ -9,10 +9,14 @@
 //! See `../../specs/ipc.md` §"Eventos streaming" for the event
 //! schema and naming conventions.
 
+// Placeholder methods (`emit_to`) are part of the v0.2 event-routing
+// surface; suppressed here so the v0.1 scaffold builds cleanly.
+#![allow(dead_code)]
+
 use std::sync::Arc;
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 /// Thin wrapper around an `AppHandle` that knows how to publish
 /// events to the main window.
@@ -40,12 +44,7 @@ impl EventBus {
     /// `event` is the event name (e.g. `"chat.content.delta.v1"`)
     /// and `payload` is the serializable body. The event is delivered
     /// asynchronously via Tauri's event loop.
-    pub fn emit<T: Serialize + Clone>(
-        &self,
-        app: &AppHandle,
-        event: &str,
-        payload: T,
-    ) {
+    pub fn emit<T: Serialize + Clone>(&self, app: &AppHandle, event: &str, payload: T) {
         if let Err(e) = app.emit(event, payload) {
             tracing::warn!(event = event, error = %e, "failed to emit event");
         }
