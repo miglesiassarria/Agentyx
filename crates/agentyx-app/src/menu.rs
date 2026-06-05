@@ -21,6 +21,7 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     // Windows/Linux we still build it so the menu builder does
     // not need platform-specific branches, but we suppress the
     // unused-variable lint for those targets.
+    #[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
     let about_item = MenuItemBuilder::with_id("about", "About Agentyx").build(app)?;
     let quit_item = MenuItemBuilder::with_id("quit", "Quit")
         .accelerator("CmdOrCtrl+Q")
