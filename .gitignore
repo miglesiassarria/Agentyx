@@ -31,7 +31,6 @@ crates/**/*.lib
 # Node / Bun / pnpm
 node_modules/
 .pnpm-store/
-bun.lockb
 .pnp.*
 .yarn/cache
 .yarn/build-state.yml
