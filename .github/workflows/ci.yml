@@ -63,7 +63,7 @@ jobs:
     # need extra Tauri runtime setup (codesign, MSVC, etc.) that we
     # don't have to defend yet. Re-enable the full matrix when we have
     # a real release artifact to validate across OSes.
-    # Refs: AGENTS.md §3 (desktop shell targets).
+    # See AGENTS.md section 3 (desktop shell targets).
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
