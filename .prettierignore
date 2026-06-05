@@ -1,0 +1,9 @@
+node_modules
+dist
+build
+target
+.bun
+.svelte-kit
+.vite
+coverage
+*.lockb

@@ -1,0 +1,23 @@
+* text=auto eol=lf
+
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.webp  binary
+*.ico   binary
+*.icns  binary
+*.pdf   binary
+*.wasm  binary
+
+*.rs    text linguist-language=Rust
+*.ts    text linguist-language=TypeScript
+*.svelte text linguist-language=Svelte
+*.toml  text linguist-language=TOML
+*.sh    text linguist-language=Shell eol=lf
+
+AGENTS.md          merge=union
+specs/STATUS.md    merge=union
+specs/ROADMAP.md   merge=union
+package-lock.json  -diff
+bun.lockb          binary

@@ -1,1 +1,83 @@
+# OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.fuse_hidden*
+
+# Editors
+.idea/
+.vscode/
+*.iml
+*.sublime-project
+*.sublime-workspace
+
+# Reference (cloned for local study; see AGENTS.md §16)
 opencode-dev/
+
+# Rust
+crates/**/target/
+crates/**/Cargo.lock.bak
+crates/**/*.rs.bk
+crates/**/*.pdb
+crates/**/*.dwp
+crates/**/*.so
+crates/**/*.dylib
+crates/**/*.dll
+crates/**/*.exp
+crates/**/*.lib
+
+# Node / Bun / pnpm
+node_modules/
+.pnpm-store/
+bun.lockb
+.pnp.*
+.yarn/cache
+.yarn/build-state.yml
+.yarn/install-state.gz
+.pnp.js
+
+# Vite / Svelte / TypeScript
+ui/dist/
+ui/build/
+ui/.svelte-kit/
+ui/.vite/
+ui/coverage/
+ui/.tsbuildinfo
+*.tsbuildinfo
+
+# Tauri
+crates/agentyx-app/target/
+crates/agentyx-app/gen/
+crates/agentyx-app/WixTools/
+
+# Secrets (defense in depth — secrets should NEVER be on disk in plaintext;
+# this is a safety net for accidental commits)
+*.pem
+*.key
+*.p12
+.env
+.env.local
+.env.*.local
+
+# Local config that shouldn't be committed
+*.local.toml
+**/.agentyx/state.db
+**/.agentyx/state.db-journal
+**/.agentyx/state.db-wal
+**/.agentyx/state.db-shm
+
+# Test outputs
+coverage/
+*.lcov
+junit.xml
+test-results/
+playwright-report/
+.playwright/
+lighthouse-*.json
+
+# OS temp
+tmp/
+temp/
+*.tmp

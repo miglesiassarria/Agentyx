@@ -1,0 +1,42 @@
+{
+  "name": "agentyx",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Agentyx — desktop app, fast, lightweight, agentic. Tauri 2 + Svelte 5.",
+  "type": "module",
+  "engines": {
+    "node": ">=20.10.0"
+  },
+  "packageManager": "bun@1.1.0",
+  "workspaces": [
+    "ui"
+  ],
+  "scripts": {
+    "dev": "bun run scripts/dev.ts",
+    "dev:core": "cargo watch -w crates -x 'run --bin agentyx-app'",
+    "dev:ui": "cd ui && bun run dev",
+    "build": "bun run scripts/build.ts",
+    "build:debug": "bun run scripts/build.ts --debug",
+    "fmt": "bun run scripts/fmt.ts",
+    "fmt:check": "bun run scripts/fmt.ts --check",
+    "lint": "bun run scripts/lint.ts",
+    "lint:fix": "bun run scripts/lint.ts --fix",
+    "test": "bun run scripts/test.ts",
+    "test:rust": "cargo test --workspace",
+    "test:ui": "cd ui && bun run test",
+    "typecheck": "bun run scripts/typecheck.ts",
+    "audit": "cargo deny check",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "release": "bun run scripts/release.ts",
+    "clean": "bun run scripts/clean.ts"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0",
+    "prettier": "^3.3.0",
+    "prettier-plugin-svelte": "^3.2.0",
+    "svelte": "^5.0.0",
+    "typescript": "^5.5.0"
+  }
+}

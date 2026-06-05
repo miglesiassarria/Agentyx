@@ -1,0 +1,12 @@
+[install]
+exact = false
+frozenLockfile = false
+
+[install.scopes]
+"@tauri-apps" = { version = "^2.0.0" }
+
+[test]
+preload = []
+
+[run]
+shell = "system"
