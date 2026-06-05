@@ -1,13 +1,38 @@
 # cargo-audit config for Agentyx.
 #
-# We treat `unmaintained` and `unsound` warnings as informational
-# only (they do not fail CI) because the RustSec DB still lists
-# several transitive deps from the Tauri/wry stack that are not
-# critical for v0.1 and will be cleaned up as upstream ships
-# fixes. See specs/security.md §9 for the policy.
+# We ignore several transitive Tauri/wry advisories that are not
+# critical for v0.1: the gtk-rs GTK3 bindings are deprecated (the
+# Tauri 2 GTK4 stack is in progress upstream), proc-macro-error
+# is a deprecated Tauri macro shim, and the unic-* crates are
+# pulled in by idna adapters we do not use directly. Re-evaluate
+# this list when bumping Tauri/wry; see specs/security.md §9.
 #
 # Refs: specs/security.md#advisories-policy
 
 [advisories]
-informational_warnings = ["unmaintained", "unsound"]
-ignore = []
+ignore = [
+  # gtk-rs GTK3 bindings (transitive via Tauri/wry on Linux)
+  "RUSTSEC-2024-0413", # atk
+  "RUSTSEC-2024-0416", # atk-sys
+  "RUSTSEC-2024-0412", # gdk
+  "RUSTSEC-2024-0418", # gdk-sys
+  "RUSTSEC-2024-0411", # gdkwayland-sys
+  "RUSTSEC-2024-0417", # gdkx11
+  "RUSTSEC-2024-0414", # gdkx11-sys
+  "RUSTSEC-2024-0415", # gtk
+  "RUSTSEC-2024-0420", # gtk-sys
+  "RUSTSEC-2024-0419", # gtk3-macros
+  # Tauri/wry macro shim
+  "RUSTSEC-2024-0370", # proc-macro-error
+  # Tauri/wry on Linux serial port handling
+  "RUSTSEC-2017-0008", # serial
+  # Tauri/wry idna adapters (we don't use these crates directly)
+  "RUSTSEC-2025-0081", # unic-char-property
+  "RUSTSEC-2025-0075", # unic-char-range
+  "RUSTSEC-2025-0080", # unic-common
+  "RUSTSEC-2025-0100", # unic-ucd-ident
+  "RUSTSEC-2025-0098", # unic-ucd-version
+  # glib unsoundness in VariantStrIter (transitive, not on our
+  # critical path; reassess when Tauri 2 ships GTK4).
+  "RUSTSEC-2024-0429",
+]

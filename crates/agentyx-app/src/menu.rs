@@ -17,6 +17,10 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     let settings_item = MenuItemBuilder::with_id("settings", "Settings…")
         .accelerator("CmdOrCtrl+,")
         .build(app)?;
+    // `about_item` is only used inside the macOS app submenu; on
+    // Windows/Linux we still build it so the menu builder does
+    // not need platform-specific branches, but we suppress the
+    // unused-variable lint for those targets.
     let about_item = MenuItemBuilder::with_id("about", "About Agentyx").build(app)?;
     let quit_item = MenuItemBuilder::with_id("quit", "Quit")
         .accelerator("CmdOrCtrl+Q")
@@ -32,6 +36,7 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     let view_submenu = SubmenuBuilder::new(app, "View").build()?;
     let window_submenu = SubmenuBuilder::new(app, "Window").build()?;
 
+    #[cfg_attr(not(target_os = "macos"), allow(unused_mut, unused_variables))]
     let mut menu_builder = MenuBuilder::new(app);
 
     #[cfg(target_os = "macos")]
