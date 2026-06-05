@@ -52,10 +52,23 @@
 2. **Lógica de negocio en Rust** — la UI es solo presentación.
 3. **IPC tipado y explícito** — nada de strings mágicas en eventos.
 4. **Streaming por defecto** — LLM, PTY y logs streamean eventos al frontend.
-5. **Sandbox por workspace** — cada workspace es una jaula lógica: su `.venv`, su config, su historial.
+5. **Sandbox por workspace** — cada workspace es una jaula lógica: su
+   config, su historial, sus permisos, sus `extra_paths`. El sandbox
+   de paths es `root_path ∪ extra_paths` del workspace, **no** solo
+   el `root_path` (ver ADR-0007).
 6. **Reversible y reproducible** — toda acción del agente queda en un journal append-only.
 7. **Fail loudly, fail early** — errores con contexto suficiente, no silenciar nunca.
 8. **DRY/KISS/SOLID** — sin abstracciones especulativas; separar cuando aporte.
+9. **Multi-agent desde el inicio** — la arquitectura de agentes
+   modela `Primary | Subagent | Hidden` desde v1 (ver
+   [`specs/agents.md`](specs/agents.md)). Aunque v1 solo traiga
+   1–2 primary y 1 subagent built-in, no debe haber una ruta de
+   código que asuma "un único agente por sesión". Esto evita
+   refactors cuando se añadan agentes custom en v1.x.
+10. **Local-first** — ningún archivo del workspace sale del
+    dispositivo. El único tráfico de red saliente son las llamadas
+    a los providers LLM que el usuario haya configurado
+    explícitamente.
 
 ---
 
@@ -79,16 +92,21 @@ agentyx/
 │   ├── clippy.toml
 │   ├── deny.toml                   # cargo-deny: licencias + advisories
 │   │
-│   ├── agentyx-core/               # librería pura: dominio, sin Tauri
-│   │   ├── Cargo.toml
-│   │   └── src/
-│   │       ├── lib.rs
-│   │       ├── agent/              # loop, tools, prompts
-│   │       │   ├── mod.rs
-│   │       │   ├── loop.rs
-│   │       │   ├── tool.rs
-│   │       │   └── prompt.rs
-│   │       ├── llm/                # providers (openai, anthropic, ollama, ...)
+    │   ├── agentyx-core/               # librería pura: dominio, sin Tauri
+    │   │   ├── Cargo.toml
+    │   │   └── src/
+    │   │       ├── lib.rs
+    │   │       ├── agent/              # loop, tools, prompts
+    │   │       │   ├── mod.rs
+    │   │       │   ├── loop.rs
+    │   │       │   ├── tool.rs
+    │   │       │   └── prompt.rs
+    │   │       ├── agents/             # AgentSpec, registry, prompts
+    │   │       │   ├── mod.rs
+    │   │       │   ├── spec.rs         # struct + enums
+    │   │       │   ├── registry.rs     # carga built-in + custom
+    │   │       │   └── prompt.rs       # prompts embebidos
+    │   │       ├── llm/                # providers (ollama, groq, minimax)
 │   │       │   ├── mod.rs
 │   │       │   ├── provider.rs     # trait Provider
 │   │       │   ├── openai.rs
@@ -265,7 +283,13 @@ agentyx/
 
 ## 6. Estructura del agente (loop agentic)
 
-El agente sigue el patrón **ReAct con tools y journal**, similar a opencode pero simplificado:
+El agente sigue el patrón **ReAct con tools y journal**, similar a opencode pero simplificado. La arquitectura de agentes es **multi-agent desde el inicio** (ver [`specs/agents.md`](specs/agents.md)):
+
+- v1 incluye **2 primary agents** (`build` con todas las tools, `plan` read-only) y **1 subagent** (`general`) built-in. El usuario puede cycle entre los primary con la tecla `Tab` (UX借鉴 opencode).
+- Los **subagents** son invocados por un primary vía tool `task` o manualmente con `@<agent-id>` en un mensaje. Cada subagent corre en su propia child session, con su propio journal.
+- Los **hidden agents** (`compaction`, `title`, `summary`) están reservados en v1 para no tener que refactorear cuando se implementen en v1.x.
+
+El loop concreto:
 
 ```
 user message
@@ -316,20 +340,38 @@ user message
 
 ---
 
-## 7. Workspaces y .venv
+## 7. Workspaces, extra paths y .venv
 
 ### 7.1 Workspace
-- Un workspace = una carpeta elegida por el usuario.
+- Un workspace = un proyecto del usuario. Tiene:
+  - **`root_path`**: carpeta principal, donde el agente trabaja por defecto.
+  - **0..N `extra_paths`**: directorios adicionales con R/W que el
+    usuario autoriza explícitamente. Ver
+    [ADR-0007](specs/adr/0007-extra-paths-per-workspace.md).
 - Estado por workspace en `~/.agentyx/workspaces/<id>/`:
-  - `config.toml` — config del workspace (provider, modelo, .venv path, ignore patterns).
-  - `state.db` — SQLite local del workspace (sesiones, mensajes, índice).
+  - `config.toml` — config del workspace (provider, modelo, venv path,
+    ignore patterns, `[[extra_paths]]`).
+  - `state.db` — SQLite local del workspace (sesiones, mensajes, índice,
+    `extra_paths_json`).
   - `journal.jsonl` — log append-only (alternativa a DB).
 - Cache e índices en `~/.agentyx/cache/<workspace-hash>/`.
+- **Sandbox de paths**: `root_path ∪ extra_paths`. El path traversal
+  contra el `root` se mantiene; además, todo path fuera de
+  `root ∪ extras` retorna `path_outside_workspace`.
 
-### 7.2 Python y .venv
-- Detección: buscar `.venv/`, `venv/`, `.python-version` (pyenv), `pyproject.toml` (uv/poetry/pdm).
-- Si el usuario no tiene `.venv` y la tool `python_run` se invoca, **no crear automáticamente** salvo acción explícita ("crear .venv aquí").
-- Activación: ejecutar el binario directamente (`.venv/bin/python` o `.venv\Scripts\python.exe`). No usar `source activate` (no es multiplataforma).
+### 7.2 Python y .venv (opt-in en v1)
+- **El `.venv` NO es obligatorio**. Un workspace sin venv es
+  perfectamente válido y no se crea nada al abrir.
+- Detección (pasiva): buscar `.venv/`, `venv/`, `.python-version` (pyenv), `pyproject.toml` (uv/poetry/pdm).
+  Si existe, se muestra como info en la UI; si no, no se muestra nada
+  (no hay CTA "Crear venv aquí" en F02; eso se difiere a F03 en v0.1.x).
+- Si la tool `python_run` se invoca con `venv: "auto"` y el workspace
+  no tiene venv, retorna `invalid_input` con mensaje claro
+  sugiriendo `workspace_create_venv` o usar `venv: "system"`. **No**
+  auto-crea.
+- Activación: ejecutar el binario directamente (`.venv/bin/python` o
+  `.venv\Scripts\python.exe`). No usar `source activate` (no es
+  multiplataforma).
 - `uv` como backend preferido si está disponible; fallback a `python -m venv`.
 - Respetar `pyproject.toml` si existe (leer `[project] requires-python`).
 
@@ -349,23 +391,31 @@ pub trait Provider: Send + Sync {
 ```
 
 ### 8.2 Soportados (v1)
-- **OpenAI** (API y compatible: Together, Groq, OpenRouter, etc.) — vía base URL configurable.
-- **Anthropic** (Claude).
-- **Ollama** (local, endpoint configurable, default `http://127.0.0.1:11434`).
-- **OpenAI-compatible genérico** (cualquier endpoint que imite la API de OpenAI).
+- **Ollama** (local, NDJSON; endpoint configurable, default
+  `http://127.0.0.1:11434`). **Default**.
+- **Groq** (OpenAI-compatible; rápido y barato).
+- **Minimax** (Anthropic-compatible; bueno para razonamiento;
+  integración estilo opencode "token plan"; API key de
+  `platform.minimax.io`).
+
+> **Ver [ADR-0008](specs/adr/0008-providers-v1-scope.md)** para la
+> justificación de los 3 elegidos. OpenAI nativo, Anthropic nativo,
+> Bedrock, Vertex, Cohere, y un `openai_compat` genérico se difieren
+> a v1.x / v2.
 
 ### 8.3 Config
 - En `~/.agentyx/config.toml`:
   ```toml
-  [providers.openai]
-  api_key = "env:OPENAI_API_KEY"
-  base_url = "https://api.openai.com/v1"
-
   [providers.ollama]
   base_url = "http://127.0.0.1:11434"
 
-  [providers.anthropic]
-  api_key = "env:ANTHROPIC_API_KEY"
+  [providers.groq]
+  api_key = "env:GROQ_API_KEY"
+  base_url = "https://api.groq.com/openai/v1"
+
+  [providers.minimax]
+  api_key = "env:MINIMAX_API_KEY"
+  base_url = "https://api.minimax.io/v1"
 
   default_provider = "ollama"
   default_model = "llama3.1:8b"
@@ -396,7 +446,10 @@ pub trait Provider: Send + Sync {
 - **Mínimo privilegio** — capabilities Tauri ajustadas al mínimo por ventana.
 - **Secrets nunca en disco plano** — keychain del SO (Keychain en macOS, Credential Manager en Windows, Secret Service en Linux via `keyring` crate).
 - **No ejecutar comandos arbitrarios sin permiso explícito del usuario.**
-- **Aislamiento por workspace** — tools restringidas al árbol del workspace salvo allowlist explícito.
+- **Aislamiento por workspace** — tools restringidas al
+  `root_path ∪ extra_paths` del workspace (no solo el root). El
+  path traversal contra el root se mantiene; además, todo path
+  fuera de `root ∪ extras` retorna `path_outside_workspace`.
 - **Sin telemetría por defecto** — opt-in, granular, off by default.
 - **Updates firmados** — `tauri-plugin-updater` con firma criptográfica.
 - **Content Security Policy estricta** — `script-src 'self'`, sin `unsafe-inline` en producción.
@@ -507,7 +560,16 @@ pub trait Provider: Send + Sync {
 
 ## 16. Referencias y convenciones seguidas
 
-- Patrones de proyecto inspirados en **opencode-dev** (estructura monorepo, separación core/app, IPC tipado, journal).
+- Patrones de proyecto inspirados en **opencode-dev** (estructura
+  monorepo, separación core/app, IPC tipado, journal, **modelo
+  multi-agent con primary + subagent + child sessions, ciclo con
+  Tab, integración con providers como Minimax token plan**).
+- opencode es **referencia arquitectónica**, no el público objetivo.
+  Agentyx es **agentic-first** (ver
+  [`specs/project.md`](specs/project.md) §Visión): el usuario
+  quiere delegar tareas complejas sobre sus proyectos, no solo
+  programar. opencode se cita como ejemplo de UX de editor; las
+  decisiones se adaptan a un público más amplio.
 - Patrones de Tauri: docs oficiales de Tauri 2, `tauri-plugin-*` oficiales.
 - Patrones de Svelte 5: runes y stores explícitos.
 - Patrones de Codex: workspace por proyecto, multiple agents, tools, permisos.
@@ -559,7 +621,7 @@ Si un PR viola las reglas 1-4 de §17.1:
 
 ## 18. Gestión de bugs
 
-Todo bug se reporta como **issue en GitHub/GitLab** (nunca solo como conversación) y se cierra siempre vía PR que referencia tanto el issue como la spec afectada.
+Todo bug se reporta como **issue en GitHub** (nunca solo como conversación) y se cierra siempre vía PR que referencia tanto el issue como la spec afectada.
 
 ### 18.1 Categorías
 

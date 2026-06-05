@@ -16,6 +16,8 @@
 | [0004](0004-detect-venv-priority.md) | Orden de detección del entorno virtual de Python | accepted | 2026-06-04 |
 | [0005](0005-pty-portable-pty.md) | PTY con `portable-pty` | accepted | 2026-06-04 |
 | [0006](0006-sqlite-rusqlite.md) | SQLite con `rusqlite` (bundled) en vez de `sqlx` | accepted | 2026-06-04 |
+| [0007](0007-extra-paths-per-workspace.md) | Modelo `root + extra_paths` por workspace | accepted | 2026-06-05 |
+| [0008](0008-providers-v1-scope.md) | Scope de providers LLM en v1 (Ollama / Groq / Minimax) | accepted | 2026-06-05 |
 
 ## Cómo crear un ADR nuevo
 

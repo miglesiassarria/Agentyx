@@ -2,7 +2,7 @@
 
 **Status**: approved
 **Owner**: @miglesias
-**Last update**: 2026-06-04
+**Last update**: 2026-06-05
 
 > Vocabulario canónico del proyecto. Si un término no está aquí, definirlo
 > antes de usarlo en una spec o en código.
@@ -11,17 +11,42 @@
 
 ## A
 
+### Agent
+Una **configuración de agente** ejecutable por el agent loop. Se modela como
+`AgentSpec { id, mode, model, prompt, tools, permissions, description? }`
+donde `mode` es `Primary | Subagent | Hidden`. v1 incluye 2 primary
+(`build`, `plan`) y 1 subagent (`general`) built-in. La arquitectura
+está preparada para añadir agentes custom definidos por el usuario
+(ver [agents.md](./agents.md) y ADR por escribir).
+
 ### Agent loop
 Bucle ReAct (Reason + Act) que ejecuta el agente. Recibe el input del
 usuario, llama al provider LLM, detecta tool calls, ejecuta tools, registra
 en el journal, y repite hasta `finish_reason == "stop"` o `max_steps`.
 Ver [domains/agent-loop.md](./domains/agent-loop.md).
 
+### Agent mode
+Categoría del agente que define cómo se invoca:
+- `primary` — el que el usuario controla directamente (cycle con Tab,
+  el "active agent" de la sesión).
+- `subagent` — invocado por un primary (vía tool `task`) o manualmente
+  por el usuario con `@<agent-id>` en un mensaje.
+- `hidden` — agente de sistema, no seleccionable en UI (p. ej. compaction,
+  title generation). Se invoca automáticamente.
+
 ### Approval mode
 Modo de aprobación para acciones del agente:
 - `always` — ejecuta sin prompt.
 - `ask` — prompt al usuario antes de acciones marcadas como "destructivas".
 - `deny` — bloquea la acción y devuelve error al agente.
+
+### Extra path
+Directorio **fuera del `root_path`** del workspace que el usuario ha
+autorizado explícitamente para que el agente lea y escriba. Cada workspace
+puede tener 0..N `extra_paths`. Por defecto, el agente trabaja en el root;
+un tool call puede tomar `path` apuntando a un extra path si está declarado
+en la config del workspace. Ver [workspace.md](./domains/workspace.md) y
+[ADR-0007](./adr/0007-extra-paths-per-workspace.md).
 
 ---
 
@@ -113,7 +138,11 @@ o archivo rotado (`journal.jsonl`).
 ### LLM Provider
 Servicio externo de inferencia. Implementa el trait `Provider`
 (`agentyx-core/src/llm/provider.rs`) y normaliza su salida a `ChatEvent`.
-Soporte v1: OpenAI, Anthropic, Ollama, OpenAI-compatible genérico.
+Soporte v1: **Ollama** (local, NDJSON), **Groq** (OpenAI-compatible) y
+**Minimax** (Anthropic-compatible). Otros providers (OpenAI nativo,
+Anthropic nativo, Bedrock, Vertex, Cohere) se difieren a v1.x / v2 según
+demanda. Ver [providers.md](./domains/providers.md) y
+[ADR-0008](./adr/0008-providers-v1-scope.md).
 
 ---
 
@@ -213,9 +242,15 @@ un `Message` con `role: "user"`.
 
 ### Venv
 Entorno virtual de Python. Detectado por workspace según orden definido
-en `domains/workspace.md`. **Nunca se crea automáticamente** salvo acción
-explícita del usuario. Activación: ejecutar el binario directamente
-(`.venv/bin/python` o `.venv\Scripts\python.exe`), no `source activate`.
+en `domains/workspace.md` y ADR-0004. **Opt-in en v1**: un workspace
+**no requiere** un `.venv`. La detección es pasiva (si existe `.venv/`
+o `venv/`, se reporta en la UI del workspace como info, pero no es
+bloqueante). Se crea solo si el usuario lo pide explícitamente
+(`workspace_create_venv`) o si la tool `python_run` se invoca sin venv,
+en cuyo caso retorna `invalid_input` con un mensaje claro y la acción
+correctiva; **nunca** se auto-crea. Activación: ejecutar el binario
+directamente (`.venv/bin/python` o `.venv\Scripts\python.exe`),
+no `source activate`.
 
 ### VenvSpec
 Estructura in-memory que describe un venv detectado: `{ kind: Uv|Venv,
@@ -227,6 +262,8 @@ path: PathBuf, python: PathBuf, version: String }`.
 
 ### Workspace
 Carpeta elegida por el usuario que el agente trata como unidad de
-aislamiento. Estado por workspace en
+aislamiento. Un workspace tiene un `root_path` (path principal donde
+el agente trabaja por defecto) y opcionalmente 0..N `extra_paths` con
+acceso R/W explícito. Estado por workspace en
 `~/.agentyx/workspaces/<id>/` con `config.toml`, `state.db`,
-`journal.jsonl`.
+`journal.jsonl`. Ver [workspace.md](./domains/workspace.md).

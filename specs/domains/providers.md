@@ -1,23 +1,26 @@
 # LLM Providers
 
-**Status**: approved
+**Status**: draft
 **Owner**: @miglesias
-**Last update**: 2026-06-04
+**Last update**: 2026-06-05
 **Affects**: — (los providers son consumidos por `agent-loop.md`).
 **Required by**: `agent-loop.md`, `features/F01-chat-streaming`,
 `features/F04-file-diffs` (necesita al menos un provider activo),
-`features/F05-settings` (config de providers).
+`features/F05-settings` (config de providers), `agents.md` (los
+agents consumen un provider/model del registry).
 
-> Trait `Provider` + `ChatEvent` normalizado + 4 implementaciones v1
-> (OpenAI, Anthropic, Ollama, OpenAI-compatible). El frontend y el
-> agent loop solo conocen `ChatEvent`; los shapes específicos de cada
-> provider se quedan dentro de su módulo.
+> Trait `Provider` + `ChatEvent` normalizado + **3 implementaciones
+> v1** (Ollama, Groq, Minimax). El frontend y el agent loop solo
+> conocen `ChatEvent`; los shapes específicos de cada provider se
+> quedan dentro de su módulo. Ver
+> [ADR-0008](../adr/0008-providers-v1-scope.md) para la decisión de
+> scope.
 
 ## Goal
 
-Proveer una **interfaz uniforme** sobre 4 servicios de inferencia
-(OpenAI, Anthropic, Ollama, OpenAI-compatible genérico) que:
-- Streamea via SSE (o NDJSON para Ollama si SSE no está disponible).
+Proveer una **interfaz uniforme** sobre 3 servicios de inferencia
+(Ollama, Groq, Minimax) que:
+- Streamea via SSE (Groq, Minimax) o NDJSON (Ollama).
 - Normaliza el output a un único enum `ChatEvent` consumible por el
   agent loop y el UI.
 - Resuelve API keys desde env vars o keychain (nunca del código).
@@ -32,8 +35,9 @@ Proveer una **interfaz uniforme** sobre 4 servicios de inferencia
 - ❌ Cómputo de costes o rate-limiting. v1: registro de tokens en
   `usage`; rate-limiting es responsabilidad del provider (o del
   network).
-- ❌ Soporte de providers que no sean OpenAI-compatibles o
-  Anthropic-native (Bedrock, Vertex, Cohere, …). v2.
+- ❌ Soporte de providers distintos a Ollama/Groq/Minimax en v1
+  (OpenAI nativo, Anthropic nativo, Bedrock, Vertex, Cohere → v1.x /
+  v2; ver [ADR-0008](../adr/0008-providers-v1-scope.md)).
 - ❌ Fine-tuning, embeddings, image generation, TTS, STT. Fuera de
   scope de v1 (chat es el único caso).
 - ❌ Persistir conversaciones cruzando providers. v1 asume que cada
@@ -44,7 +48,7 @@ Proveer una **interfaz uniforme** sobre 4 servicios de inferencia
 Términos locales:
 
 - **Provider**: implementación de `Provider` trait. Identificado por
-  `ProviderId` (`"openai" | "anthropic" | "ollama" | "openai_compat"`).
+  `ProviderId` (`"ollama" | "groq" | "minimax"`).
 - **Model**: configuración de un modelo concreto, con `ModelId`
   (string) y `ModelCapabilities`.
 - **ChatRequest**: input que el agent loop pasa al provider.
@@ -52,33 +56,34 @@ Términos locales:
 - **Capability**: flag booleano o número que indica qué puede hacer
   un modelo (`tools`, `vision`, `max_output_tokens`, `context_window`).
 - **SSE**: Server-Sent Events. Estándar HTTP para streaming.
-- **NDJSON**: Newline-Delimited JSON. Alternativa usada por Ollama
-  cuando no expone SSE.
+- **NDJSON**: Newline-Delimited JSON. Alternativa usada por Ollama.
+- **Anthropic-compatible**: protocolo con `x-api-key`,
+  `anthropic-version: 2023-06-01`, `POST {base_url}/v1/messages`,
+  stream con eventos tipados (`message_start`, `content_block_start`,
+  `content_block_delta`, `content_block_stop`, `message_delta`,
+  `message_stop`).
+- **OpenAI-compatible**: protocolo con `Authorization: Bearer`,
+  `POST {base_url}/chat/completions`, stream SSE con deltas
+  `{"choices": [{"delta": {"content": "..."}}]}`.
 
 ## State
 
 ### Config (en `~/.agentyx/config.toml`)
 
 ```toml
-[providers.openai]
-api_key = "env:OPENAI_API_KEY"        # o vacío para keychain lookup
-base_url = "https://api.openai.com/v1"
-default_model = "gpt-4o"
-
-[providers.anthropic]
-api_key = "env:ANTHROPIC_API_KEY"
-base_url = "https://api.anthropic.com"
-default_model = "claude-3-5-sonnet-latest"
-
 [providers.ollama]
 base_url = "http://127.0.0.1:11434"
-default_model = "llama3.1:8b"
+default_model = "llama3.1:8b"   # cualquiera que el user tenga
 
-# Cualquier endpoint OpenAI-compatible: Together, Groq, OpenRouter, …
-[providers.openai_compat]
-base_url = "https://api.together.xyz/v1"
-api_key = "env:TOGETHER_API_KEY"
-default_model = "meta-llama/Llama-3-70b-chat-hf"
+[providers.groq]
+api_key = "env:GROQ_API_KEY"
+base_url = "https://api.groq.com/openai/v1"
+default_model = "llama-3.3-70b-versatile"
+
+[providers.minimax]
+api_key = "env:MINIMAX_API_KEY"
+base_url = "https://api.minimax.io/v1"        # o el proxy de opencode
+default_model = "minimax-m2.7"
 
 # Estado activo (se cambia en runtime desde la UI)
 default_provider = "ollama"
@@ -91,6 +96,11 @@ default_model = "llama3.1:8b"
 3. Si ninguna, el provider se considera **deshabilitado** con
    `error: "api_key_missing"`. No se intenta llamar.
 
+> **Ollama no requiere API key** (es local). El provider `ollama`
+> se considera habilitado si responde el `GET /api/tags`. Si la
+> conexión falla (`connection refused`), se marca `enabled: false`
+> con `error: "ollama_unreachable"`.
+
 ## ChatEvent (output normalizado)
 
 ```rust
@@ -98,7 +108,7 @@ pub enum ChatEvent {
     /// Inicio del mensaje. Se emite una vez por turno.
     MessageStart {
         message_id: MessageId,
-        model: String,         // "gpt-4o-2024-08-06" o "llama3.1:8b"
+        model: String,         // "llama3.1:8b" o "minimax-m2.7"
     },
 
     /// Delta de texto (streaming del content).
@@ -140,7 +150,9 @@ pub enum ChatEvent {
 pub struct Usage {
     pub prompt_tokens: u32,
     pub completion_tokens: u32,
-    pub cache_read_tokens: Option<u32>,   // Anthropic prompt caching
+    /// Prompt caching. Soportado por Minimax (Anthropic-compatible).
+    /// `None` para providers que no lo soportan.
+    pub cache_read_tokens: Option<u32>,
     pub cache_write_tokens: Option<u32>,
 }
 
@@ -187,12 +199,12 @@ pub trait Provider: Send + Sync {
 pub struct ChatRequest {
     pub model: String,
     pub messages: Vec<ChatMessage>,
-    pub tools: Vec<ToolSchema>,          // de ToolRegistry
+    pub tools: Vec<ToolSchema>,          // de ToolRegistry (filtrado por agent)
     pub tool_choice: ToolChoice,         // Auto | Any | None | Specific(String)
     pub max_output_tokens: Option<u32>,
     pub temperature: Option<f32>,        // 0.0 - 1.0
     pub stream: bool,                    // siempre true en v1
-    pub metadata: RequestMetadata,       // run_id, session_id, workspace_id
+    pub metadata: RequestMetadata,       // run_id, session_id, workspace_id, agent_id
 }
 
 pub enum ChatMessage {
@@ -205,36 +217,11 @@ pub enum ChatMessage {
 
 ## Implementaciones v1
 
-### OpenAI (API oficial)
-
-- **Endpoint**: `POST {base_url}/chat/completions` con
-  `stream: true`.
-- **Headers**: `Authorization: Bearer {api_key}`.
-- **Tools**: formato OpenAI (`tools: [{ type: "function", function: { name, description, parameters } }]`).
-- **Streaming**: SSE; cada evento es
-  `data: {"choices": [{"delta": {"content": "..."}}]}\n\n`.
-  El último es `data: [DONE]`.
-- **Tool calls en streaming**: vienen en `delta.tool_calls[]` con
-  `index` y campos parciales (se acumulan).
-- **Normalización a `ChatEvent`**: trivial, el shape ya es casi
-  `ChatEvent`.
-
-### Anthropic (Claude)
-
-- **Endpoint**: `POST {base_url}/v1/messages` con `stream: true`.
-- **Headers**: `x-api-key: {api_key}`, `anthropic-version: 2023-06-01`.
-- **Tools**: formato Anthropic (`tools: [{ name, description, input_schema }]`).
-- **Streaming**: SSE con eventos tipados
-  (`message_start`, `content_block_start`, `content_block_delta`,
-  `content_block_stop`, `message_delta`, `message_stop`).
-- **Normalización**: el stream tiene **bloques** (text, tool_use).
-  Vamos acumulando cada bloque hasta `content_block_stop` y entonces
-  emitimos el `ChatEvent` correspondiente. Más complejo que OpenAI.
-
 ### Ollama (local)
 
 - **Endpoint**: `POST {base_url}/api/chat` con `stream: true`.
 - **Headers**: ninguno (local).
+- **Auth**: ninguna.
 - **Tools**: formato OpenAI-style soportado desde Ollama 0.5+;
   versiones más antiguas no lo soportan (se detecta por capabilities).
 - **Streaming**: NDJSON (un JSON por línea), no SSE. Cada línea es
@@ -242,26 +229,76 @@ pub enum ChatMessage {
   La última tiene `"done": true`.
 - **Modelos**: dinámicos via `GET /api/tags`. `list_models` los
   consulta al inicio y cachea con TTL de 5 min.
-- **Normalización**: trivial, NDJSON es fácil de iterar.
+- **Capabilities por modelo**: heurística por nombre
+  (modelos con `-tool` o `-instruct` recientes → `tools: true`;
+  resto → `tools: false`). Si el modelo no se reconoce, default
+  seguro = `tools: false`.
+- **Normalización a `ChatEvent`**: trivial, NDJSON es fácil de iterar.
+- **Caso especial**: si Ollama no está corriendo (`connection
+  refused`), el provider se marca `enabled: false` con
+  `error: "ollama_unreachable"`. La UI muestra "Ollama: not running"
+  en el picker.
 
-### OpenAI-compatible genérico
+### Groq (cloud, OpenAI-compatible)
 
-- Mismo shape que OpenAI. La única diferencia es el `base_url`.
-- Usado para Together, Groq, OpenRouter, LM Studio, etc.
-- La detección de capabilities es por nombre de modelo (hardcoded
-  lookup) o por `default_model` del config.
+- **Endpoint**: `POST {base_url}/chat/completions` con
+  `stream: true`.
+- **Headers**: `Authorization: Bearer {api_key}`.
+- **Auth**: API key resuelta de `env:GROQ_API_KEY` o keychain.
+- **Tools**: formato OpenAI (`tools: [{ type: "function", function:
+  { name, description, parameters } }]`).
+- **Streaming**: SSE; cada evento es
+  `data: {"choices": [{"delta": {"content": "..."}}]}\n\n`.
+  El último es `data: [DONE]`.
+- **Tool calls en streaming**: vienen en `delta.tool_calls[]` con
+  `index` y campos parciales (se acumulan).
+- **Normalización a `ChatEvent`**: trivial, el shape ya es casi
+  `ChatEvent`. Reutiliza el normalizador OpenAI-compatible.
+- **Modelos hardcoded** (lista inicial, se amplía en v1.x vía
+  `config.toml`):
+  - `llama-3.3-70b-versatile` (tools: true, vision: false,
+    context: 128k, output: 32k)
+  - `llama-3.1-8b-instant` (tools: true, vision: false,
+    context: 128k, output: 8k)
+  - `mixtral-8x7b-32768` (tools: true, vision: false,
+    context: 32k, output: 4k)
+
+### Minimax (cloud, Anthropic-compatible)
+
+- **Endpoint**: `POST {base_url}/v1/messages` con `stream: true`.
+- **Headers**: `x-api-key: {api_key}`, `anthropic-version: 2023-06-01`.
+- **Auth**: API key resuelta de `env:MINIMAX_API_KEY` o keychain.
+- **Tools**: formato Anthropic (`tools: [{ name, description,
+  input_schema }]`).
+- **Streaming**: SSE con eventos tipados (`message_start`,
+  `content_block_start`, `content_block_delta`, `content_block_stop`,
+  `message_delta`, `message_stop`).
+- **Normalización**: el stream tiene **bloques** (text, tool_use).
+  Vamos acumulando cada bloque hasta `content_block_stop` y entonces
+  emitimos el `ChatEvent` correspondiente. Más complejo que OpenAI.
+- **Modelos hardcoded** (lista inicial, alineada con la integración
+  "minimax token plan" de opencode):
+  - `minimax-m2.7` (tools: true, vision: false, context: 200k,
+    output: 8k, soporta prompt caching)
+  - `minimax-m2.5` (tools: true, vision: false, context: 200k,
+    output: 8k, soporta prompt caching)
+- **Base URL por defecto**: `https://api.minimax.io/v1`. El usuario
+  puede cambiar a `https://opencode.ai/zen/go/v1/messages` para
+  usar el proxy de opencode.
+- **API key**: se obtiene en `https://platform.minimax.io/login`.
 
 ## Operations (del dominio)
 
 ### `Providers::load(config_path) -> Result<Providers, AppError>`
 
-Carga la config global, instancia los 4 providers y resuelve sus
-API keys. Providers sin key se marcan `enabled: false` (no se
-incluyen en `list_active`).
+Carga la config global, instancia los 3 providers y resuelve sus
+API keys (Ollama no requiere key, solo check de reachability). Los
+providers sin key se marcan `enabled: false` (no se incluyen en
+`list_active`).
 
 ### `Providers::list_active() -> Vec<&'static dyn Provider>`
 
-Devuelve los providers con API key resuelta.
+Devuelve los providers con API key resuelta y Ollama reachable.
 
 ### `Providers::get(id) -> Option<&'static dyn Provider>`
 
@@ -279,7 +316,7 @@ Actualiza `default_provider` y `default_model` en
 | Command | Notas |
 |---|---|
 | `providers_list() -> ProviderInfo[]` | Solo los enabled. |
-| `providers_list_models(provider_id) -> ModelInfo[]` | |
+| `providers_list_models(provider_id) -> ModelInfo[]` | Dinámicos para Ollama; hardcoded para Groq/Minimax. |
 | `providers_get_capabilities(provider_id, model_id) -> ModelCapabilities` | |
 | `providers_set_default(id, model) -> ()` | |
 | `providers_set_api_key(id, env_or_keychain_ref) -> ()` | UI para meter keys. |
@@ -291,7 +328,7 @@ Actualiza `default_provider` y `default_model` en
 `GET  /api/v1/providers/:id/models` → `ModelInfo[]`
 `GET  /api/v1/providers/:id/models/:model/capabilities` → `ModelCapabilities`
 `POST /api/v1/providers/default` (body: `{ id, model }`) → `{}`
-`POST /api/v1/providers/:id/api_key` (body: `{ env: "OPENAI_API_KEY" }` o `{ keychain: true }`) → `{}`
+`POST /api/v1/providers/:id/api_key` (body: `{ env: "GROQ_API_KEY" }` o `{ keychain: true }`) → `{}`
 `POST /api/v1/providers/:id/test` → `TestResult`
 
 ### Eventos
@@ -322,7 +359,7 @@ por el agent loop, que emite `chat.*.v1` (ver
 6. **Ollama no está corriendo** (`connection refused`): el provider
    se marca `enabled: false` con `error: "ollama_unreachable"`. La
    UI muestra "Ollama: not running" en el picker.
-7. **Anthropic prompt caching**: cuando se usa, `cache_read_tokens`
+7. **Minimax prompt caching**: cuando se usa, `cache_read_tokens`
    y `cache_write_tokens` se incluyen en `Usage`. La persistencia
    en `usage` debe aceptar `NULL` para esos campos.
 8. **Ollama con modelo que no soporta tools**: `capabilities(model)`
@@ -331,50 +368,56 @@ por el agent loop, que emite `chat.*.v1` (ver
 9. **Stream paralelo en dos sesiones**: cada `chat()` retorna un
    `Stream` independiente, con su propio connection pool. No
    comparten estado.
-10. **Provider con `base_url` que requiere headers custom** (e.g.
-    OpenRouter requiere `HTTP-Referer`): soportado vía
-    `[providers.openai_compat.headers]` en config (futuro, v1 no lo
-    expone en UI).
+10. **Provider con `base_url` que requiere headers custom**:
+    en v1, no soportado vía UI. Workaround: editar `config.toml` a
+    mano. v1.x expone `[providers.<id>.headers]` en la UI.
 
 ## Acceptance criteria
 
 Cada AC → test con nombre derivado `ac<n>_<short>`.
 
-- [ ] AC1: `load` con config que tiene las 4 secciones carga los 4
-  providers. **Test**: `ac1_load_creates_four_providers`.
-- [ ] AC2: `load` con OpenAI sin `OPENAI_API_KEY` lo marca
+- [ ] AC1: `load` con config que tiene las 3 secciones carga los 3
+  providers. **Test**: `ac1_load_creates_three_providers`.
+- [ ] AC2: `load` con Groq sin `GROQ_API_KEY` lo marca
   `enabled: false` con `error: "api_key_missing"`. **Test**:
   `ac2_missing_key_marks_disabled`.
-- [ ] AC3: `chat` con OpenAI mockeado (servidor fake con SSE)
+- [ ] AC3: `chat` con Ollama mockeado (servidor fake con NDJSON)
   emite `MessageStart → ContentDelta* → MessageEnd` con
   `finish_reason: "stop"`. **Test**:
-  `ac3_openai_stream_normalizes_to_chat_events`.
-- [ ] AC4: `chat` con Anthropic mockeado emite los mismos eventos
-  tras acumular los content blocks. **Test**:
-  `ac4_anthropic_stream_normalizes_blocks`.
-- [ ] AC5: `chat` con Ollama mockeado (NDJSON) emite
-  `MessageStart → ContentDelta* → MessageEnd`. **Test**:
-  `ac5_ollama_ndjson_normalizes_to_chat_events`.
-- [ ] AC6: `chat` con OpenAI-compatible (Together mockeado) emite
-  los mismos eventos que OpenAI. **Test**:
-  `ac6_openai_compat_uses_openai_normalizer`.
-- [ ] AC7: cuando el provider recibe 401, emite
+  `ac3_ollama_ndjson_normalizes_to_chat_events`.
+- [ ] AC4: `chat` con Groq mockeado (servidor fake con SSE OpenAI-style)
+  emite los mismos eventos tras acumular los deltas. **Test**:
+  `ac4_groq_sse_normalizes_to_chat_events`.
+- [ ] AC5: `chat` con Minimax mockeado (SSE Anthropic-style) emite
+  los mismos eventos tras acumular los content blocks. **Test**:
+  `ac5_minimax_stream_normalizes_blocks`.
+- [ ] AC6: cuando Groq recibe 401, emite
   `ChatEvent::Error { code: "auth_failed", retryable: false }` y
-  cierra el stream. **Test**: `ac7_auth_failed_emits_error`.
-- [ ] AC8: cuando el stream se corta, emite
+  cierra el stream. **Test**: `ac6_auth_failed_emits_error`.
+- [ ] AC7: cuando el stream se corta, emite
   `ChatEvent::Error { code: "stream_interrupted", retryable: true }`.
-  **Test**: `ac8_stream_interrupted_emits_error`.
-- [ ] AC9: tool call con `args` streamado en deltas se acumula y
+  **Test**: `ac7_stream_interrupted_emits_error`.
+- [ ] AC8: tool call con `args` streamado en deltas se acumula y
   solo se emite `ChatEvent::ToolUse` con `args` completos. **Test**:
-  `ac9_tool_call_args_accumulated`.
-- [ ] AC10: dos `chat()` concurrentes en providers distintos no
+  `ac8_tool_call_args_accumulated`.
+- [ ] AC9: dos `chat()` concurrentes en providers distintos no
   comparten connections. **Test**:
-  `ac10_concurrent_chats_isolated`.
-- [ ] AC11: `set_default` persiste y `load` posterior lo refleja.
-  **Test**: `ac11_set_default_persists`.
-- [ ] AC12: `test` (ping) retorna `success: true` con el provider
+  `ac9_concurrent_chats_isolated`.
+- [ ] AC10: `set_default` persiste y `load` posterior lo refleja.
+  **Test**: `ac10_set_default_persists`.
+- [ ] AC11: `test` (ping) retorna `success: true` con el provider
   reachable; `success: false` con `error` legible si no. **Test**:
-  `ac12_test_returns_reachable_status`.
+  `ac11_test_returns_reachable_status`.
+- [ ] AC12: Ollama con `connection refused` se marca
+  `enabled: false` con `error: "ollama_unreachable"`. **Test**:
+  `ac12_ollama_unreachable_marks_disabled`.
+- [ ] AC13: Minimax con prompt caching habilitado emite
+  `Usage { cache_read_tokens: Some(N), cache_write_tokens: Some(M) }`
+  en el `MessageEnd`. **Test**:
+  `ac13_minimax_cache_tokens_in_usage`.
+- [ ] AC14: Groq con `tools: []` (modelo sin tools según capabilities)
+  no envía el campo `tools` en el request HTTP. **Test**:
+  `ac14_groq_omits_tools_field_when_disabled`.
 
 ## Discovered bugs (post-approval)
 
@@ -387,11 +430,12 @@ Cada AC → test con nombre derivado `ac<n>_<short>`.
 - **Q1**: ¿Soporte de **image input** (multimodal) en v1? → **Propuesta
   v1**: el `ChatMessage::User` no soporta `content: Vec<ContentBlock>`.
   Se añade en v2 si hay demanda. `capabilities(model).vision = true`
-  ya está en el shape.
-- **Q2**: ¿Prompt caching automático en Anthropic? → **Propuesta
+  ya está en el shape, pero ningún modelo de los 3 v1 lo expone
+  (`vision: false` en todos los hardcoded).
+- **Q2**: ¿Prompt caching automático en Minimax? → **Propuesta
   v1**: lo activamos por defecto si el modelo lo soporta. El
   `usage` ya lo recoge. UI puede mostrar "X tokens cacheados".
-- **Q3**: ¿Function calling de OpenAI vs tools de Anthropic — vale
+- **Q3**: ¿Function calling de Groq vs tools de Minimax — vale
   la pena un wrapper? → **Propuesta v1**: cada provider traduce
   internamente. El agent loop solo conoce `ToolSchema` (un shape
   neutro). v2 quizá un AST compartido.
@@ -399,6 +443,10 @@ Cada AC → test con nombre derivado `ac<n>_<short>`.
   el user añade un modelo custom (e.g. fine-tune)? → **Propuesta
   v1**: solo los que Ollama expone. Custom GGUF en v2 con
   `ollama create`.
+- **Q5**: ¿Reintroducir un `openai_compat` genérico en v1.x para
+  Together/OpenRouter/LM Studio? → Sí, previsto en
+  [ADR-0008](../adr/0008-providers-v1-scope.md). Sin rewrite
+  mayor: el código de normalización es el mismo que usa Groq.
 
 ## References
 
@@ -407,3 +455,7 @@ Cada AC → test con nombre derivado `ac<n>_<short>`.
 - [`tools.md`](./tools.md) — fuente de `ToolSchema`.
 - [`../ipc.md`](../ipc.md) — shape de los Tauri commands.
 - [`../glossary.md`](../glossary.md) — `ChatEvent`, `Provider`, `LLM Provider`.
+- [`../adr/0008-providers-v1-scope.md`](../adr/0008-providers-v1-scope.md) —
+  justificación de los 3 providers.
+- OpenCode como referencia de implementación (Minimax token plan,
+  Groq).

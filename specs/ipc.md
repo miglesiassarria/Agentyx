@@ -84,6 +84,10 @@ pub async fn list_sessions(
 | `server_get_token()` | server | (futuro) |
 | `provider_list()` | providers | `domains/providers.md` |
 | `provider_set_active(id, model)` | providers | `domains/providers.md` |
+| `agents_list()` | agents | `agents.md` |
+| `agents_get(id)` | agents | `agents.md` |
+| `agents_set_active(session_id, agent_id)` | agents | `agents.md` |
+| `agents_invoke_subagent(session_id, subagent_id, prompt)` | agents | `agents.md` |
 | `config_get(key)` | config | `domains/config.md` (futuro) |
 | `config_set(key, value)` | config | (futuro) |
 
@@ -117,6 +121,10 @@ Reglas:
 | `chat.tool_use.v1` | `{ sessionId, toolUseId, name, args }` | tool call del modelo | `domains/agent-loop.md` |
 | `chat.tool_result.v1` | `{ sessionId, toolUseId, output, isError }` | resultado de la tool | `domains/agent-loop.md` |
 | `chat.message_end.v1` | `{ sessionId, usage, finishReason }` | fin de turno | `domains/providers.md` |
+| `agent.changed.v1` | `{ sessionId, fromAgentId, toAgentId }` | active agent cambió | `agents.md` |
+| `subagent.started.v1` | `{ parentRunId, childSessionId, subagentId }` | subagent arrancó | `agents.md` |
+| `subagent.finished.v1` | `{ parentRunId, childSessionId, result }` | subagent terminó | `agents.md` |
+| `subagent.aborted.v1` | `{ parentRunId, childSessionId, reason }` | subagent abortado | `agents.md` |
 | `pty.output.v1` | `{ ptyId, data: string /* base64 */ }` | salida PTY | `domains/pty.md` |
 | `pty.exit.v1` | `{ ptyId, code }` | PTY terminado | `domains/pty.md` |
 | `workspace.file_changed.v1` | `{ workspaceId, path }` | file watcher | (futuro) |
@@ -160,6 +168,10 @@ Mismo shape que los Tauri commands, en JSON sobre HTTP. Versionado en URL:
 | `DELETE` | `/api/v1/pty/:id` | `pty_kill` | `domains/pty.md` |
 | `GET` | `/api/v1/providers` | `provider_list` | `domains/providers.md` |
 | `POST` | `/api/v1/providers/active` | `provider_set_active` | `domains/providers.md` |
+| `GET` | `/api/v1/agents` | `agents_list` | `agents.md` |
+| `GET` | `/api/v1/agents/:id` | `agents_get` | `agents.md` |
+| `POST` | `/api/v1/sessions/:id/active-agent` | `agents_set_active` | `agents.md` |
+| `POST` | `/api/v1/sessions/:id/invoke-subagent` | `agents_invoke_subagent` | `agents.md` |
 | `GET` | `/api/v1/server/info` | `server_get_url` | (futuro) |
 | `POST` | `/api/v1/server/bind` | `server_set_bind` | (futuro) |
 

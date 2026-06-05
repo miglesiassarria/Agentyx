@@ -1,17 +1,20 @@
 # Permissions
 
-**Status**: approved
+**Status**: review
 **Owner**: @miglesias
-**Last update**: 2026-06-04
+**Last update**: 2026-06-05
 **Affects**: — (las permissions son consultadas por `agent-loop.md`
 antes de cada tool call).
 **Required by**: `agent-loop.md`, `tools.md` (cada tool declara qué
 permisos requiere), `features/F01-chat-streaming` (decisión visible
-en la UI).
+en la UI), `agents.md` (`AgentPermissionOverride` del agent se
+mergea con la matriz del workspace).
 
 > Matriz de permisos por workspace + decisión por tool call. Define
 > quién puede hacer qué, con `allow` / `ask` / `deny` y la regla
-> "safe default". Toda decisión se loguea en el `journal` (audit).
+> "safe default". El sandbox de paths es **`root_path ∪ extra_paths`**
+> del workspace (no solo `root`). Toda decisión se loguea en el
+> `journal` (audit).
 
 ## Goal
 
@@ -72,6 +75,13 @@ deny_paths = [
   "**/secrets/**",
 ]
 allow_paths = []                     # si no vacío, **solo** estos paths son escribibles
+
+# Reglas finas aplicadas **dentro** de los extra_paths. Los
+# extra_paths ya son accesibles por estar declarados; esto es para
+# "dentro de este extra, no toques X". Aplica solo a paths que
+# resuelven dentro de algún extra_path.
+[permissions.extra_paths]
+deny = ["**/.git/**", "**/secrets/**"]
 ```
 
 ### Global (en `~/.agentyx/config.toml`)
@@ -100,21 +110,46 @@ Decide si la tool se ejecuta.
 1. **Path traversal** en cualquier arg de tipo `path` → `Deny
    { reason: "path_traversal" }`. Chequeado **antes** de cualquier
    regla, sin excepción.
-2. Tool en `always_deny` global → `Deny { reason: "always_deny" }`.
-3. `approval_mode == "never"` y tool es dangerous → `Deny
+2. **Path fuera de `root_path ∪ extra_paths`** (cualquier path
+   que no resuelva dentro del root ni de ningún extra_path
+   declarado) → `Deny { reason: "path_outside_workspace" }`.
+   Chequeado **antes** de `allow_paths` porque los extra paths
+   ya están "allow" por estar declarados.
+3. Tool en `always_deny` global → `Deny { reason: "always_deny" }`.
+4. `approval_mode == "never"` y tool es dangerous → `Deny
    { reason: "approval_mode_never" }`.
-4. Path del arg en `deny_paths` del workspace → `Deny
+5. Path del arg en `deny_paths` del workspace → `Deny
    { reason: "denied_path" }`.
-5. `allow_paths` no vacío y path NO está en `allow_paths` → `Deny
+6. Path del arg en `extra_paths.deny` (solo si el path está
+   dentro de un extra_path declarado) → `Deny
+   { reason: "denied_path_in_extra" }`.
+7. `allow_paths` no vacío y path NO está en `allow_paths` → `Deny
    { reason: "path_not_in_allow_list" }`.
-6. Tool en `always_allow` global → `Allow { persist: true }`.
-7. Tool en `allow` del workspace → `Allow { persist: true }`.
-8. Tool en `deny` del workspace → `Deny { reason: "denied" }`.
-9. Tool en `ask` del workspace →
-   - `approval_mode == "auto"` → `Allow { persist: false }`.
-   - `approval_mode == "ask"` → `Ask { reason: "user_approval" }`.
-10. Tool desconocida (no en `allow`/`deny`/`ask`) → `Ask
+8. Tool en `always_allow` global → `Allow { persist: true }`.
+9. Tool en `allow` del workspace → `Allow { persist: true }`.
+10. Tool en `deny` del workspace → `Deny { reason: "denied" }`.
+11. Tool en `ask` del workspace →
+    - `approval_mode == "auto"` → `Allow { persist: false }`.
+    - `approval_mode == "ask"` → `Ask { reason: "user_approval" }`.
+12. Tool desconocida (no en `allow`/`deny`/`ask`) → `Ask
     { reason: "unknown_tool" }` (safe default; ver §Edge case 1).
+
+**Merge con `AgentPermissionOverride`** (vía `agents.md`):
+
+Si el agent activo del run tiene un `AgentPermissionOverride`, sus
+reglas se evalúan **después** de las del workspace con la prioridad
+siguiente:
+
+- `agent.deny[i]` → equivalente a añadir a `deny` con peso máximo.
+- `agent.allow[i]` → equivalente a añadir a `allow` (peso alto, pero
+  por debajo de `deny`).
+- `agent.ask[i]` → equivalente a añadir a `ask`.
+
+Si el agent es `mode: primary` con `permissions.deny: ["write_file",
+…]`, ese deny se evalúa **antes** que el `allow` del workspace
+(porque deny gana siempre). Ver
+[`agents.md`](../agents.md) §Algoritmo (regla "último match
+prioritario").
 
 **Output**:
 ```rust
@@ -167,16 +202,37 @@ globales; devuelve la matriz efectiva.
 Escribe `[permissions]` en `config.toml`. **No** toca los overrides
 globales.
 
+### `Permissions::list_effective_paths(workspace_id) -> Vec<PathSpec>`
+
+Devuelve el conjunto efectivo de paths donde el agente puede
+operar, fusionando `root_path` con `extra_paths` del workspace.
+Usado por la UI (sidebar "Extras") y por el system prompt del
+agent.
+
+```rust
+pub struct PathSpec {
+    pub path: PathBuf,
+    pub role: PathRole,            // Root | Extra
+    pub label: Option<String>,
+}
+
+pub enum PathRole { Root, Extra }
+```
+
+**Errores**:
+- `not_found` — workspace no existe.
+
 ## Contracts
 
 ### Tauri commands
 
 | Command | Notas |
 |---|---|
-| `permissions_check(workspace_id, tool, args) -> Decision` | Usado por tests y por el UI para "dry-run". |
+| `permissions_check(workspace_id, tool, args, agent_id?) -> Decision` | Usado por tests y por el UI para "dry-run". `agent_id` opcional para evaluar el override del agent. |
 | `permissions_resolve(request_id, user_decision) -> ()` | |
 | `permissions_get_matrix(workspace_id) -> PermissionMatrix` | |
 | `permissions_set_matrix(workspace_id, matrix) -> ()` | |
+| `permissions_list_effective_paths(workspace_id) -> PathSpec[]` | **Nuevo** (ver `workspace.md` `Workspace::list_extra_paths`). |
 
 ### HTTP endpoints
 
@@ -184,6 +240,7 @@ globales.
 `POST /api/v1/permissions/resolve` → `{}`
 `GET  /api/v1/workspaces/:id/permissions` → `PermissionMatrix`
 `PUT  /api/v1/workspaces/:id/permissions` → `{}`
+`GET  /api/v1/workspaces/:id/effective-paths` → `PathSpec[]`
 
 ### Eventos
 
@@ -230,6 +287,24 @@ globales.
     `permissions_resolve` (que escribe) o al hacer `set_matrix`.
     Reads desde otros procesos no se notan; v2 introduce un file
     watcher (ver `workspace.md` non-goals).
+11. **Path en extra_paths que ya no existe en el filesystem**
+    (usuario lo borró fuera de Agentyx): la canonicalización
+    falla, el path no entra en el set efectivo. `check` lo trata
+    como `path_outside_workspace`. La UI puede mostrar un warning
+    "este extra path ya no existe" en el sidebar.
+12. **Path en `allow_paths` del workspace que NO está en
+    `root ∪ extras`**: se respeta la regla (`allow_paths` no se
+    ensancha implícitamente). El path será denegado por
+    `path_outside_workspace` (paso 2) **antes** de chequear
+    `allow_paths`. Workaround: añadir el path como extra path.
+13. **Plan agent con `permissions.deny: ["write_file", …]`** y
+    tool safe (`read_file`) en el mismo step: la `tool_access`
+    `Allowlist([read_file, search, list_dir])` del agent hace
+    que el loop **no exponga** `write_file` al provider. Si por
+    algún bug se filtrara, el `deny` del agent lo bloquea
+    (defensa en profundidad).
+14. **Mismo path en `deny_paths` y `allow_paths`**: `deny` gana
+    (consistente con tools). Ver §Algoritmo paso 5.
 
 ## Acceptance criteria
 
@@ -274,6 +349,24 @@ Cada AC → test con nombre derivado `ac<n>_<short>`.
 - [ ] AC14: el caller (test) puede verificar que la decisión quedó
   en `journal` con `permission_decision` correcto. **Test**:
   `ac14_decision_logged_in_journal`.
+- [ ] AC15: `check` con un path **dentro de un extra_path declarado**
+  y tool `read_file` retorna `Allow` aunque el path no esté en el
+  `root_path`. **Test**: `ac15_path_in_extra_path_is_allowed`.
+- [ ] AC16: `check` con un path **fuera de `root ∪ extras`** retorna
+  `Deny { reason: "path_outside_workspace" }` aunque la tool esté
+  en `allow` y `allow_paths` esté vacío. **Test**:
+  `ac16_path_outside_root_and_extras_denied`.
+- [ ] AC17: `check` con un path dentro de un extra_path y match
+  contra `permissions.extra_paths.deny` retorna `Deny
+  { reason: "denied_path_in_extra" }`. **Test**:
+  `ac17_extra_paths_deny_overrides_allow`.
+- [ ] AC18: `check` con `agent_id = "plan"` y tool `write_file`
+  retorna `Deny { reason: "denied" }` aunque el workspace no tenga
+  `deny` para esa tool (viene del `AgentPermissionOverride` del
+  agent). **Test**: `ac18_agent_deny_overrides_workspace_allow`.
+- [ ] AC19: `list_effective_paths` devuelve el `root` como `Root`
+  y los extras como `Extra` en orden de `added_at`. **Test**:
+  `ac19_list_effective_paths_orders_by_role_and_added_at`.
 
 ## Discovered bugs (post-approval)
 
@@ -302,5 +395,7 @@ Cada AC → test con nombre derivado `ac<n>_<short>`.
   permission check.
 - [`agent-loop.md`](./agent-loop.md) — el caller.
 - [`tools.md`](./tools.md) — qué tool es dangerous.
-- [`workspace.md`](./workspace.md) — `[permissions]` del config.
+- [`workspace.md`](./workspace.md) — `[permissions]` y `extra_paths` del config.
 - [`../ipc.md`](../ipc.md) — eventos `permission.*.v1`.
+- [`../agents.md`](../agents.md) — `AgentPermissionOverride` se mergea
+  con la matriz del workspace.

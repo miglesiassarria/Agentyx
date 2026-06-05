@@ -15,36 +15,86 @@
 
 ## v0.1 — Foundation (MVP)
 
-> La app debe ser utilizable: abrir un workspace, configurar un
-> provider, chatear, ejecutar tools básicas, gestionar `.venv`,
-> stream LLM en la UI, todo persistido.
+> La app debe ser utilizable: abrir un workspace (con o sin Python,
+> con 0..N directorios extra), configurar un provider, chatear con
+> el agente (con multi-agent desde el día 1: build + plan + general),
+> ejecutar tools básicas, stream LLM en la UI, todo persistido.
 
 | ID | Feature | Status | Affects | Depends on | Phase |
 |---|---|---|---|---|---|
-| [F02](F02-multi-workspace.md) | Multi-workspace: list, open, delete, detectar .venv, crear venv explícito | draft | workspace | — | 1 |
-| F05 | Settings: providers activos, modelos, keychain entry, approval_mode | draft | providers, permissions, config | F02 | 2 |
-| F01 | Chat con streaming LLM (provider agnóstico) | draft | agent-loop, providers, session | F02, F05 | 3 |
-| F03 | Python en .venv del workspace (badge UI, CTA "Crear venv", tool python_run) | draft | workspace, tools, pty | F02 | 4 |
-| F04 | File diffs en UI (CodeMirror merge) tras edit_file / apply_patch | draft | tools, ui | F01, F02 | 5 |
+| [F02](F02-multi-workspace.md) | Multi-workspace: list, open, delete, **extra paths**, badge venv pasivo | review | workspace, tools, permissions | — | 1 |
+| [F05](F05-settings.md) | Settings: providers activos (Ollama/Groq/Minimax), modelos, keychain entry, approval_mode | draft (2026-06-05) | providers, permissions, **config** | F02 | 2 |
+| [F01](F01-chat-streaming.md) | Chat con streaming LLM (provider agnóstico, multi-agent: build/plan) | draft (2026-06-05) | agent-loop, providers, session, **agents**, **journal** | F02, F05 | 3 |
+| [F04](F04-file-diffs.md) | File diffs en UI (CodeMirror merge) tras edit_file / apply_patch — **read-only en v0.1** | draft (2026-06-05) | tools, ui | F01, F02 | 4 |
+| [F-agents-ui](F-agents-ui.md) | UI multi-agent: cycle con Cmd+[/] entre build/plan, @mention popover, SessionTree en sidebar | draft (2026-06-05) | ui, agent-loop, **agents**, session | F01 | 5 |
+
+> **F03 (Python en `.venv`) se difiere a v0.1.x** (ver §v0.1.x más
+> abajo). En v0.1, un workspace sin venv es perfectamente válido y
+> la tool `python_run` retorna `invalid_input` con mensaje claro si
+> se invoca sin venv. La creación de venv se hace en v0.1.x.
+
+### Especs de dominio nuevas en Fase B (2026-06-05)
+
+> Las 6 specs escritas en Fase B (este commit de docs) son
+> prerrequisito de las features de arriba. Aún en `draft`,
+> pendientes de promoción a `review` / `approved`:
+
+- [`domains/journal.md`](../domains/journal.md) — log append-only en
+  SQLite puro (16 ACs). Bloqueante de F01.
+- [`domains/config.md`](../domains/config.md) — TOML global + workspace
+  con `SecretRef` (env / keychain), sin secretos en disco (18 ACs).
+  Bloqueante de F05.
+- [`features/F05-settings.md`](F05-settings.md) — Tabs
+  Providers/Models/Approval/Workspace con `secrets_set` que escribe
+  al keychain del SO (15 ACs).
+- [`features/F01-chat-streaming.md`](F01-chat-streaming.md) — chat
+  con eventos `chat.*.v1`, batching de deltas (50ms), persistencia
+  batch (500ms o por tool_call), permission prompts, abort
+  (15 ACs).
+- [`features/F04-file-diffs.md`](F04-file-diffs.md) — CodeMirror
+  Merge con `DiffPayload` enriquecido en `chat.tool_call.v1`,
+  `DiffsSidePanel`, read-only en v0.1 (12 ACs).
+- [`features/F-agents-ui.md`](F-agents-ui.md) — `AgentChip`,
+  `Cmd+[` / `Cmd+]` para cycle, `@mention` popover, `SessionTree`
+  con child sessions (15 ACs).
 
 ### Acceptance de v0.1
 
 - [ ] Abrir un workspace y ver su árbol de archivos.
-- [ ] Ver el badge "🐍 .venv" si tiene venv; si no, "🐍 No venv" + CTA.
-- [ ] Crear venv explícitamente desde la UI.
+- [ ] Si el workspace tiene venv, ver el badge "🐍 .venv X.Y".
+- [ ] Si el workspace no tiene venv, **no** se muestra badge ni CTA
+  (es válido).
+- [ ] Añadir 1 directorio extra al workspace desde la UI y verlo en
+  la sección "Extras" del sidebar.
+- [ ] El agente puede leer y escribir en el extra path añadido.
+- [ ] Quitar un extra path con confirmación.
 - [ ] Configurar al menos 1 provider (Ollama local) en Settings.
 - [ ] Chatear con streaming visible.
-- [ ] Cuando el modelo pide `read_file`, ver el diff/file en la UI.
-- [ ] Cuando el modelo pide `python_run`, ver el output en la UI.
+- [ ] Cambiar entre primary `build` y `plan` con Tab y ver cómo
+  cambia el system prompt y las tools disponibles.
+- [ ] Cuando el modelo pide `read_file`, ver el archivo en la UI.
 - [ ] Persistir mensajes y journal entre sesiones de la app.
-- [ ] Cerrar y reabrir la app → conversaciones intactas.
+- [ ] Cerrar y reabrir la app → workspaces, sesiones y extra paths
+  intactos.
 
 ---
+
+## v0.1.x — F03 Python opt-in (post-MVP)
+
+> Lo que sale del MVP porque no es bloqueante para el agente
+> agentic genérico (muchos workspaces no necesitan Python), pero
+> que entra rápido en v0.1.x para los que sí.
+
+| ID | Feature | Status | Affects | Depends on | Phase |
+|---|---|---|---|---|---|
+| F03 | Python en `.venv` del workspace (UI de creación con `uv`/`venv`, tool `python_run` mejorada) | draft | workspace, tools, pty | F02 | 1.x.1 |
+| F-extra-paths-tree | Árbol de archivos de un extra path expandible en la UI (con `ignore` patterns) | draft | tools, ui | F02 | 1.x.2 |
+| F-extra-paths-cap | Cap configurable de N extra paths (default 20) | draft | workspace, ui | F02 | 1.x.3 |
 
 ## v0.2 — Productividad
 
 > Sobre el MVP, añadimos capacidades que hacen la app útil en el
-> día a día de un developer.
+> día a día de un usuario.
 
 | ID | Feature | Status | Affects | Depends on | Phase |
 |---|---|---|---|---|---|
@@ -57,7 +107,7 @@
 | F12 | Permisos en UI: prompt "ask" con detalles, remember decision | draft | permissions, ui, agent-loop | F01 | 9 |
 | F13 | Múltiples sesiones concurrentes en el mismo workspace (sidebar de sesiones) | draft | session, ui, agent-loop | F01 | 9 |
 | F14 | Mensaje multimodal: imágenes y archivos adjuntos | draft | providers, ui | F01 | 10 |
-| F15 | Compaction de contexto cuando se acerca al límite del modelo | draft | agent-loop, providers | F01 | 10 |
+| F15 | Compaction de contexto cuando se acerca al límite del modelo (agente `compaction`) | draft | agent-loop, providers, **agents** | F01, F-agents-ui | 10 |
 
 ### Acceptance de v0.2
 
@@ -137,34 +187,47 @@
 - F34: Voice input en el composer (Whisper local).
 - F35: Compartir sesión vía link (read-only).
 - F36: Modo headless / CI: ejecutar el agente sin GUI desde CLI.
-- F37: Sub-agentes: el agente principal puede delegar a sub-agentes
-  con system prompts distintos.
-- F38: Soporte de providers no-OpenAI ni Anthropic (Bedrock, Vertex,
-  Cohere, Mistral native).
-- F39: Auto-summarization de sesiones largas (background).
+- F-extra-agents: Custom agents definidos por el usuario en
+  `~/.agentyx/agents/*.md` (ver [agents.md §Custom agents](../agents.md)).
+- F-extra-providers: Reintroducir `openai_compat` genérico
+  (Together, OpenRouter, LM Studio, Jan) + OpenAI nativo + Anthropic
+  nativo (ver [ADR-0008](../adr/0008-providers-v1-scope.md)).
+- F39: Auto-summarization de sesiones largas (background; agente
+  `summary`, ver [agents.md](../agents.md)).
 - F40: Integración con git: commits automáticos, branches, PRs.
+- F41: Workspace rootless (lista pura de paths, sin `root_path`
+  obligatorio; ver [ADR-0007 §Consequences](../adr/0007-extra-paths-per-workspace.md)).
 
 ---
 
 ## Visualización de dependencias
 
 ```
-v0.1 (Foundation)
-  F02 (workspaces) ────► F05 (settings) ────► F01 (chat) ──┐
-       │                                                    │
-       └─────────────────► F03 (python venv)                │
-                                                             │
-                                          F04 (diffs) ◄────┘
-                                              │
-v0.2 (Productividad)                          │
-  F01 ──► F06 (server LAN)                    │
-              │                                │
-              └──► F16 (browser UI) ──► v0.3   │
+v0.1 (Foundation) — incluyendo dominios nuevos (Fase B 2026-06-05)
+
+  Dominios fundamentales:
+    journal.md ──┐
+                 ├──► F05 (settings) ──► F01 (chat + multi-agent) ──┐
+    config.md ───┘                                  │               │
+                                                   │   F04 (diffs) │
+                                                   │       │       │
+                                                   │       ▼       │
+                                                   │  F-agents-ui ◄┘
+                                                   │
+  v0.1.x                                            │
+    F03 (python venv opt-in)                        │
+    F-extra-paths-tree, F-extra-paths-cap           │
+                                                   │
+v0.2 (Productividad)                               │
+  F01 ──► F06 (server LAN)                          │
+              │                                    │
+              └──► F16 (browser UI) ──► v0.3       │
                                             F04 ──► F11 (apply_patch)
                                             F01 ──► F12 (permisos UI)
-                                                       F13 (multi-session)
-                                                       F14 (multimodal)
-                                                       F15 (compaction)
+                                            F01 ──► F-agents-ui ◄──┐
+                                                        F13 (multi-session)
+                                                        F14 (multimodal)
+                                            F01, F-agents-ui ──► F15 (compaction)
   F02 ──► F07, F08, F10, F13, F18
   F01 ──► F09 (dashboard)
 
@@ -172,6 +235,14 @@ v1.0 (Polish) — independiente de v0.2/v0.3 mayormente.
   F20, F21 (release infra) son bloqueantes para F29.
   F23, F24, F25, F26, F27, F28 son UX/docs, no bloquean entre sí.
 ```
+
+> **Notas del grafo**:
+> - `journal.md` y `config.md` son **dominios fundamentales** del MVP,
+>   no features. Se modelan aparte en [`../STATUS.md`](../STATUS.md).
+> - `F-agents-ui` depende de F01 (no al revés). Se renderiza
+>   encima de los eventos que F01 ya emite.
+> - `F04` (diffs) **read-only en v0.1**: depende de F01 pero no
+>   requiere lógica de "apply/reject" (eso es v0.2 con F12).
 
 ---
 

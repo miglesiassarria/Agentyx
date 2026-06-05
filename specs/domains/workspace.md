@@ -1,24 +1,27 @@
 # Workspace
 
-**Status**: approved
+**Status**: review
 **Owner**: @miglesias
-**Last update**: 2026-06-04
+**Last update**: 2026-06-05
 **Affects**: — (workspace es el contenedor raíz de todo el estado por proyecto).
 **Required by**: `session.md` (FK), `tools.md` (path sandboxing),
 `agent-loop.md` (tool execution context), `features/F02-multi-workspace`
 (spec de feature principal).
 
-> Un workspace = una carpeta elegida por el usuario. Agentyx la trata
-> como unidad de aislamiento: su config, su historial, su `.venv` (si
-> lo tiene), sus permisos. La detección de `.venv` se delega a este
-> dominio (ver [ADR-0004](../adr/0004-detect-venv-priority.md)).
+> Un workspace = un `root_path` elegido por el usuario + 0..N
+> `extra_paths` con R/W. Agentyx lo trata como unidad de aislamiento:
+> su config, su historial, su `.venv` (opcional, ver
+> [ADR-0004](../adr/0004-detect-venv-priority.md)), sus permisos.
+> El `.venv` **no es obligatorio** (ver §Venv abajo).
 
 ## Goal
 
 Definir el **ciclo de vida de un workspace** (registro, apertura,
-configuración, cierre, borrado) y la **detección / creación de su
-`.venv`**, con garantías de seguridad (path traversal bloqueado,
-canonicalización) y portabilidad (Windows, macOS, Linux).
+configuración, cierre, borrado), la gestión de **`root_path` +
+`extra_paths`**, y la **detección / creación opcional de su `.venv`**
+(opt-in en v1), con garantías de seguridad (path traversal bloqueado,
+canonicalización, whitelist de roots) y portabilidad (Windows, macOS,
+Linux).
 
 ## Non-goals
 
@@ -35,9 +38,14 @@ canonicalización) y portabilidad (Windows, macOS, Linux).
 
 Términos locales:
 
-- **Workspace root**: path absoluto canonicalizado del workspace.
-  Fuente de verdad. Todo path que se opere dentro de Agentyx debe
-  resolver dentro de este root.
+- **Root path (`root_path`)**: path absoluto canonicalizado del
+  workspace. Es la ruta "principal" donde el agente trabaja por
+  defecto. Fuente de verdad. Todo path que se opere dentro de Agentyx
+  debe resolver dentro de este root o de un `extra_path`.
+- **Extra path (`extra_path`)**: path absoluto canonicalizado, fuera
+  del root, con acceso R/W explícito. Ver [ADR-0007](../adr/0007-extra-paths-per-workspace.md).
+  Por defecto, el agente trabaja en el root; usa los extras solo
+  cuando el usuario lo pide o cuando es claramente necesario.
 - **VenvSpec**: `{ kind: VenvKind, path: PathBuf, python: PathBuf,
   version: String }` que describe un venv detectado o recién creado.
 - **VenvKind**: `Uv` (gestionado por `uv`) | `Venv` (`python -m venv`).
@@ -66,14 +74,21 @@ Términos locales:
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "workspaces": [
     {
       "id": "01HXXXXX…",
       "root_path": "/Users/…/myproject",
       "name": "myproject",
       "created_at": 1717500000000,
-      "last_opened_at": 1717590000000
+      "last_opened_at": 1717590000000,
+      "extra_paths": [
+        {
+          "path": "/Users/pepe/assets",
+          "label": "Assets compartidos",
+          "added_at": 1717590001000
+        }
+      ]
     }
   ],
   "server": {
@@ -82,6 +97,10 @@ Términos locales:
   }
 }
 ```
+
+> **`version` bump**: el `state.json` pasa de `1` a `2` por la
+> introducción de `extra_paths` por workspace. La migración es trivial
+> (los workspaces existentes tienen `extra_paths: []` por defecto).
 
 ### `config.toml` por workspace
 
@@ -96,7 +115,11 @@ id = "ollama"
 model = "llama3.1:8b"
 
 # Si está presente, Agentyx usa este venv en vez de auto-detectar.
-# Si está ausente, se aplica el orden de ADR-0004.
+# Si está ausente, se aplica el orden de ADR-0004. **Opt-in en v1**:
+# un workspace sin `[venv]` es perfectamente válido; el venv solo
+# se crea si el usuario lo pide explícitamente o si la tool
+# `python_run` se invoca sin venv (en cuyo caso retorna
+# `invalid_input`, no auto-crea).
 [venv]
 path = ""                   # vacío = auto-detect
 backend = "uv"              # default si está `uv` instalado
@@ -119,7 +142,26 @@ ignore = [
 [permissions]
 allow = ["read_file", "search", "list_dir"]
 deny_paths = []
-ask = ["write_file", "edit_file", "shell", "python_run"]
+ask = ["write_file", "edit_file", "shell", "python_run", "apply_patch"]
+
+# Reglas finas aplicadas **dentro** de los extra_paths.
+# Los extra_paths ya son accesibles por estar declarados;
+# esto es para "dentro de este extra, no toques X".
+[permissions.extra_paths]
+deny = ["**/.git/**", "**/secrets/**"]
+
+# Directorios adicionales con R/W. El agente los ve en el system
+# prompt como "rutas autorizadas" y puede usarlas en tool calls.
+# Por defecto todo se genera en `root_path`; usa los extras solo
+# cuando el usuario lo pida o sea claramente necesario.
+# Ver ADR-0007 y `permissions.md` §Algoritmo.
+[[extra_paths]]
+path = "/Users/pepe/assets"
+label = "Assets compartidos"        # opcional, para UI
+
+[[extra_paths]]
+path = "/tmp/agentyx-exports"
+label = "Exports"                    # opcional
 ```
 
 ### Tabla `workspaces` en `state.db`
@@ -132,7 +174,8 @@ CREATE TABLE workspaces (
   root_path       TEXT NOT NULL UNIQUE,
   name            TEXT NULL,
   created_at      INTEGER NOT NULL,
-  last_opened_at  INTEGER NOT NULL
+  last_opened_at  INTEGER NOT NULL,
+  extra_paths_json TEXT NOT NULL DEFAULT '[]'   -- JSON: [{path,label,added_at}]
 );
 ```
 
@@ -257,20 +300,75 @@ Escribe en `config.toml`. Refused keys: `id`, `created_at`
 Lee `config.toml`. Si está ausente, devuelve el default. Si está
 malformado, devuelve `internal` con detalle (ver §Edge case 4).
 
+### `Workspace::add_extra_path(id, path, label?) -> Result<ExtraPathSpec, AppError>`
+
+Añade un `extra_path` al workspace. Persiste en `state.json`,
+en `config.toml` (`[[extra_paths]]`), y en `state.db`
+(`extra_paths_json`).
+
+**Pasos**:
+1. Canonicaliza `path` con `std::fs::canonicalize`.
+2. Verifica que el path existe y es directorio.
+3. Verifica que está dentro de la whitelist de roots permitidos
+   (misma whitelist que `Workspace::open`; ver §Edge case 5 y
+   `workspace::open`).
+4. Verifica que **no** es el `root_path` del workspace (un extra
+   path no puede ser el propio root; si lo fuera, retorna
+   `conflict`).
+5. Verifica que **no** está ya en `extra_paths` (idempotente
+   retornando el existente con `conflict`).
+6. Acepta el path con `mode: "read_write"` (única opción en v1).
+7. Persiste en los 3 sitios (`state.json`, `config.toml`, `state.db`).
+8. Retorna `ExtraPathSpec { path, label, added_at }`.
+9. Emite `workspace.extra_path_added.v1` con `{ workspaceId, path }`.
+
+**Errores**:
+- `not_found` — workspace no existe.
+- `not_found` — el path no existe o no es directorio.
+- `path_traversal` — el path está fuera de la whitelist de roots.
+- `conflict` — el path coincide con el `root_path` o ya está
+  declarado como extra path.
+
+### `Workspace::remove_extra_path(id, path) -> Result<(), AppError>`
+
+Quita un `extra_path` del workspace. Persiste.
+
+**Errores**:
+- `not_found` — workspace no existe, o el path no está en extras.
+- `invalid_input` — `path` no es absoluto o tiene `..`.
+
+### `Workspace::list_extra_paths(id) -> Vec<ExtraPathSpec>`
+
+Devuelve la lista de extra paths del workspace, ordenados por
+`added_at` ascendente.
+
+### `Workspace::effective_paths(id) -> EffectivePaths`
+
+Devuelve el conjunto efectivo de paths donde el agente puede
+operar: `{ root: PathBuf, extras: Vec<PathBuf> }`. Lo consume
+`Permissions::check` (paso 2bis) y el system prompt del agent.
+
+**Errores**:
+- `not_found` — workspace no existe.
+
 ## Contracts
 
 ### Tauri commands
 
 | Command | Notas |
 |---|---|
-| `workspace_list() -> WorkspaceInfo[]` | |
-| `workspace_open(path: string) -> WorkspaceInfo` | |
+| `workspace_list() -> WorkspaceInfo[]` | `WorkspaceInfo` ahora incluye `extra_paths: ExtraPathSpec[]`. |
+| `workspace_open(path: string) -> WorkspaceInfo` | `extra_paths` empieza en `[]`; se añaden después con `workspace_add_extra_path`. |
 | `workspace_get(id) -> WorkspaceInfo` | |
 | `workspace_delete(id, force: bool) -> ()` | |
 | `workspace_detect_venv(id) -> VenvSpec \| null` | |
-| `workspace_create_venv(id, backend: "uv" \| "venv") -> VenvSpec` | |
-| `workspace_get_config(id) -> WorkspaceConfig` | |
+| `workspace_create_venv(id, backend: "uv" \| "venv") -> VenvSpec` | **Opt-in**: no se invoca implícitamente al abrir. |
+| `workspace_get_config(id) -> WorkspaceConfig` | `WorkspaceConfig` incluye `extra_paths: Vec<ExtraPathSpec>`. |
 | `workspace_set_config(id, key, value) -> ()` | |
+| `workspace_add_extra_path(id, path, label?) -> ExtraPathSpec` | **Nuevo**. |
+| `workspace_remove_extra_path(id, path) -> ()` | **Nuevo**. |
+| `workspace_list_extra_paths(id) -> ExtraPathSpec[]` | **Nuevo**. |
+| `workspace_effective_paths(id) -> EffectivePaths` | **Nuevo**. |
 
 ### HTTP endpoints
 
@@ -282,11 +380,19 @@ malformado, devuelve `internal` con detalle (ver §Edge case 4).
 `POST /api/v1/workspaces/:id/venv` (body: `{ backend }`) → `VenvSpec`
 `GET  /api/v1/workspaces/:id/config` → `WorkspaceConfig`
 `PATCH /api/v1/workspaces/:id/config` (body: `{ key, value }`) → `{}`
+`GET  /api/v1/workspaces/:id/extra-paths` → `ExtraPathSpec[]`
+`POST /api/v1/workspaces/:id/extra-paths` (body: `{ path, label? }`) → `ExtraPathSpec`
+`DELETE /api/v1/workspaces/:id/extra-paths` (body: `{ path }`) → `{}`
 
 ### Eventos
 
-Este dominio **no emite eventos** propios. La creación del `.venv`
-queda en el `journal` (consultable, no push).
+| Evento | Cuándo | Payload |
+|---|---|---|
+| `workspace.extra_path_added.v1` | Tras `add_extra_path` exitoso | `{ workspaceId, path, label? }` |
+| `workspace.extra_path_removed.v1` | Tras `remove_extra_path` exitoso | `{ workspaceId, path }` |
+
+Este dominio **no emite** eventos para `detect_venv` / `create_venv`
+(queda en el `journal`, consultable).
 
 ## Edge cases
 
@@ -323,6 +429,28 @@ queda en el `journal` (consultable, no push).
     `.venv` parcial queda en disco. El siguiente `detect_venv` lo
     detecta como "existente pero inválido" (no arranca) y retorna
     `None` con `tracing::error!`.
+11. **`add_extra_path` con un path dentro del `root_path` del
+    workspace**: el path es canónicamente igual o hijo del root.
+    Retorna `conflict` con `reason: "path_is_root"` y un mensaje
+    claro. No añade redundancia.
+12. **`add_extra_path` concurrente del mismo path**: el segundo
+    `add_extra_path` ve el path ya en la lista y retorna `conflict`
+    con `reason: "already_added"`. Idempotente bajo el lock del
+    workspace.
+13. **`remove_extra_path` con un path que tiene runs activos
+    escribiendo**: el path se marca `pending_removal`; la baja
+    efectiva se difiere a que el run termine. Si el run es
+    `force=true`, se aborta antes de quitar el path.
+14. **Workspace con `extra_paths` que el usuario borra del
+    filesystem** fuera de Agentyx: la próxima `effective_paths`
+    retorna el path en la lista pero `Permissions::check` lo
+    trata como `path_not_found` (no error fatal, pero denegado
+    porque la canonicalización falla). El usuario debe reabrir
+    el workspace o usar `remove_extra_path`.
+15. **`open` con un path que está dentro de otro workspace ya
+    existente** (workspace anidado): rechazado con `conflict`
+    con `reason: "nested_workspace"`. Los workspaces no se
+    anidan en v1.
 
 ## Acceptance criteria
 
@@ -365,6 +493,39 @@ Cada AC → test con nombre derivado `ac<n>_<short>`.
 - [ ] AC14: dos `open` concurrentes del mismo path: el segundo no
   duplica, devuelve el existente. **Test**:
   `ac14_concurrent_open_idempotent`.
+- [ ] AC15: `open` **no** llama a `detect_venv` ni a `create_venv`
+  implícitamente. Un workspace sin `.venv` se abre sin error y
+  `detect_venv` debe llamarse explícitamente desde la UI. **Test**:
+  `ac15_open_does_not_trigger_venv`.
+- [ ] AC16: `add_extra_path` con un path fuera de la whitelist de
+  roots permitidos devuelve `path_traversal` y **no** persiste
+  nada. **Test**: `ac16_add_extra_path_outside_whitelist_rejected`.
+- [ ] AC17: `add_extra_path` con el mismo path que el `root_path`
+  del workspace retorna `conflict { reason: "path_is_root" }`. **Test**:
+  `ac17_add_extra_path_equal_to_root_rejected`.
+- [ ] AC18: `add_extra_path` con un path ya en `extra_paths`
+  retorna `conflict { reason: "already_added" }`. **Test**:
+  `ac18_add_extra_path_duplicate_rejected`.
+- [ ] AC19: `add_extra_path` exitoso persiste en `state.json`,
+  `config.toml` y `state.db` (`extra_paths_json`), y un reload
+  posterior los lee correctamente. **Test**:
+  `ac19_add_extra_path_persists_three_places`.
+- [ ] AC20: `remove_extra_path` con un path en `extra_paths`
+  persiste la baja en los 3 sitios y emite
+  `workspace.extra_path_removed.v1`. **Test**:
+  `ac20_remove_extra_path_persists_and_emits`.
+- [ ] AC21: `remove_extra_path` con un path que **no** está en
+  `extra_paths` retorna `not_found`. **Test**:
+  `ac21_remove_extra_path_unknown_returns_not_found`.
+- [ ] AC22: `list_extra_paths` devuelve los paths en orden
+  ascendente por `added_at`. **Test**:
+  `ac22_list_extra_paths_orders_by_added_at`.
+- [ ] AC23: `effective_paths` devuelve `{ root, extras }` con el
+  root correcto y la lista de extras canonicalizados. **Test**:
+  `ac23_effective_paths_returns_root_and_extras`.
+- [ ] AC24: dos `add_extra_path` concurrentes del mismo path: el
+  segundo no duplica, retorna `conflict`. **Test**:
+  `ac24_concurrent_add_extra_path_idempotent`.
 
 ## Discovered bugs (post-approval)
 
@@ -395,8 +556,10 @@ Cada AC → test con nombre derivado `ac<n>_<short>`.
 ## References
 
 - [`../adr/0004-detect-venv-priority.md`](../adr/0004-detect-venv-priority.md) — orden de detección.
+- [`../adr/0007-extra-paths-per-workspace.md`](../adr/0007-extra-paths-per-workspace.md) —
+  modelo `root + extra_paths`.
 - [`../architecture.md`](../architecture.md) — dónde encaja el workspace.
 - [`session.md`](./session.md) — sesiones hijas del workspace.
 - [`storage.md`](./storage.md) — `state.db` por workspace.
-- [`permissions.md`](./permissions.md) — `[permissions]` del config.
-- [`tools.md`](./tools.md) — `tool_run` dentro del `root_path`.
+- [`permissions.md`](./permissions.md) — `[permissions]` del config, paso 2bis.
+- [`tools.md`](./tools.md) — `tool_run` dentro de `root_path ∪ extra_paths`.

@@ -1,13 +1,13 @@
 # Tools
 
-**Status**: approved
+**Status**: review
 **Owner**: @miglesias
-**Last update**: 2026-06-04
+**Last update**: 2026-06-05
 **Affects**: — (las tools son invocadas por `agent-loop.md` con
 permisos decididos por `permissions.md`).
 **Required by**: `agent-loop.md`, `features/F01-chat-streaming`,
 `features/F02-multi-workspace` (vía `list_dir` y `read_file`),
-`features/F03-python-venv` (vía `python_run`).
+`features/F03-python-venv` (vía `python_run`, opt-in en v1).
 
 > Contrato común de las tools que el agente invoca + catálogo de las
 > 8 tools de v1. Las tools son **puras desde el punto de vista del
@@ -40,16 +40,18 @@ Términos locales:
 - **Tool**: una capacidad invocable por el agente, identificada por
   `name` (`snake_case`).
 - **ToolContext**: input no-args de toda tool. Lleva `workspace_id`,
-  `workspace_root`, `run_id`, `session_id`, `permission_decision`,
-  `abort_flag`.
+  `workspace_root`, `extra_paths`, `run_id`, `session_id`,
+  `permission_decision`, `abort_flag`.
 - **ToolOutput**: output normalizado de toda tool:
   `{ content: String, is_error: bool, metadata: Option<Value> }`.
 - **Dangerous tool**: tool que muta estado del usuario o ejecuta
   código. `read_file`, `search`, `list_dir` **no** son dangerous;
   las demás sí (ver tabla en §Catalog).
 - **Path sandboxing**: toda tool que recibe un `path` lo canonicaliza
-  y verifica que está dentro de `workspace_root`. Si no, devuelve
-  `path_traversal` sin tocar el filesystem.
+  y verifica que está dentro de **`root_path ∪ extra_paths`** del
+  workspace (no solo `root`). Si no, devuelve `path_traversal` sin
+  tocar el filesystem. Ver
+  [ADR-0007](../adr/0007-extra-paths-per-workspace.md).
 
 ## State
 
@@ -60,6 +62,7 @@ necesario viene en `ToolContext` o en los args.
 |---|---|---|
 | `workspace_id` | `WorkspaceId` | |
 | `workspace_root` | `PathBuf` | Canonicalizado. |
+| `extra_paths` | `Arc<Vec<PathBuf>>` | Canonicalizados, en orden de declaración. Path sandboxing = `root ∪ extras`. |
 | `run_id` | `RunId` | |
 | `session_id` | `SessionId` | |
 | `permission_decision` | `Decision` | Eco de `Permissions::check`. |
@@ -123,7 +126,7 @@ Para cada tool: schema de args, output, errores, edge cases.
 - **Errors**: `not_found`, `path_traversal`, `invalid_input`
   (file > 50 MB).
 - **Path sandboxing**: el path se canonicaliza y se verifica dentro
-  de `workspace_root`. Si no, `path_traversal`.
+  de `workspace_root ∪ extra_paths`. Si no, `path_traversal`.
 - **Comportamiento**:
   - Lee como UTF-8. Si el archivo no es UTF-8 válido, devuelve
     `invalid_input` con detalle de la posición.
@@ -144,6 +147,8 @@ Para cada tool: schema de args, output, errores, edge cases.
   - `create_only` falla con `conflict` si existe.
   - `append` concatena.
   - Crea directorios padre hasta `workspace_root` (sin escaparlo).
+  - Para directorios padre **fuera** de `root`, requiere que estén
+    dentro de algún `extra_path` declarado. Si no, `path_traversal`.
   - **No** sigue symlinks que salgan del workspace (ver §Edge 4).
 
 ### `edit_file`
@@ -169,7 +174,8 @@ Para cada tool: schema de args, output, errores, edge cases.
 - **Output**: `{ matches: SearchMatch[], truncated: bool }`. `SearchMatch = { file: string, line: u32, column: u32, text: string }`.
 - **Errors**: `path_traversal`, `invalid_input` (`query` vacío o > 200 chars).
 - **Path sandboxing**: el `path` (default `workspace_root`) se
-  canonicaliza. Search **no** sigue symlinks.
+  canonicaliza. Si está dentro de un `extra_path`, también es válido.
+  Search **no** sigue symlinks.
 - **Comportamiento**:
   - `regex: true` usa la crate `regex`. **No** se aplica a `query` si
     contiene caracteres sospechosos de ReDoS; ver §Edge 5.
@@ -184,11 +190,12 @@ Para cada tool: schema de args, output, errores, edge cases.
 - **Dangerous**: `true`.
 - **Args**: `{ command: string, cwd?: string, timeout_ms?: u32, env?: Record<string, string> }`.
 - **Output**: `{ stdout: string, stderr: string, exit_code: i32, duration_ms: u32 }`.
-- **Errors**: `path_traversal` (`cwd` fuera de `workspace_root`),
-  `invalid_input` (`command` vacío, `timeout_ms` > 600_000),
-  `timeout` (expiró el timeout).
+- **Errors**: `path_traversal` (`cwd` fuera de
+  `workspace_root ∪ extra_paths`), `invalid_input` (`command` vacío,
+  `timeout_ms` > 600_000), `timeout` (expiró el timeout).
 - **Path sandboxing**: el `cwd` (default `workspace_root`) se
-  canonicaliza. **Solo** se permite cwd dentro del workspace.
+  canonicaliza. **Solo** se permite cwd dentro de
+  `workspace_root ∪ extra_paths`.
 - **Comportamiento**:
   - **No es PTY**. Para REPLs o color, usar `python_run` con PTY.
   - `timeout_ms` default 30 000 (30 s), max 600 000 (10 min).
@@ -205,10 +212,12 @@ Para cada tool: schema de args, output, errores, edge cases.
 - **Args**: `{ code: string, venv?: "auto"|"system"|{ path: string }, timeout_ms?: u32 }`.
 - **Output**: `{ stdout: string, stderr: string, exit_code: i32, python_version: string, venv_kind: "Uv"|"Venv"|"System", duration_ms: u32 }`.
 - **Errors**: `path_traversal`, `invalid_input` (code > 1 MB,
-  timeout > 600 000), `not_found` (`venv: "auto"` y workspace sin
-  venv), `internal` (venv roto).
+  timeout > 600 000, **`venv: "auto"` y workspace sin venv — con
+  mensaje claro sugiriendo `workspace_create_venv` o usar
+  `venv: "system"`**), `internal` (venv roto).
 - **Path sandboxing**: si `venv: { path: string }`, el path se
-  canonicaliza y se verifica dentro de `workspace_root`.
+  canonicaliza y se verifica dentro de
+  `workspace_root ∪ extra_paths`.
 - **Comportamiento**:
   - Resuelve el interpreter según ADR-0004 (auto → `Workspace::detect_venv`).
   - **Usa PTY** (ver `pty.md`) si el code parece interactivo
@@ -222,6 +231,13 @@ Para cada tool: schema de args, output, errores, edge cases.
     en el workspace, ejecutado y borrado. Si el run aborta, el
     archivo temporal se limpia en el siguiente arranque (ver
     §Edge 6).
+  - **Opt-in venv (v1)**: si `venv: "auto"` y el workspace no tiene
+    `.venv/` ni `venv/`, la tool **no** auto-crea nada. Retorna
+    `invalid_input` con:
+    - `message`: "Workspace sin .venv. Crea uno con
+      'workspace_create_venv' o usa venv: 'system'."
+    - `context: { suggestion: "create_venv" | "use_system" }`.
+    El modelo recibe el error y puede decidir qué hacer.
 
 ### `list_dir`
 
@@ -317,11 +333,11 @@ anuncia al UI como `chat.tool_result.v1` (ver `agent-loop.md`).
 
 Cada AC → test con nombre derivado `ac<n>_<short>`.
 
-- [ ] AC1: `read_file` con path dentro del workspace devuelve el
-  contenido. **Test**: `ac1_read_file_returns_content`.
-- [ ] AC2: `read_file` con path fuera del workspace devuelve
-  `path_traversal` sin tocar el filesystem (verificable con
-  `tempdir` + assert no-leído). **Test**:
+- [ ] AC1: `read_file` con path dentro de `workspace_root` devuelve
+  el contenido. **Test**: `ac1_read_file_returns_content`.
+- [ ] AC2: `read_file` con path fuera de `workspace_root ∪ extra_paths`
+  devuelve `path_traversal` sin tocar el filesystem (verificable
+  con `tempdir` + assert no-leído). **Test**:
   `ac2_read_file_path_traversal`.
 - [ ] AC3: `write_file` con `mode: "create_only"` y archivo
   existente devuelve `conflict`. **Test**:
@@ -341,8 +357,9 @@ Cada AC → test con nombre derivado `ac<n>_<short>`.
   usa el venv detectado y devuelve `venv_kind: "Uv"|"Venv"`.
   **Test**: `ac8_python_run_uses_workspace_venv`.
 - [ ] AC9: `python_run` con `venv: "auto"` y workspace sin venv
-  devuelve `not_found` con sugerencia. **Test**:
-  `ac9_python_run_no_venv_returns_not_found`.
+  devuelve `invalid_input` con sugerencia (crear venv o usar system),
+  y **no** auto-crea nada. **Test**:
+  `ac9_python_run_no_venv_returns_invalid_input`.
 - [ ] AC10: `apply_patch` con `dry_run: true` no escribe nada y
   devuelve `preview` con el diff. **Test**:
   `ac10_apply_patch_dry_run_no_writes`.
@@ -359,6 +376,21 @@ Cada AC → test con nombre derivado `ac<n>_<short>`.
 - [ ] AC15: dos invocaciones concurrentes de la misma tool en
   distintos workspaces no se interfieren. **Test**:
   `ac15_concurrent_tools_isolated`.
+- [ ] AC16: `read_file` con path **dentro de un extra_path declarado**
+  devuelve el contenido (verificable: workspace con root `/proj` y
+  extra `/assets`, `read_file("/assets/foo.png")` → OK). **Test**:
+  `ac16_read_file_in_extra_path_succeeds`.
+- [ ] AC17: `write_file` con path en un extra_path escribe el archivo
+  y devuelve `{ bytes_written, path }`. **Test**:
+  `ac17_write_file_in_extra_path_succeeds`.
+- [ ] AC18: `write_file` con path en directorio padre que está fuera
+  de `root ∪ extras` (p. ej. `/etc/...` o un path en `..`) devuelve
+  `path_traversal` sin crear directorios. **Test**:
+  `ac18_write_file_parent_outside_sandbox_rejected`.
+- [ ] AC19: `python_run` con `venv: { path: "/path/in/extra" }` donde
+  `/path/in/extra` es un extra_path declarado acepta el venv
+  explícito. **Test**:
+  `ac19_python_run_explicit_venv_in_extra_path`.
 
 ## Discovered bugs (post-approval)
 
@@ -391,7 +423,10 @@ Cada AC → test con nombre derivado `ac<n>_<short>`.
 - [`../architecture.md`](../architecture.md) — flujo de tool call.
 - [`agent-loop.md`](./agent-loop.md) — el caller.
 - [`permissions.md`](./permissions.md) — el decisor.
-- [`workspace.md`](./workspace.md) — `workspace_root` para sandboxing.
+- [`workspace.md`](./workspace.md) — `root_path` y `extra_paths` para
+  sandboxing.
 - [`pty.md`](./pty.md) — wrapper de PTY que `python_run` usa.
 - [`../adr/0004-detect-venv-priority.md`](../adr/0004-detect-venv-priority.md) —
   resolución de venv.
+- [`../adr/0007-extra-paths-per-workspace.md`](../adr/0007-extra-paths-per-workspace.md) —
+  modelo `root + extra_paths`.

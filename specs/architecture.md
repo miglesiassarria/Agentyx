@@ -2,7 +2,7 @@
 
 **Status**: approved
 **Owner**: @miglesias
-**Last update**: 2026-06-04
+**Last update**: 2026-06-05
 
 > Diagrama de cajas y flujo de datos. Los detalles de cada caja viven
 > en su spec de dominio correspondiente.
@@ -30,11 +30,12 @@
 │  │   │              agentyx-core (librería pura)              │  │  │
 │  │   │                                                       │  │  │
 │  │   │   agent::loop ──► llm::Provider ──► tools::*          │  │  │
-│  │   │        │                            │                  │  │  │
-│  │   │        ▼                            ▼                  │  │  │
-│  │   │   journal::*                  workspace::* / pty::*    │  │  │
-│  │   │   storage::*                  permissions::*           │  │  │
-│  │   │   config::*                                              │  │  │
+│  │   │   (consume              ▲              │              │  │  │
+│  │   │    agents::*)           │              ▼              │  │  │
+│  │   │        │                │     workspace::* / pty::*  │  │  │
+│  │   │        ▼                │     permissions::*          │  │  │
+│  │   │   journal::*            │     config::*               │  │  │
+│  │   │   storage::*            │                             │  │  │
 │  │   └──────────────────────────────────────────────────────┘  │  │
 │  │                                                              │  │
 │  │   ┌──────────────────────────────────────────────────────┐  │  │
@@ -74,17 +75,19 @@ Ver [AGENTS.md](../AGENTS.md) §3.1.
 
 Submódulos:
 - `agent/` — loop ReAct, definición de tool, prompts.
-- `llm/` — trait `Provider`, implementaciones (OpenAI, Anthropic, Ollama,
-  OpenAI-compatible), `ChatEvent` normalizado, SSE.
+- `agents/` — `AgentSpec`, `AgentRegistry`, prompts built-in y carga de
+  custom. Modela primary/subagent/hidden. Ver [agents.md](./agents.md).
+- `llm/` — trait `Provider`, implementaciones (Ollama, Groq, Minimax),
+  `ChatEvent` normalizado, SSE.
 - `tools/` — `read_file`, `write_file`, `edit_file`, `search`, `shell`,
-  `python_run`, `list_dir`, `apply_patch`.
-- `workspace/` — detección, lifecycle, `.venv`.
+  `python_run`, `list_dir`, `apply_patch`. Path sandboxing = `root ∪ extra_paths`.
+- `workspace/` — detección, lifecycle, `root + extra_paths`, `.venv` (opt-in).
 - `pty/` — wrapper sobre `portable-pty`.
 - `storage/` — SQLite, migraciones, repos.
 - `journal/` — log append-only.
-- `permissions/` — matriz y decisiones.
+- `permissions/` — matriz y decisiones (root + extras).
 - `config/` — carga/validación de TOML.
-- `server/` — **nuevo**, axum router, auth, SSE, estáticos.
+- `server/` — axum router, auth, SSE, estáticos.
 - `error.rs` — `AppError` + `From` impls.
 - `ids.rs` — ULIDs.
 
@@ -126,17 +129,17 @@ Pensado para que terceros integren Agentyx como librería.
     │                      │              └────┬───────────┘
     │                      │                   │ chat()
     │                      │                   ▼
-    │                      │              ┌────────────────┐
-    │                      │              │ llm::Provider  │
-    │                      │              │ (OpenAI/Anthro │
-    │                      │              │  /Ollama/...)  │
-    │                      │              └────┬───────────┘
-    │                      │                   │ SSE stream
-    │                      │                   ▼
-    │                      │              ChatEvent stream
-    │                      │                   │
-    │                      │   emit / SSE     │
-    │                      └───────────────────┘
+     │                      │              ┌────────────────┐
+     │                      │              │ llm::Provider  │
+     │                      │              │ (Ollama/Groq/  │
+     │                      │              │  Minimax)      │
+     │                      │              └────┬───────────┘
+     │                      │                   │ SSE / NDJSON
+     │                      │                   ▼
+     │                      │              ChatEvent stream
+     │                      │                   │
+     │                      │   emit / SSE     │
+     │                      └───────────────────┘
 ```
 
 ## Flujo de datos (tool call)
@@ -169,10 +172,18 @@ permissions::check(tool, args, workspace_ctx)
 2. **Lógica de negocio en Rust**, no en Svelte.
 3. **IPC tipado y versionado**. Sin strings mágicas. (ver [ipc.md](./ipc.md))
 4. **Streaming por defecto**: LLM, PTY, logs → eventos.
-5. **Sandbox por workspace**: toda I/O se canonicaliza contra `root`.
+5. **Sandbox por workspace**: toda I/O se canonicaliza contra
+   `root_path ∪ extra_paths` del workspace (no solo `root`).
 6. **Reversible**: el journal hace toda acción reproducible.
 7. **Fail loudly**: `?` + `Context`/`thiserror`, nunca `unwrap()`.
 8. **DRY/KISS/SOLID** sin abstracciones especulativas.
+9. **Multi-agent desde el inicio**: el agent loop consume `AgentSpec` y
+   distingue `Primary | Subagent | Hidden`. Aunque v1 solo traiga 1–2
+   primary + 1 subagent built-in, no debe haber una sola ruta de código
+   que asuma "un único agente por sesión".
+10. **Local-first**: ningún archivo del workspace sale del dispositivo.
+    El único tráfico de red saliente son las llamadas a providers LLM
+    que el usuario haya configurado explícitamente.
 
 ## Trade-offs documentados
 
@@ -183,3 +194,5 @@ Ver [adr/](./adr/) para las decisiones y sus justificaciones:
 - 0004 Orden de detección de `.venv`.
 - 0005 PTY con `portable-pty`.
 - 0006 SQLite con `rusqlite` (no `sqlx`).
+- 0007 Modelo `root + extra_paths` por workspace.
+- 0008 Scope de providers v1 (Ollama / Groq / Minimax).

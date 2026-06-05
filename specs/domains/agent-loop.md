@@ -1,15 +1,18 @@
 # Agent Loop
 
-**Status**: approved
+**Status**: review
 **Owner**: @miglesias
-**Last update**: 2026-06-04
+**Last update**: 2026-06-05
 **Affects**: — (el agent loop es orquestador; los demás dominios lo consumen, no al revés)
 **Required by**: `features/F01-chat-streaming`, `features/F03-python-venv`, `features/F06-web-server-lan` (vía IPC), y todas las features que ejecuten tools.
+**Required by (v1.x)**: UI de cycle con Tab, @mention, child session tree.
 
 > Corazón del producto. Define el bucle ReAct (Reason + Act) que ejecuta
 > una sesión: lee mensajes, llama al LLM, detecta tool calls, ejecuta
 > tools con permisos, registra en el journal, y emite eventos
-> normalizados a la UI.
+> normalizados a la UI. **Consume `AgentSpec`** del registry, por lo
+> que el comportamiento del loop varía según el `mode` y la
+> `tool_access` del agent activo. Ver [agents.md](../agents.md).
 
 ## Goal
 
@@ -21,17 +24,22 @@ abort solicitado).
 
 ## Non-goals
 
-- ❌ Implementar providers LLM (OpenAI, Anthropic, Ollama). Ver
+- ❌ Implementar providers LLM (Ollama, Groq, Minimax). Ver
   [`providers.md`](./providers.md).
 - ❌ Implementar las tools en sí. Ver [`tools.md`](./tools.md).
 - ❌ Implementar la matriz de permisos. Ver [`permissions.md`](./permissions.md).
 - ❌ Persistir sesiones, mensajes y journal. Ver [`session.md`](./session.md)
   y [`storage.md`](./storage.md).
-- ❌ Diseñar prompts del sistema. Eso vive en el código como constantes,
-  no en specs.
+- ❌ El modelo de datos de los agentes (`AgentSpec`, registry, custom
+  agents). Eso vive en [`agents.md`](../agents.md). Aquí solo se
+  documenta cómo el loop **consume** ese modelo.
+- ❌ Diseñar prompts del sistema. Eso vive en `agents.md` o como
+  constantes en el código, no aquí.
 - ❌ Compactación / summarization de mensajes cuando se excede la
-  ventana del modelo. Fuera de v1.
-- ❌ Multi-agente (varios agentes hablando entre sí). Fuera de v1.
+  ventana del modelo. Fuera de v1 (los IDs `compaction`, `title`,
+  `summary` están reservados en `agents.md` para v1.x).
+- ❌ Subagentes custom definidos por el usuario. Fuera de v1
+  (especificado pero no implementado en v1.x).
 - ❌ Tool calls en paralelo dentro del mismo step. Por ahora, una tool
   por step; múltiples tool calls en el mismo message se ejecutan en
   serie, en orden de aparición.
@@ -39,7 +47,7 @@ abort solicitado).
 ## Glossary
 
 Términos locales a este dominio (los globales están en
-[`../glossary.md`](../glossary.md)):
+[`../glossary.md`](../glossary.md) y [`../agents.md`](../agents.md)):
 
 - **Run**: una invocación del agent loop en respuesta a un mensaje
   del usuario. Tiene un `RunId` y un ciclo de vida propio.
@@ -50,6 +58,12 @@ Términos locales a este dominio (los globales están en
 - **ToolCall**: un `id, name, args` que el modelo pidió ejecutar.
 - **ToolResult**: un `tool_use_id, output, is_error` que devolvemos al
   modelo en el siguiente step.
+- **Active agent**: el `AgentSpec` actualmente activo de la sesión
+  (1 por sesión). Determina el system prompt, las tools expuestas y
+  los permisos aplicados. Ver [`../agents.md`](../agents.md).
+- **Subagent invocation**: cuando el active agent emite un `task`
+  tool call, el loop lo intercepta y delega a otro `AgentSpec` (con
+  `mode: subagent`). Crea una child session.
 
 ## State
 
@@ -59,6 +73,8 @@ Términos locales a este dominio (los globales están en
 |---|---|---|
 | `run_id` | `RunId` (ULID) | Identificador único del run. |
 | `session_id` | `SessionId` (ULID) | Sesión a la que pertenece. |
+| `agent_id` | `AgentId` | `AgentSpec` activo (loaded del registry al arrancar el run). |
+| `parent_run_id` | `Option<RunId>` | Si este run es un subagent, el run del primary que lo invocó. Usado para detectar recursión y para propagar abort. |
 | `step` | `u32` | Step actual, 1-indexed. |
 | `abort_flag` | `Arc<AtomicBool>` | Señal de abort cooperativo. |
 | `started_at` | `DateTime<Utc>` | Cuándo arrancó. |
@@ -71,6 +87,7 @@ Términos locales a este dominio (los globales están en
 | `messages` (input y output) | `state.db` → tabla `messages` | `session.md` |
 | `journal` (cada step + tool call) | `state.db` → tabla `journal` o `journal.jsonl` | `journal.md` |
 | `usage` (tokens consumidos) | `state.db` → tabla `usage` | `session.md` |
+| `sessions.active_agent_id` | `state.db` → tabla `sessions` | `session.md` |
 
 El agent loop **no** es dueño de la persistencia. Llama a los repos
 de `session` y `journal` para escribir.
@@ -84,19 +101,40 @@ Arranca un nuevo run para la sesión dada.
 **Input**:
 ```rust
 pub struct StartOpts {
-    pub provider_id: ProviderId,    // OpenAI, Anthropic, Ollama, …
+    /// Provider activo del workspace. Default: el del workspace.
+    pub provider_id: ProviderId,    // Ollama, Groq, Minimax
     pub model_id: ModelId,          // modelo concreto
     pub max_steps: Option<u32>,     // default 50
     pub system_prompt_override: Option<String>,
     pub stream: bool,               // siempre true en v1
+    /// Agent a usar. Default = active agent de la sesión (de
+    /// `sessions.active_agent_id`). Si se especifica, debe ser
+    /// `mode: primary` y `hidden: false`.
+    pub agent_id: Option<AgentId>,
 }
 ```
 
-**Output**: `RunHandle { run_id, session_id }`.
+**Output**: `RunHandle { run_id, session_id, agent_id }`.
+
+**Comportamiento**:
+1. Resolver el `AgentSpec` activo (override de `opts.agent_id` o
+   active de la sesión, o primer primary del registry si la sesión
+   no tiene).
+2. Pre-procesar el `user_msg` con `expand_at_mentions` (ver
+   [`agents.md`](../agents.md)). Si hay @mentions, se ejecutan
+   antes que el mensaje principal y se concatenan los resultados
+   al contexto.
+3. Cargar el system prompt del `AgentSpec`.
+4. Calcular las tools a exponer al provider = intersección entre
+   `ToolRegistry::schemas()` y la `ToolAccess` del `AgentSpec`.
+5. Calcular la `Decision` efectiva por tool = merge de la matriz
+   del workspace + `AgentPermissionOverride` del agent.
+6. Si todo OK, lanzar el loop en background.
 
 **Errores**:
-- `not_found` — la sesión no existe.
-- `invalid_input` — `user_msg` vacío o > 1 MB.
+- `not_found` — la sesión no existe, o el `agent_id` no existe.
+- `invalid_input` — `user_msg` vacío o > 1 MB, o el `agent_id`
+  no es primary, o un `@<id>` apunta a un subagent desconocido.
 - `provider_unavailable` — el provider no responde.
 - `conflict` — la sesión ya tiene un run activo (rechazar; el caller
   puede `abort` primero).
@@ -106,7 +144,7 @@ tool calls (decisión final por tool en `permissions::check`).
 
 **Efectos colaterales**:
 - Inserta el `user_msg` en `messages` (`role: user`).
-- Inserta entrada `journal(kind=run.started)`.
+- Inserta entrada `journal(kind=run.started, payload={agent_id})`.
 - Emite `chat.message.v1` con el mensaje del usuario.
 - Lanza el loop en background (`tokio::task`) que va emitiendo eventos
   a medida que avanza.
@@ -151,12 +189,20 @@ errores `{code, message, context?}`).
 | `session_send(session_id, user_msg, opts) -> RunHandle` | Equivale a `AgentLoop::start`. |
 | `session_abort(run_id) -> ()` | Equivale a `AgentLoop::abort`. |
 | `session_get_run_state(run_id) -> RunState` | Equivale a `AgentLoop::state`. |
+| `agents_list() -> AgentInfo[]` | Solo `hidden: false`. Ver [agents.md](../agents.md). |
+| `agents_get(id) -> AgentInfo` | |
+| `agents_set_active(session_id, agent_id) -> ()` | Cambia el active agent de la sesión. |
+| `agents_invoke_subagent(session_id, subagent_id, prompt) -> TaskResult` | UI-invoked @mention. |
 
 ### HTTP endpoints
 
 `POST /api/v1/sessions/:id/messages` → `RunHandle`
 `POST /api/v1/sessions/:id/abort` → `{}`
 `GET  /api/v1/runs/:run_id` → `RunState`
+`GET  /api/v1/agents` → `AgentInfo[]`
+`GET  /api/v1/agents/:id` → `AgentInfo`
+`POST /api/v1/sessions/:id/active-agent` (body: `{ agentId }`) → `{}`
+`POST /api/v1/sessions/:id/invoke-subagent` (body: `{ subagentId, prompt }`) → `TaskResult`
 
 ### Eventos streaming
 
@@ -211,20 +257,37 @@ Cada uno debe ser un test y un AC.
    (`session_send` de nuevo).
 5. **Tool panic / crash**: capturado, logueado en `tracing::error!`,
    `chat.tool_result.v1 { isError: true, output: "tool crashed" }`.
-   El loop **no muere**; sigue.
+   El loop **no** muere; sigue.
 6. **Mensaje del usuario vacío** (`""` o solo whitespace):
    rechazado en `start` con `invalid_input`. No se crea run.
 7. **Múltiples sesiones concurrentes en el mismo workspace**:
    permitido. Cada una tiene su `RunHandle` independiente.
 8. **Mensajes históricos largos** que exceden la ventana del modelo:
    en v1, **truncamos por los últimos N tokens** con un warning
-   logueado. Compactación queda para v2.
+   logueado. Compactación queda para v1.x (agente `compaction`,
+   ver [agents.md](../agents.md)).
 9. **Tool call con `args` malformado** (no es JSON válido): tratado
    como si la tool hubiera devuelto error. `chat.tool_result.v1
    { isError: true, output: "invalid tool args: <detail>" }`.
 10. **Sesión en estado terminal** (`finished`/`errored`) que recibe un
     nuevo `session_send`: se permite; crea un nuevo run sobre la misma
     sesión. (Equivalente a "continuar la conversación".)
+11. **Plan agent pide una tool dangerous** (write/shell): la `tool_access`
+    `Allowlist([read_file, search, list_dir])` del agent hace que el
+    loop emita `chat.tool_result.v1 { isError: true, output: "tool not
+    in agent allowlist" }` sin invocar la tool. Doble defensa: la matriz
+    del workspace con `permissions.deny` también la bloquea.
+12. **Primary emite un `task` tool call a un subagent**: el loop detecta
+    el tool name `task` y el primer arg como `subagent_id`. Si el
+    subagent existe y la profundidad de recursión no excede el cap
+    (default 1 en v1), invoca `AgentLoop::invoke_subagent` y emite
+    `chat.tool_result.v1` con el `TaskResult` serializado. Si excede
+    la profundidad, emite `chat.tool_result.v1 { isError: true,
+    output: "subagent depth exceeded" }`.
+13. **Subagent invocation aborta mid-run** (porque el parent se abortó):
+    el loop propaga el `abort_flag` al child run. El subagent termina
+    con `finish_reason: aborted` y el parent recibe
+    `TaskResult { status: "aborted", summary: null }`.
 
 ## Acceptance criteria
 
@@ -269,6 +332,32 @@ Cada AC → test cuyo nombre deriva: `ac<n>_<short>`.
 - [ ] AC12: el contenido completo del `user_msg` original aparece
   verbatim en el `Message` insertado (sin truncar). **Test**:
   `ac12_user_message_persisted_verbatim`.
+- [ ] AC13: el active agent por defecto de una sesión nueva es el
+  primer `primary` del registry (`build`). **Test**:
+  `ac13_new_session_defaults_to_build_agent`.
+- [ ] AC14: `start` con `opts.agent_id = "plan"` carga el `AgentSpec`
+  de `plan` y el system prompt del run es el de `plan` (verificable
+  inspeccionando el request al provider mockeado). **Test**:
+  `ac14_start_with_plan_agent_uses_plan_prompt`.
+- [ ] AC15: el primary `plan` recibe un subset de tools en el
+  `ChatRequest.tools`: solo `read_file`, `search`, `list_dir`. Si el
+  LLM emite otro tool, el loop emite
+  `tool_result.v1 { isError: true, output: "tool not in agent
+  allowlist" }` sin invocar. **Test**:
+  `ac15_plan_agent_tool_access_filters_schema`.
+- [ ] AC16: el primary emite un `task` tool call con
+  `subagent_id: "general"`, y el loop crea una child session, ejecuta
+  el subagent, y emite `tool_result.v1` con el `TaskResult` al
+  primary. **Test**:
+  `ac16_primary_task_tool_call_invokes_subagent`.
+- [ ] AC17: el primary emite un `task` tool call con
+  `subagent_id` desconocido, y el loop emite
+  `tool_result.v1 { isError: true, output: "unknown subagent: <id>" }`
+  sin crear child session. **Test**:
+  `ac17_primary_task_tool_call_unknown_subagent`.
+- [ ] AC18: un subagent que intenta invocar a otro subagent
+  recursivamente es abortado con `depth_exceeded`. **Test**:
+  `ac18_subagent_recursion_blocked`.
 
 ## Discovered bugs (post-approval)
 
