@@ -15,23 +15,24 @@
 - **features/F-agents-ui.md** (Fase B — AgentChip + Cmd+[/] + @mention popover + SessionTree, 15 ACs)
 
 ## 🔵 Review (pendiente de aprobación)
-- **features/F02-multi-workspace.md** (PR 4 — sin venv obligatorio, UI de extra paths)
+_(vacío)_
 
 ## 🟢 Approved (listo para implementar)
 - project.md (revisado en PR 1)
 - glossary.md (revisado en PR 1)
 - architecture.md (revisado en PR 1)
 - ipc.md (revisado en PR 2)
-- agents.md (revisado en este PR — sistema multi-agente)
-- domains/agent-loop.md (revisado en este PR)
-- domains/workspace.md (revisado en este PR)
-- domains/permissions.md (revisado en este PR)
-- domains/tools.md (revisado en este PR)
-- domains/providers.md (revisado en este PR — reescritura mayor: Ollama / Groq / Minimax)
+- agents.md (revisado en PR 3 — sistema multi-agente)
+- domains/agent-loop.md (revisado en PR 3)
+- domains/workspace.md (revisado en PR 3)
+- domains/permissions.md (revisado en PR 3)
+- domains/tools.md (revisado en PR 3)
+- domains/providers.md (revisado en PR 3 — reescritura mayor: Ollama / Groq / Minimax)
 - domains/session.md
 - domains/storage.md
 - domains/pty.md
 - features/ROADMAP.md (revisado en PR 5: v0.1 sin F03; F-agents-ui nuevo; F-extra-paths-* en v0.1.x)
+- features/F02-multi-workspace.md (revisado en este PR — sin venv obligatorio, UI de extra paths)
 
 ## ADRs
 
