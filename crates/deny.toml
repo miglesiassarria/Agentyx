@@ -8,6 +8,12 @@ all-features = false
 db-path = "~/.cargo/advisory-db"
 db-urls = ["https://github.com/rustsec/advisory-db"]
 yanked = "warn"
+# Only fail on unmaintained / unsound crates that are *direct* workspace
+# deps. Transitive unmaintained crates (webkit2gtk-gtk3-sys, proc-macro-error,
+# serial, unic-*, etc.) are Tauri platform shims; we can't act on them
+# until upstream publishes a fix. Re-evaluate when bumping Tauri.
+unmaintained = "workspace"
+unsound = "workspace"
 ignore = []
 
 [licenses]
@@ -24,6 +30,8 @@ allow = [
     "MPL-2.0",
     "OpenSSL",
     "CC0-1.0",
+    # Transitive: webkit2gtk-gtk3-sys pulls CDLA-Permissive-2.0.
+    "CDLA-Permissive-2.0",
 ]
 confidence-threshold = 0.8
 exceptions = []
