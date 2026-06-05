@@ -10,12 +10,25 @@
 //! - Each field is loaded from disk (or fresh state if first run).
 //! - Mutations go through dedicated `update_*` methods that persist
 //!   atomically (see `config.md` and `storage.md` for the contracts).
+//!
+//! ## v0.1 status
+//!
+//! This is a minimal placeholder. The full state will be assembled
+//! as the corresponding domain crates land:
+//! - `config` crate (PR for `config.md`) → `ResolvedConfig`
+//! - `storage` crate (PR for `storage.md`) → `StoragePool`
+//! - `agents` module (PR for `agents.md`) → `AgentRegistry`
+//! - `llm` module (PR for `providers.md`) → `ProviderRegistry`
+//!
+//! For now we hold only the home dir + a `WorkspaceService`, which
+//! is enough to wire up the F02 Tauri commands.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use agentyx_core::AppResult;
+use agentyx_core::workspace::WorkspaceService;
 use anyhow::Context;
-use tokio::sync::RwLock;
 
 use crate::events::EventBus;
 
@@ -24,28 +37,15 @@ use crate::events::EventBus;
 /// `Arc<AppState>` is `Send + Sync` and is held inside
 /// `tauri::State<Arc<AppState>>`. Cloning the `Arc` is cheap and
 /// is what each command handler does.
-///
-/// Each inner field is itself wrapped in a sync primitive (`RwLock`
-/// for mutable state, plain `Arc` for immutable) so handlers can
-/// access state concurrently without blocking the UI.
 pub struct AppState {
-    /// Global configuration (`~/.agentyx/config.toml`), parsed
-    /// and with secrets resolved (in memory only, never serialized).
-    pub config: Arc<RwLock<agentyx_core::config::ResolvedConfig>>,
+    /// Path to `~/.agentyx/`. Source of truth for all per-user
+    /// files (registry, workspaces, cache).
+    pub agentyx_home: PathBuf,
 
-    /// Workspace storage pool (one `state.db` per workspace).
-    /// Lazy-opened on first access; concurrent-safe via internal
-    /// `Arc<Mutex<Connection>>`.
-    pub storage: Arc<agentyx_core::storage::StoragePool>,
-
-    /// Agent registry: 3 built-in + custom (v1.x). Loaded once
-    /// at startup from the registry code in `agentyx-core`.
-    pub agents: Arc<agentyx_core::agents::AgentRegistry>,
-
-    /// LLM provider clients (Ollama, Groq, Minimax). Each
-    /// implements the `Provider` trait; the registry routes
-    /// requests by `ProviderId`.
-    pub providers: Arc<agentyx_core::llm::ProviderRegistry>,
+    /// Workspace service: registry of workspaces, extra-paths,
+    /// and per-workspace config.toml. Implemented in PR
+    /// "feat(core): workspace model".
+    pub workspaces: Arc<WorkspaceService>,
 
     /// Event bus for streaming events to the UI
     /// (`chat.*.v1`, `pty.*.v1`, `agent.*.v1`, etc.).
@@ -53,47 +53,43 @@ pub struct AppState {
 }
 
 impl AppState {
-    /// Build the initial `AppState` at app startup. Loads config,
-    /// opens the default workspace (if any), initializes the agent
-    /// registry, and creates the provider clients.
+    /// Build the initial `AppState` at app startup. Creates
+    /// `~/.agentyx/` if it doesn't exist; loads the workspace
+    /// registry; initializes the event bus.
     ///
-    /// In v0.1 this is a stub that returns an error if the system
-    /// is not in a valid state (e.g. no config dir writable). In
-    /// later versions it gets richer.
+    /// In v0.1 the rest of the state (config, storage, agents,
+    /// providers) is left as future work. See the module docs.
     pub fn initialize() -> AppResult<Self> {
-        // 1. Resolve `~/.agentyx/` paths.
-        let agentyx_dir = agentyx_core::config::agentyx_home()
-            .context("resolving ~/.agentyx")?;
+        let agentyx_home = agentyx_home()
+            .context("resolving ~/.agentyx")?
+            .to_path_buf();
 
-        // 2. Load (or create) the global config.
-        let config = agentyx_core::config::Config::load_global(&agentyx_dir)
-            .context("loading global config")?;
-        let resolved = agentyx_core::config::Config::resolve(
-            config,
-            None,
-            &agentyx_core::config::OsKeychain,
-        )
-        .context("resolving config")?;
-
-        // 3. Open the storage pool (lazy: workspaces opened on demand).
-        let storage = agentyx_core::storage::StoragePool::new(&agentyx_dir)
-            .context("initializing storage pool")?;
-
-        // 4. Load the agent registry.
-        let agents = agentyx_core::agents::AgentRegistry::load(&resolved.global)
-            .context("loading agent registry")?;
-
-        // 5. Build provider clients from the resolved config.
-        let providers =
-            agentyx_core::llm::ProviderRegistry::from_config(&resolved)
-                .context("building provider clients")?;
+        let workspaces =
+            Arc::new(WorkspaceService::new(&agentyx_home).context("loading workspace service")?);
 
         Ok(Self {
-            config: Arc::new(RwLock::new(resolved)),
-            storage: Arc::new(storage),
-            agents: Arc::new(agents),
-            providers: Arc::new(providers),
+            agentyx_home,
+            workspaces,
             event_bus: Arc::new(EventBus::new()),
         })
     }
+}
+
+/// Returns the path to the user's Agentyx home directory
+/// (`~/.agentyx/` on Unix, `%APPDATA%\agentyx` on Windows).
+/// Creates the directory if it doesn't exist.
+///
+/// This is a thin wrapper around the `dirs` crate that we'll
+/// eventually move into `agentyx-core::config` once the
+/// `config.md` PR lands.
+fn agentyx_home() -> AppResult<PathBuf> {
+    let home = dirs::home_dir().ok_or_else(|| agentyx_core::AppError::Internal {
+        message: "could not resolve user home directory".into(),
+    })?;
+    let path = home.join(".agentyx");
+    std::fs::create_dir_all(&path).map_err(|e| agentyx_core::AppError::Io {
+        op: format!("create_dir_all {}", path.display()),
+        source: e.to_string(),
+    })?;
+    Ok(path)
 }

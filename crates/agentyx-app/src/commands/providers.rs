@@ -32,7 +32,7 @@ pub struct TestConnectionResult {
 #[tauri::command]
 pub async fn test_connection(
     _state: State<'_, Arc<AppState>>,
-    _provider_id: agentyx_core::ids::AgentId, // Reusing AgentId; provider id is a String
+    _provider_id: String,
 ) -> AppResult<TestConnectionResult> {
     Err(agentyx_core::AppError::Internal {
         message: "providers::test_connection not yet implemented (F05 in Fase D)".into(),

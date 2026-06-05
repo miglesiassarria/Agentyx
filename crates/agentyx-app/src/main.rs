@@ -23,7 +23,7 @@ use std::sync::Arc;
 use agentyx_core::AppResult;
 use anyhow::Context;
 use tauri::Manager;
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 mod commands;
 mod deep_link;

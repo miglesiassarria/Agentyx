@@ -23,7 +23,7 @@
 //! - `journal`   — append-only action log (in `state.db`).
 //! - `permissions` — permission matrix and gate.
 //! - `config`    — TOML config + `SecretRef` (env / keychain).
-//! - `workspace` — workspace model + `extra_paths` (ADR-0007).
+//! - `workspace` — workspace model + `extra_paths` (ADR-0007). [implemented]
 //! - `session`   — sessions, runs, messages, child sessions.
 //! - `pty`       — PTY wrapper on `portable-pty`.
 //! - `error`     — `AppError` + `From` impls.
@@ -47,6 +47,7 @@
 
 pub mod error;
 pub mod ids;
+pub mod workspace;
 
 pub use error::{AppError, AppResult};
 pub use ids::*;
