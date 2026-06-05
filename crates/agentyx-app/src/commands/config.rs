@@ -6,9 +6,7 @@
 //! `../../../specs/domains/config.md`.
 
 use agentyx_core::AppResult;
-use agentyx_core::config::{GlobalConfig, WorkspaceConfig};
 use agentyx_core::ids::WorkspaceId;
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tauri::State;
 
@@ -18,7 +16,7 @@ use crate::state::AppState;
 #[tauri::command]
 pub async fn get_global(
     _state: State<'_, Arc<AppState>>,
-) -> AppResult<GlobalConfig> {
+) -> AppResult<serde_json::Value> {
     Err(agentyx_core::AppError::Internal {
         message: "config::get_global not yet implemented (F05 in Fase D)".into(),
     })
@@ -29,7 +27,7 @@ pub async fn get_global(
 pub async fn update_global(
     _state: State<'_, Arc<AppState>>,
     _patch: serde_json::Value,
-) -> AppResult<GlobalConfig> {
+) -> AppResult<serde_json::Value> {
     Err(agentyx_core::AppError::Internal {
         message: "config::update_global not yet implemented (F05 in Fase D)".into(),
     })
@@ -40,7 +38,7 @@ pub async fn update_global(
 pub async fn get_workspace(
     _state: State<'_, Arc<AppState>>,
     _workspace_id: WorkspaceId,
-) -> AppResult<WorkspaceConfig> {
+) -> AppResult<serde_json::Value> {
     Err(agentyx_core::AppError::Internal {
         message: "config::get_workspace not yet implemented (F05 in Fase D)".into(),
     })
@@ -52,7 +50,7 @@ pub async fn update_workspace(
     _state: State<'_, Arc<AppState>>,
     _workspace_id: WorkspaceId,
     _patch: serde_json::Value,
-) -> AppResult<WorkspaceConfig> {
+) -> AppResult<serde_json::Value> {
     Err(agentyx_core::AppError::Internal {
         message: "config::update_workspace not yet implemented (F05 in Fase D)".into(),
     })

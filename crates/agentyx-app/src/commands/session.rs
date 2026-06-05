@@ -42,7 +42,7 @@ pub async fn create(
     _workspace_id: agentyx_core::ids::WorkspaceId,
     _agent_id: Option<agentyx_core::ids::AgentId>,
     _title: Option<String>,
-) -> AppResult<agentyx_core::session::Session> {
+) -> AppResult<serde_json::Value> {
     // TODO(F01): implement in Fase D.
     Err(agentyx_core::AppError::Internal {
         message: "session::create not yet implemented (F01 in Fase D)".into(),
@@ -81,7 +81,7 @@ pub async fn list(
     _state: State<'_, Arc<AppState>>,
     _workspace_id: agentyx_core::ids::WorkspaceId,
     _limit: Option<u32>,
-    _before: Option<agentyx_core::Ulid>,
+    _before: Option<ulid::Ulid>,
 ) -> AppResult<Vec<SessionSummaryDto>> {
     // TODO(F01, F-agents-ui): implement in Fase D.
     Err(agentyx_core::AppError::Internal {
@@ -95,8 +95,8 @@ pub async fn get_history(
     _state: State<'_, Arc<AppState>>,
     _session_id: SessionId,
     _limit: Option<u32>,
-    _before: Option<agentyx_core::Ulid>,
-) -> AppResult<Vec<agentyx_core::journal::JournalEntry>> {
+    _before: Option<ulid::Ulid>,
+) -> AppResult<Vec<serde_json::Value>> {
     // TODO(F01): implement in Fase D.
     Err(agentyx_core::AppError::Internal {
         message: "session::get_history not yet implemented (F01 in Fase D)".into(),

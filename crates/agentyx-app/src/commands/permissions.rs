@@ -2,7 +2,6 @@
 
 use agentyx_core::AppResult;
 use agentyx_core::ids::{PermissionRequestId, ToolId, WorkspaceId};
-use agentyx_core::permissions::{PermissionDecision, PermissionMatrixDto};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tauri::State;
@@ -34,7 +33,7 @@ pub enum PermissionResponse {
 pub async fn get_matrix(
     _state: State<'_, Arc<AppState>>,
     _workspace_id: Option<WorkspaceId>,
-) -> AppResult<PermissionMatrixDto> {
+) -> AppResult<serde_json::Value> {
     Err(agentyx_core::AppError::Internal {
         message: "permissions::get_matrix not yet implemented (F01 in Fase D)".into(),
     })
@@ -45,7 +44,7 @@ pub async fn get_matrix(
 pub async fn set_default(
     _state: State<'_, Arc<AppState>>,
     _tool: ToolId,
-    _decision: PermissionDecision,
+    _decision: String,
 ) -> AppResult<()> {
     Err(agentyx_core::AppError::Internal {
         message: "permissions::set_default not yet implemented (F05 in Fase D)".into(),

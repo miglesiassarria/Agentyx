@@ -44,6 +44,9 @@ toml = { workspace = true }
 # HTTP (deep links, etc.)
 reqwest = { workspace = true }
 
+# Filesystem locations (HOME, APPDATA, etc.)
+dirs = "5"
+
 # Time
 chrono = { workspace = true }
 

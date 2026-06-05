@@ -5,7 +5,6 @@
 //! `tracing` calls in this module MUST NOT include the value.
 
 use agentyx_core::AppResult;
-use agentyx_core::config::SecretRef;
 use std::sync::Arc;
 use tauri::State;
 
@@ -45,6 +44,3 @@ pub async fn list_providers(
         message: "secrets::list_providers not yet implemented (F05 in Fase D)".into(),
     })
 }
-
-/// Re-export the `SecretRef` type so the UI (and tests) can use it.
-pub use agentyx_core::config::SecretRef as _SecretRef;
