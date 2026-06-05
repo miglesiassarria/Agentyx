@@ -6,7 +6,7 @@
 use tauri::{App, Manager, WebviewUrl, WebviewWindowBuilder};
 
 /// Build the main application window and configure its properties
-/// (title, size, decorations, CSP, dev URL).
+/// (title, size, decorations, dev URL).
 pub fn configure_main_window(app: &mut App) -> tauri::Result<()> {
     let url = if cfg!(dev) {
         // Dev: Vite serves at http://localhost:1420 (Tauri convention).

@@ -73,6 +73,15 @@ fn main() -> anyhow::Result<()> {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::workspace::list,
+            commands::workspace::open,
+            commands::workspace::get,
+            commands::workspace::delete,
+            commands::workspace::detect_venv,
+            commands::workspace::add_extra_path,
+            commands::workspace::remove_extra_path,
+            commands::workspace::list_extra_paths,
+            commands::workspace::effective_paths,
             // commands::session::create,
             // commands::session::send,
             // commands::session::abort,
@@ -80,11 +89,6 @@ fn main() -> anyhow::Result<()> {
             // commands::session::get_history,
             // commands::session::set_active_agent,
             // commands::session::get_active_agent,
-            // commands::workspace::list,
-            // commands::workspace::open,
-            // commands::workspace::delete,
-            // commands::workspace::add_extra_path,
-            // commands::workspace::remove_extra_path,
             // commands::config::get_global,
             // commands::config::update_global,
             // commands::config::get_workspace,
