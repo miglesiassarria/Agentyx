@@ -7,8 +7,6 @@
 > Última actualización: 2026-06-05
 
 ## 🟡 Draft (en construcción)
-- **domains/journal.md** (Fase B — log append-only SQLite puro, 16 ACs)
-- **domains/config.md** (Fase B — TOML global + workspace, SecretRef/env/keychain, 18 ACs)
 - **features/F05-settings.md** (Fase B — Providers/Models/Approval/Workspace tabs, 15 ACs)
 - **features/F01-chat-streaming.md** (Fase B — chat con streaming LLM + multi-agent, 15 ACs)
 - **features/F04-file-diffs.md** (Fase B — CodeMirror merge read-only en v0.1, 12 ACs)
@@ -28,6 +26,8 @@ _(vacío)_
 - domains/permissions.md (revisado en PR 3)
 - domains/tools.md (revisado en PR 3)
 - domains/providers.md (revisado en PR 3 — reescritura mayor: Ollama / Groq / Minimax)
+- domains/journal.md (revisado en este PR — log append-only SQLite puro)
+- domains/config.md (revisado en este PR — TOML + SecretRef/env/keychain)
 - domains/session.md
 - domains/storage.md
 - domains/pty.md
