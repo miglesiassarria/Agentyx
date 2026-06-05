@@ -1,0 +1,29 @@
+# clippy config — applied to all crates in the workspace
+
+# Treat all warnings as errors in CI; locally allow override.
+# In CI we run `cargo clippy -- -D warnings`.
+
+avoid-breaking-exported-api = false
+msrv = "1.80"
+
+# Allowed lints at the workspace level. Crate-specific overrides
+# go in the crate's lib.rs/main.rs.
+allowed = []
+warn = [
+    "clippy::cargo",
+    "clippy::complexity",
+    "clippy::correctness",
+    "clippy::nursery",
+    "clippy::pedantic",
+    "clippy::perf",
+    "clippy::style",
+    "clippy::suspicious",
+    "clippy::dbg_macro",
+    "clippy::print_stdout",
+    "clippy::todo",
+]
+deny = [
+    "clippy::unwrap_used",
+    "clippy::expect_used",
+    "clippy::panic",
+]

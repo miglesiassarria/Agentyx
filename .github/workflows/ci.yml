@@ -1,0 +1,200 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+  RUSTUP_MAX_RETRIES: 3
+
+jobs:
+  # -------- Rust --------
+
+  rust-fmt:
+    name: rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  rust-clippy:
+    name: clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+  rust-test:
+    name: cargo test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install sqlite (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
+      - run: cargo test --workspace --all-features
+
+  rust-deny:
+    name: cargo deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-deny
+        run: cargo install --locked cargo-deny
+      - run: cargo deny check
+
+  rust-audit:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-audit
+        run: cargo install --locked cargo-audit
+      - run: cargo audit
+
+  # -------- Frontend --------
+
+  ui-install:
+    name: UI install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: 1.1.0
+      - run: bun install --frozen-lockfile
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ui-node_modules
+          path: ui/node_modules
+          retention-days: 1
+
+  ui-typecheck:
+    name: UI typecheck
+    needs: ui-install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: 1.1.0
+      - uses: actions/download-artifact@v4
+        with:
+          name: ui-node_modules
+          path: ui/node_modules
+      - working-directory: ui
+        run: bunx tsc --noEmit
+
+  ui-lint:
+    name: UI lint
+    needs: ui-install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: 1.1.0
+      - uses: actions/download-artifact@v4
+        with:
+          name: ui-node_modules
+          path: ui/node_modules
+      - working-directory: ui
+        run: bunx eslint .
+
+  ui-format:
+    name: UI format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: 1.1.0
+      - run: bun install --frozen-lockfile
+      - run: bunx prettier --check .
+
+  ui-test:
+    name: UI test (vitest)
+    needs: ui-install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: 1.1.0
+      - uses: actions/download-artifact@v4
+        with:
+          name: ui-node_modules
+          path: ui/node_modules
+      - working-directory: ui
+        run: bunx vitest run
+
+  ui-build:
+    name: UI build
+    needs: ui-install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: 1.1.0
+      - uses: actions/download-artifact@v4
+        with:
+          name: ui-node_modules
+          path: ui/node_modules
+      - working-directory: ui
+        run: bun run build
+
+  # -------- Docs (specs/) --------
+
+  docs-lint:
+    name: Specs consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate STATUS.md structure
+        run: |
+          if ! grep -q "## 🟡 Draft" specs/STATUS.md; then
+            echo "ERROR: missing Draft section" >&2
+            exit 1
+          fi
+          if ! grep -q "## 🟢 Approved" specs/STATUS.md; then
+            echo "ERROR: missing Approved section" >&2
+            exit 1
+          fi
+      - name: Check for forbidden patterns
+        run: |
+          if grep -rn "TODO.*implementar" specs/features/ 2>/dev/null; then
+            echo "ERROR: 'TODO implementar' found in features (forbidden per AGENTS.md §17)" >&2
+            exit 1
+          fi
+      - name: Validate ROADMAP.md IDs
+        run: |
+          for f in specs/features/F0*.md; do
+            [ -f "$f" ] || continue
+            id=$(basename "$f" .md | cut -d- -f1)
+            if ! grep -q "$id" specs/features/ROADMAP.md; then
+              echo "ERROR: feature $id not in ROADMAP.md" >&2
+              exit 1
+            fi
+          done

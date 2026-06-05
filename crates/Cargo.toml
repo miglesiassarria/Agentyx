@@ -1,0 +1,115 @@
+[workspace]
+resolver = "2"
+members = [
+    "agentyx-core",
+    "agentyx-app",
+    "agentyx-sdk",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/miglesiassarria/Agentyx"
+authors = ["Manuel Iglesias-Sarria"]
+publish = false
+
+[workspace.dependencies]
+# Core async runtime
+tokio = { version = "1.40", features = ["full"] }
+tokio-util = { version = "0.7", features = ["io"] }
+async-trait = "0.1"
+futures = "0.3"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+
+# HTTP client (LLM providers)
+reqwest = { version = "0.12", default-features = false, features = [
+    "stream",
+    "rustls-tls",
+    "json",
+    "gzip",
+] }
+
+# SQLite (bundled, no system dep)
+rusqlite = { version = "0.32", features = ["bundled", "blob"] }
+
+# PTY
+portable-pty = "0.8"
+
+# File watching
+notify = "6.1"
+notify-debouncer-mini = "0.4"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = [
+    "env-filter",
+    "fmt",
+    "json",
+] }
+
+# Identifiers
+ulid = "1.1"
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# URL
+url = "2.5"
+
+# Validation
+validator = { version = "0.18", features = ["derive"] }
+
+# Keychain
+keyring = { version = "2.3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+
+# Tauri
+tauri = { version = "2.0", features = [] }
+tauri-plugin-dialog = "2.0"
+tauri-plugin-fs = "2.0"
+tauri-plugin-shell = "2.0"
+tauri-plugin-deep-link = "2.0"
+tauri-plugin-os = "2.0"
+tauri-plugin-updater = { version = "2.0", features = ["sign"] }
+
+# Tauri build deps
+tauri-build = { version = "2.0", features = [] }
+
+# Internal crates
+agentyx-core = { path = "agentyx-core" }
+agentyx-sdk = { path = "agentyx-sdk" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+opt-level = "s"
+panic = "abort"
+
+[profile.dev]
+opt-level = 0
+debug = 1
+incremental = true
+
+[profile.dev.package."*"]
+opt-level = 3
+
+# Target specific: macOS minimum, Windows, Linux
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_UI_Shell",
+    "Win32_System_Com",
+] }
