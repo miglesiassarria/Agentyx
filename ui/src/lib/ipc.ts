@@ -88,15 +88,31 @@ export const session = {
 export const workspace = {
   list: (): Promise<WorkspaceDto[]> => call('list'),
 
-  open: (rootPath: string): Promise<WorkspaceDto> => call('open', { rootPath }),
+  open: (rootPath: string, name?: string): Promise<WorkspaceDto> =>
+    call('open', { rootPath, name }),
 
-  delete: (workspaceId: string): Promise<void> => call('delete', { workspaceId }),
+  get: (workspaceId: string): Promise<WorkspaceDto> => call('get', { workspaceId }),
 
-  addExtraPath: (workspaceId: string, path: string): Promise<unknown /* ExtraPathDto */> =>
-    call('add_extra_path', { workspaceId, path }),
+  delete: (workspaceId: string, force = false): Promise<void> =>
+    call('delete', { workspaceId, force }),
 
-  removeExtraPath: (workspaceId: string, extraPathId: string): Promise<void> =>
-    call('remove_extra_path', { workspaceId, extraPathId }),
+  detectVenv: (workspaceId: string): Promise<VenvSpec | null> =>
+    call('detect_venv', { workspaceId }),
+
+  addExtraPath: (
+    workspaceId: string,
+    path: string,
+    label?: string,
+  ): Promise<ExtraPathDto> => call('add_extra_path', { workspaceId, path, label }),
+
+  removeExtraPath: (workspaceId: string, path: string): Promise<void> =>
+    call('remove_extra_path', { workspaceId, path }),
+
+  listExtraPaths: (workspaceId: string): Promise<ExtraPathDto[]> =>
+    call('list_extra_paths', { workspaceId }),
+
+  effectivePaths: (workspaceId: string): Promise<EffectivePathsDto> =>
+    call('effective_paths', { workspaceId }),
 };
 
 // === Config commands (F05) ===
@@ -225,4 +241,12 @@ export const events = {
   subagentAborted: (
     cb: (p: { parentRunId: string; childSessionId: string; reason: string }) => void,
   ) => listen('subagent.aborted.v1', cb),
+
+  // workspace.*.v1 (F02)
+  workspaceExtraPathAdded: (
+    cb: (p: { workspaceId: string; path: string; label?: string }) => void,
+  ) => listen('workspace.extra_path_added.v1', cb),
+  workspaceExtraPathRemoved: (
+    cb: (p: { workspaceId: string; path: string }) => void,
+  ) => listen('workspace.extra_path_removed.v1', cb),
 };

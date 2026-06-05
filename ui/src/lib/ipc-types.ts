@@ -42,6 +42,21 @@ export interface ExtraPathDto {
   id: string;
   path: string;
   label: string;
+  addedAt: number;
+}
+
+/** Effective paths the agent can operate on. */
+export interface EffectivePathsDto {
+  root: string;
+  extras: string[];
+}
+
+/** A detected venv (returned by `workspace.detect_venv`). */
+export interface VenvSpec {
+  kind: 'uv' | 'venv';
+  path: string;
+  python: string;
+  version: string;
 }
 
 /** Result of a `providers.test_connection` call. */

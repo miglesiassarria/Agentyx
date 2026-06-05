@@ -7,8 +7,8 @@
 //! - macOS: full menu bar with app name first.
 //! - Windows / Linux: window menu only.
 
-use tauri::menu::{Menu, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
-use tauri::{AppHandle, Manager, Runtime};
+use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
+use tauri::{AppHandle, Runtime};
 
 /// Build and set the application menu. Called from the `setup` hook.
 pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {

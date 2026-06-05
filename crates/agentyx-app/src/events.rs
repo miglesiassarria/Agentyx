@@ -12,7 +12,7 @@
 use std::sync::Arc;
 
 use serde::Serialize;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter};
 
 /// Thin wrapper around an `AppHandle` that knows how to publish
 /// events to the main window.
