@@ -59,16 +59,10 @@ jobs:
 
   rust-test:
     name: cargo test
-    # v0.1: Linux only. macOS and Windows runners cost more minutes and
-    # need extra Tauri runtime setup (codesign, MSVC, etc.) that we
-    # don't have to defend yet. Re-enable the full matrix when we have
-    # a real release artifact to validate across OSes.
-    # See AGENTS.md section 3 (desktop shell targets).
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        # os: [ubuntu-latest, macos-latest, windows-latest]
         os: [ubuntu-latest]
     steps:
       - uses: actions/checkout@v4
