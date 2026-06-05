@@ -206,13 +206,31 @@ fn pyproject_venv(root: &Path) -> AppResult<Option<VenvSpec>> {
 mod tests {
     use super::*;
 
+    /// Create a stub venv layout inside `venv` matching the
+    /// platform convention expected by [`detect_venv`]:
+    /// `bin/python` on Unix, `Scripts/python.exe` on Windows.
+    /// The content is a stub; `detect_venv` only checks for
+    /// existence.
+    fn stub_venv_layout(venv: &std::path::Path) {
+        let exe_dir = if cfg!(target_os = "windows") {
+            venv.join("Scripts")
+        } else {
+            venv.join("bin")
+        };
+        let exe = if cfg!(target_os = "windows") {
+            exe_dir.join("python.exe")
+        } else {
+            exe_dir.join("python")
+        };
+        std::fs::create_dir_all(&exe_dir).unwrap();
+        std::fs::write(&exe, "#!/bin/sh\necho 3.12\n").unwrap();
+    }
+
     #[test]
     fn detect_venv_with_dotvenv() {
         let dir = tempfile::tempdir().unwrap();
         let dot_venv = dir.path().join(".venv");
-        let bin = dot_venv.join("bin");
-        std::fs::create_dir_all(&bin).unwrap();
-        std::fs::write(bin.join("python"), "#!/bin/sh\necho 3.12").unwrap();
+        stub_venv_layout(&dot_venv);
 
         let spec = detect_venv(dir.path(), None).unwrap();
         let spec = spec.expect("should detect .venv");
@@ -224,9 +242,7 @@ mod tests {
     fn detect_venv_with_legacy_venv() {
         let dir = tempfile::tempdir().unwrap();
         let venv = dir.path().join("venv");
-        let bin = venv.join("bin");
-        std::fs::create_dir_all(&bin).unwrap();
-        std::fs::write(bin.join("python"), "#!/bin/sh").unwrap();
+        stub_venv_layout(&venv);
 
         let spec = detect_venv(dir.path(), None).unwrap();
         let spec = spec.expect("should detect legacy venv");
@@ -253,9 +269,7 @@ mod tests {
     fn detect_venv_with_override_path() {
         let dir = tempfile::tempdir().unwrap();
         let custom = dir.path().join("custom-venv");
-        let bin = custom.join("bin");
-        std::fs::create_dir_all(&bin).unwrap();
-        std::fs::write(bin.join("python"), "").unwrap();
+        stub_venv_layout(&custom);
 
         let spec = detect_venv(dir.path(), Some(&custom)).unwrap();
         let spec = spec.expect("should respect override");

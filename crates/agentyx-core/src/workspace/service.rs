@@ -806,8 +806,15 @@ mod tests {
         svc.add_extra_path(ws.id, extra.path(), None).unwrap();
         let eff = svc.effective_paths(ws.id).unwrap();
 
-        assert!(eff.contains(&root));
-        assert!(eff.contains(&subdir_in_extra));
-        assert!(!eff.contains(unrelated.path()));
+        // `effective_paths` returns canonical paths (with the
+        // Windows verbatim `\\?\` prefix on win). Compare
+        // canonical-to-canonical so the assertion is meaningful
+        // cross-platform.
+        let root_c = crate::workspace::canonicalize(&root).unwrap();
+        let sub_c = crate::workspace::canonicalize(&subdir_in_extra).unwrap();
+        let unrelated_c = crate::workspace::canonicalize(unrelated.path()).unwrap();
+        assert!(eff.contains(&root_c));
+        assert!(eff.contains(&sub_c));
+        assert!(!eff.contains(&unrelated_c));
     }
 }
