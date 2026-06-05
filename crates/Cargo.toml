@@ -72,6 +72,15 @@ validator = { version = "0.18", features = ["derive"] }
 # Keychain
 keyring = { version = "2.3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 
+# Target-specific — declared here (where they're allowed) and
+# used by individual crates under their own [target] sections.
+core-foundation = "0.10"
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_UI_Shell",
+    "Win32_System_Com",
+] }
+
 # Tauri
 tauri = { version = "2.0", features = [] }
 tauri-plugin-dialog = "2.0"
