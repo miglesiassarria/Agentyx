@@ -70,7 +70,7 @@ url = "2.5"
 validator = { version = "0.18", features = ["derive"] }
 
 # Keychain
-keyring = { version = "2.3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 
 # Target-specific — declared here (where they're allowed) and
 # used by individual crates under their own [target] sections.

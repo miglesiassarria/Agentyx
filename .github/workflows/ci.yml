@@ -114,7 +114,7 @@ jobs:
   # -------- Frontend --------
 
   ui-install:
-    name: UI install
+    name: UI install (smoke)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -122,11 +122,6 @@ jobs:
         with:
           bun-version: 1.1.0
       - run: bun install --frozen-lockfile
-      - uses: actions/upload-artifact@v4
-        with:
-          name: node_modules
-          path: node_modules
-          retention-days: 1
 
   ui-typecheck:
     name: UI typecheck
@@ -137,10 +132,7 @@ jobs:
       - uses: oven-sh/setup-bun@v1
         with:
           bun-version: 1.1.0
-      - uses: actions/download-artifact@v4
-        with:
-          name: node_modules
-          path: node_modules
+      - run: bun install --frozen-lockfile
       - working-directory: ui
         run: bun run typecheck
 
@@ -153,15 +145,13 @@ jobs:
       - uses: oven-sh/setup-bun@v1
         with:
           bun-version: 1.1.0
-      - uses: actions/download-artifact@v4
-        with:
-          name: node_modules
-          path: node_modules
+      - run: bun install --frozen-lockfile
       - working-directory: ui
         run: bun run lint
 
   ui-format:
     name: UI format
+    needs: ui-install
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -181,10 +171,7 @@ jobs:
       - uses: oven-sh/setup-bun@v1
         with:
           bun-version: 1.1.0
-      - uses: actions/download-artifact@v4
-        with:
-          name: node_modules
-          path: node_modules
+      - run: bun install --frozen-lockfile
       - working-directory: ui
         run: bun run test
 
@@ -197,10 +184,7 @@ jobs:
       - uses: oven-sh/setup-bun@v1
         with:
           bun-version: 1.1.0
-      - uses: actions/download-artifact@v4
-        with:
-          name: node_modules
-          path: node_modules
+      - run: bun install --frozen-lockfile
       - working-directory: ui
         run: bun run build
 
