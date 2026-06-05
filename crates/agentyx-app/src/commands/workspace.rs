@@ -399,6 +399,27 @@ mod tests {
         (home, state)
     }
 
+    /// Create a placeholder `.venv/` inside `root` that matches
+    /// the platform convention expected by `detect_venv`:
+    /// `.venv/bin/python` on Unix, `.venv/Scripts/python.exe` on
+    /// Windows. The content is a stub — `detect_venv` only checks
+    /// that the executable path exists, not that it runs.
+    fn stub_venv(root: &std::path::Path) {
+        let venv = root.join(".venv");
+        let exe_dir = if cfg!(target_os = "windows") {
+            venv.join("Scripts")
+        } else {
+            venv.join("bin")
+        };
+        let exe = if cfg!(target_os = "windows") {
+            exe_dir.join("python.exe")
+        } else {
+            exe_dir.join("python")
+        };
+        std::fs::create_dir_all(&exe_dir).unwrap();
+        std::fs::write(&exe, "#!/bin/sh\nstub\n").unwrap();
+    }
+
     /// Create a workspace under a path that the workspace-root
     /// whitelist accepts. On macOS the whitelist is `/Users`; on
     /// Linux it's `/home`. We synthesize a path inside
@@ -501,10 +522,7 @@ mod tests {
         // A workspace with .venv → has_venv is true.
         let (_home, state) = fresh_state().await;
         let (root, _ws) = make_workspace(&state, "main");
-        let venv = root.path().join(".venv");
-        let bin = venv.join("bin");
-        std::fs::create_dir_all(&bin).unwrap();
-        std::fs::write(bin.join("python"), "#!/bin/sh").unwrap();
+        stub_venv(root.path());
 
         let out = list_impl(&state.workspaces).await.unwrap();
         assert!(out[0].has_venv);
@@ -562,10 +580,7 @@ mod tests {
     async fn detect_venv_impl_finds_dotvenv() {
         let (_home, state) = fresh_state().await;
         let (root, ws) = make_workspace(&state, "main");
-        let venv = root.path().join(".venv");
-        let bin = venv.join("bin");
-        std::fs::create_dir_all(&bin).unwrap();
-        std::fs::write(bin.join("python"), "#!/bin/sh").unwrap();
+        stub_venv(root.path());
 
         let out = detect_venv_impl(&state.workspaces, ws.id)
             .await
@@ -759,10 +774,7 @@ mod tests {
         assert!(!dto.has_venv);
 
         // Now add a venv and convert again.
-        let venv = dir.path().join(".venv");
-        let bin = venv.join("bin");
-        std::fs::create_dir_all(&bin).unwrap();
-        std::fs::write(bin.join("python"), "#!/bin/sh").unwrap();
+        stub_venv(dir.path());
 
         let ws2 = Workspace {
             id: WorkspaceId::new(),
