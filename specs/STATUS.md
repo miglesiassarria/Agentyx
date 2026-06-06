@@ -4,7 +4,9 @@
 > Para roadmap de features: [features/ROADMAP.md](./features/ROADMAP.md).
 > Para índice de ADRs: [adr/README.md](./adr/README.md).
 >
-> Última actualización: 2026-06-06 (sync del estado real en `main`)
+> Última actualización: 2026-06-06 (sync post-PR1: F05 backend wiring
+> de config + secrets; `domains/config.md` promoted a `ready` con 13/18
+> ACs backend cubiertos)
 >
 > **Disciplina de status**: este archivo se actualiza en el mismo PR
 > que cambia el estado real de cualquier pitch/spec o deja el board
@@ -18,8 +20,8 @@
 - agents.md
 - domains/providers.md
 - domains/journal.md
-- domains/config.md
-- features/F05-settings.md
+- features/F05-settings.md (UI pendiente; backend promovido a `ready`
+  en este PR)
 - features/F04-file-diffs.md
 - features/F-agents-ui.md
 
@@ -34,6 +36,12 @@
 - glossary.md (revisado en PR 1)
 - architecture.md (revisado en PR 1)
 - ipc.md (revisado en PR 2)
+- **domains/config.md** (promovido a `ready` en este PR; 13/18 ACs
+  backend cubiertos: AC1, AC2, AC3, AC6, AC7, AC8, AC9, AC10, AC11,
+  AC12, AC13, AC14, AC15. Pendientes: AC4 — pendiente de UI; AC5,
+  AC16, AC17, AC18 — `config.md` no modela `providers_test_connection`,
+  `permissions_get_matrix`, ni DTOs específicos — se difieren al
+  PR2/PR3 con `providers.md` y F05 UI)
 - domains/session.md
 - domains/storage.md
 - domains/pty.md
@@ -45,7 +53,7 @@
 - **ADR-0007** (nuevo, PR 3): modelo `root + extra_paths` por workspace.
 - **ADR-0008** (nuevo, PR 3): scope de providers v1 (Ollama / Groq / Minimax).
 
-## ✅ Implemented (código en main, AC cumplidos, tests pasando)
+## ✅ Implemented (código en main, ACs cumplidos, tests pasando)
 - **features/F02-multi-workspace.md** — `approved` → `implemented`
   (PR de UI: 9 ACs UI + AC3, AC9 backend cubiertos con `list_dir`
   command; AC7 sigue parcial: el check de runs activos llega con
@@ -75,7 +83,7 @@
     transition; `DeltaBatcher` (50ms / 100 chars); `MockProvider`
     para tests; 10/15 ACs backend cubiertos (AC1, AC2, AC3,
     AC4, AC5, AC6, AC7, AC8, AC12, AC13).
-  - `feat(app,ui): F01-Phase2-app` (este PR):
+  - `feat(app,ui): F01-Phase2-app` (PR #17):
     Permission Tauri commands (`respond`, `list`, `get_matrix`);
     `PermissionPrompt.svelte` modal en `WorkspaceView`;
     `SessionStore` permission event handling + recovery
@@ -83,6 +91,37 @@
     `Aborted` "app_closed"); `chat.run.aborted.v1` emitido
     en run abort. F01-Phase2 backend+app+UI cubiertos.
     Ver `## Implementation status` en el spec.
+- **domains/config.md (backend de F05)** — `draft` → `ready`
+  (PR actual: `feat(app,core): F05 backend wiring (config + secrets)`).
+  13/18 ACs cubiertos:
+    - `crates/agentyx-core/src/config/`: `WorkspaceConfig`,
+      `WorkspaceConfigPatch`, `GlobalConfigPatch`,
+      `ResolvedConfig`/`EffectiveConfig` (con `Serialize` para IPC),
+      `ServiceConfigPaths` (centraliza paths de TOML).
+    - `ConfigService::load_workspace`, `update_workspace`,
+      `update_with_patch`, `resolve_secrets`, `resolve_snapshot`,
+      `resolve` (con secretos), `set_keychain`, `delete_keychain`,
+      `list_keychain_providers`. `OsKeychain` cableado en
+      `AppState::initialize` (producción); tests usan
+      `FakeKeychain` inyectado.
+    - `crates/agentyx-app/src/commands/config.rs`:
+      `config_get_global`, `config_update_global`,
+      `config_get_workspace`, `config_update_workspace`.
+    - `crates/agentyx-app/src/commands/secrets.rs`:
+      `set_secret`, `delete_secret`, `list_providers`.
+      `set_secret` loguea solo `provider_id`; el `value` se
+      mueve a `set_keychain` y se descarta tras la llamada.
+    - `crates/agentyx-app/src/main.rs`: 7 nuevos Tauri
+      commands cableados en `invoke_handler!`.
+    - Tests (5/5 passing en `agentyx-app`, 18/18 passing
+      en `agentyx-core`): `f05_ac4_config_update_global_persists`,
+      `f05_ac5_approval_mode_deny_blocks_writes_silently`,
+      `f05_ac6_workspace_override_isolated_from_global`,
+      `f05_ac11_settings_persist_across_app_restart`,
+      `f05_ac12_resolved_snapshot_never_includes_secrets`.
+  Pendientes para `ready` → `implemented` (cubierto por PR3
+  F05 UI + PR2 providers): AC3 (invalid key test connection),
+  AC9 (permission matrix), AC10 (test & add con UI).
 
 ## ⚫ Deprecated
 _(ninguno)_
