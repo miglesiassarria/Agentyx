@@ -8,17 +8,20 @@ the work to get it done. Built for action, not for programming.
 
 ## Status
 
-**v0.1.0** — Bootstrap. The specs are all `approved` and the
-monorepo skeleton is in place. No business logic is implemented
-yet; `cargo tauri dev` should boot a placeholder window.
+**v0.1.0** — MVP foundation in progress. The monorepo skeleton is in
+place, F02 multi-workspace is implemented, and F01 chat streaming has
+the core/app/UI Phase 1 + Phase 2 foundation in `main`. Settings,
+diffs, and the full agents UI remain the next MVP blocks.
 
 | Component | State |
 |---|---|
-| Specs (18) | `approved` (see `specs/STATUS.md`) |
+| Specs | mixed: `implemented`, `approved`, `review`, and `draft` (see `specs/STATUS.md`) |
 | Monorepo skeleton | ✅ in place |
-| Domain logic (F01–F05) | 🚧 in `draft` of `crates/agentyx-core` |
-| Tauri commands | 🚧 stubs returning `not yet implemented` |
-| UI components | 🚧 placeholder `app.svelte` |
+| F02 multi-workspace | ✅ implemented, with AC7 still tracked as partial |
+| F01 chat streaming | 🚧 implemented partial: sessions, events, read-only tools, permissions, chat UI |
+| F05 settings | 🚧 draft; config/provider/secrets commands still placeholder |
+| F04 file diffs | 🚧 draft; not implemented |
+| F-agents-ui | 🚧 draft; agent model exists, dedicated UI still pending |
 | CI (fmt, clippy, test, audit, deny, typecheck, vitest) | ✅ GitHub Actions |
 
 ## Project layout
@@ -26,13 +29,13 @@ yet; `cargo tauri dev` should boot a placeholder window.
 ```
 agentyx/
 ├── AGENTS.md              # rules and architecture for AI/human agents
-├── specs/                 # spec-driven design (18 specs approved)
+├── specs/                 # spec-driven design and status board
 │   ├── STATUS.md          # board by status
-│   ├── ROADMAP.md         # features by phase
+│   ├── features/ROADMAP.md # features by phase
 │   ├── architecture.md    # global architecture
 │   ├── ipc.md             # IPC contract
 │   ├── agents.md          # multi-agent model
-│   ├── domains/           # 8 domain specs
+│   ├── domains/           # domain specs
 │   └── features/          # 5 feature specs
 ├── crates/                # Rust workspace
 │   ├── agentyx-core/      # pure Rust domain (no Tauri)

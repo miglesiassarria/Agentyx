@@ -16,7 +16,7 @@
 | [glossary.md](./glossary.md) | global | approved | @miglesias | 2026-06-05 |
 | [architecture.md](./architecture.md) | global | approved | @miglesias | 2026-06-05 |
 | [ipc.md](./ipc.md) | global | approved | @miglesias | 2026-06-05 |
-| [agents.md](./agents.md) | domain | **draft** | @miglesias | 2026-06-06 |
+| [agents.md](./agents.md) | domain | draft | @miglesias | 2026-06-06 |
 | [domains/](./domains/) | domain | ver STATUS | — | — |
 | [features/](./features/) | feature | ver STATUS | — | — |
 | [adr/](./adr/) | adr | ver [adr/README.md](./adr/README.md) | — | 2026-06-05 |

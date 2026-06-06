@@ -4,7 +4,7 @@
 > Para roadmap de features: [features/ROADMAP.md](./features/ROADMAP.md).
 > Para índice de ADRs: [adr/README.md](./adr/README.md).
 >
-> Última actualización: 2026-06-06 (Agent context compactado en specs MVP)
+> Última actualización: 2026-06-06 (sync del estado real en `main`)
 >
 > **Disciplina de status**: este archivo se actualiza en el mismo PR
 > que cambia el estado real de cualquier pitch/spec o deja el board
@@ -15,33 +15,29 @@
 > `approved` e `implemented` siguen aceptados para specs existentes.
 
 ## 🟡 Draft (en construcción)
-_(vacío)_
+- agents.md
+- domains/providers.md
+- domains/journal.md
+- domains/config.md
+- features/F05-settings.md
+- features/F04-file-diffs.md
+- features/F-agents-ui.md
 
 ## 🔵 Review (pendiente de aprobación)
-_(vacío)_
+- domains/agent-loop.md
+- domains/workspace.md
+- domains/permissions.md
+- domains/tools.md
 
 ## 🟢 Approved (listo para implementar)
 - project.md (revisado en PR 1)
 - glossary.md (revisado en PR 1)
 - architecture.md (revisado en PR 1)
 - ipc.md (revisado en PR 2)
-- agents.md (revisado en PR 3 — sistema multi-agente)
-- domains/agent-loop.md (revisado en PR 3)
-- domains/workspace.md (revisado en PR 3)
-- domains/permissions.md (revisado en PR 3)
-- domains/tools.md (revisado en PR 3)
-- domains/providers.md (revisado en PR 3 — reescritura mayor: Ollama / Groq / Minimax)
-- domains/journal.md (revisado en PR de foundational — log append-only SQLite puro)
-- domains/config.md (revisado en PR de foundational — TOML + SecretRef/env/keychain)
 - domains/session.md
 - domains/storage.md
 - domains/pty.md
 - features/ROADMAP.md (revisado en PR 5: v0.1 sin F03; F-agents-ui nuevo; F-extra-paths-* en v0.1.x)
-- features/F02-multi-workspace.md *(backend 17/18 + UI 9/9 implementado en PRs #5, #6 y este PR; AC7 parcial — ver § Implementation status en el spec)*
-- features/F05-settings.md (revisado en este PR — Providers/Models/Approval/Workspace tabs)
-- features/F01-chat-streaming.md (revisado en este PR — chat streaming LLM + multi-agent)
-- features/F04-file-diffs.md (revisado en este PR — CodeMirror merge read-only v0.1)
-- features/F-agents-ui.md (revisado en este PR — AgentChip + Cmd+[/] + @mention + SessionTree)
 
 ## ADRs
 
@@ -100,21 +96,17 @@ _(ninguno)_
 
 ### Para el MVP (v0.1)
 
-> **Actualizado tras Fase B** (2026-06-05). Las 5 specs fundamentales
-> del MVP ya están redactadas en `draft` (journal, config, F01, F05,
-> F04, F-agents-ui) y el dominio `agents.md` se promueve en PR 2.
->
-> Tras la aprobación del WT actual (PR 3+4), las specs a promover a
-> `review` y luego `approved` son, en este orden:
->
-> 1. `journal.md` + `config.md` (bloqueantes de F01 y F05).
-> 2. `F05-settings.md` (bloqueante de F01).
-> 3. `F01-chat-streaming.md` (feature principal).
-> 4. `F04-file-diffs.md` (depende de F01).
-> 5. `F-agents-ui.md` (depende de F01).
->
-> Cuando todas estén `approved`, se puede arrancar la implementación
-> del MVP (Fase C del plan: bootstrap del monorepo + Fase D: features).
+> F02 está implementada y F01 tiene la foundation core/app/UI en
+> `main`. El siguiente trabajo MVP es cerrar la configuración real de
+> providers/secrets (F05), completar los AC abiertos de F01, y después
+> implementar F-agents-ui y F04.
+
+1. `F05-settings.md` + `domains/config.md`: reemplazar placeholders
+   de `config`, `providers` y `secrets` por comandos reales.
+2. `F01-chat-streaming.md`: cerrar AC9, AC10, AC11 y AC14.
+3. `F-agents-ui.md`: AgentChip, cycle shortcuts, @mention popover y
+   SessionTree.
+4. `F04-file-diffs.md`: diffs read-only sobre eventos/tool results.
 
 ### Para v0.1.x (no bloquea MVP)
 
@@ -124,16 +116,13 @@ _(ninguno)_
 
 ### Gaps conocidos
 
-- **`agents.md` está en `draft`** (no en `review`/`approved`) — está en
-  el WT pero aún no se ha promovido formalmente.
-- **El schema de `sessions` con `parent_session_id` para soportar
-  child sessions** se introduce en F01 + F-agents-ui; requiere
-  migración de `state.db` antes de implementar F-agents-ui si
-  F-agents-ui entra antes que F01 (no es el caso previsto en
-  ROADMAP: F-agents-ui depende de F01).
-- **Plan original mencionaba "PR 5" para ROADMAP**; tras la
-  ampliación a Fase B, los PRs 5+ deberían cubrir la promoción
-  de las 6 specs nuevas a `review`/`approved`.
+- **F02.AC7** sigue parcial: borrar un workspace con runs activos
+  requiere cerrar el comportamiento final contra session/agent-loop.
+- **`agents.md` sigue en `draft`** aunque parte del modelo built-in ya
+  existe en core; F-agents-ui debe decidir si promueve la spec o la
+  mantiene como dominio en diseño.
+- **F05 tiene comandos placeholder** en `agentyx-app` para config,
+  providers y secrets; es el bloqueo más directo para dogfooding.
 
 ## Reglas de transición
 

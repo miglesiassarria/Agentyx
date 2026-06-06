@@ -32,9 +32,9 @@
 
 | ID | Feature | Status | Affects | Depends on | Phase |
 |---|---|---|---|---|---|
-| [F02](F02-multi-workspace.md) | Multi-workspace: list, open, delete, **extra paths**, badge venv pasivo | review | workspace, tools, permissions | — | 1 |
+| [F02](F02-multi-workspace.md) | Multi-workspace: list, open, delete, **extra paths**, badge venv pasivo | implemented (AC7 partial) | workspace, tools, permissions | — | 1 |
 | [F05](F05-settings.md) | Settings: providers activos (Ollama/Groq/Minimax), modelos, keychain entry, approval_mode | draft (2026-06-05) | providers, permissions, **config** | F02 | 2 |
-| [F01](F01-chat-streaming.md) | Chat con streaming LLM (provider agnóstico, multi-agent: build/plan) | draft (2026-06-05) | agent-loop, providers, session, **agents**, **journal** | F02, F05 | 3 |
+| [F01](F01-chat-streaming.md) | Chat con streaming LLM (provider agnóstico, multi-agent: build/plan) | implemented partial (Phase 1 + Phase 2 foundation) | agent-loop, providers, session, **agents**, **journal** | F02, F05 | 3 |
 | [F04](F04-file-diffs.md) | File diffs en UI (CodeMirror merge) tras edit_file / apply_patch — **read-only en v0.1** | draft (2026-06-05) | tools, ui | F01, F02 | 4 |
 | [F-agents-ui](F-agents-ui.md) | UI multi-agent: cycle con Cmd+[/] entre build/plan, @mention popover, SessionTree en sidebar | draft (2026-06-05) | ui, agent-loop, **agents**, session | F01 | 5 |
 
@@ -45,9 +45,10 @@
 
 ### Especs de dominio nuevas en Fase B (2026-06-05)
 
-> Las 6 specs escritas en Fase B (este commit de docs) son
-> prerrequisito de las features de arriba. Aún en `draft`,
-> pendientes de promoción a `review` / `approved`:
+> Las specs escritas en Fase B siguen siendo el contexto de diseño de
+> las features de arriba. Su estado actual se consulta en
+> [`../STATUS.md`](../STATUS.md); F01/F02 ya tienen implementación en
+> `main`, mientras F05/F04/F-agents-ui siguen pendientes.
 
 - [`domains/journal.md`](../domains/journal.md) — log append-only en
   SQLite puro (16 ACs). Bloqueante de F01.
@@ -70,21 +71,22 @@
 
 ### Acceptance de v0.1
 
-- [ ] Abrir un workspace y ver su árbol de archivos.
-- [ ] Si el workspace tiene venv, ver el badge "🐍 .venv X.Y".
-- [ ] Si el workspace no tiene venv, **no** se muestra badge ni CTA
+- [x] Abrir un workspace y ver su árbol de archivos.
+- [x] Si el workspace tiene venv, ver el badge "🐍 .venv X.Y".
+- [x] Si el workspace no tiene venv, **no** se muestra badge ni CTA
   (es válido).
-- [ ] Añadir 1 directorio extra al workspace desde la UI y verlo en
+- [x] Añadir 1 directorio extra al workspace desde la UI y verlo en
   la sección "Extras" del sidebar.
-- [ ] El agente puede leer y escribir en el extra path añadido.
-- [ ] Quitar un extra path con confirmación.
+- [ ] El agente puede leer en el extra path añadido; escritura queda
+  para tools de escritura/diffs.
+- [x] Quitar un extra path con confirmación.
 - [ ] Configurar al menos 1 provider (Ollama local) en Settings.
-- [ ] Chatear con streaming visible.
+- [x] Chatear con streaming visible.
 - [ ] Cambiar entre primary `build` y `plan` con Tab y ver cómo
   cambia el system prompt y las tools disponibles.
-- [ ] Cuando el modelo pide `read_file`, ver el archivo en la UI.
-- [ ] Persistir mensajes y journal entre sesiones de la app.
-- [ ] Cerrar y reabrir la app → workspaces, sesiones y extra paths
+- [x] Cuando el modelo pide `read_file`, ver el resultado en la UI.
+- [x] Persistir mensajes y journal entre sesiones de la app.
+- [x] Cerrar y reabrir la app → workspaces, sesiones y extra paths
   intactos.
 
 ---
