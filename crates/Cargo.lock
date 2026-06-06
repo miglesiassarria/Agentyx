@@ -48,6 +48,7 @@ dependencies = [
  "ulid",
  "url",
  "windows 0.58.0",
+ "wiremock",
 ]
 
 [[package]]

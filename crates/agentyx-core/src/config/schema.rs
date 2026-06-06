@@ -24,6 +24,17 @@ pub struct ProviderConfig {
     pub models: Option<Vec<String>>,
 }
 
+impl Default for ProviderConfig {
+    fn default() -> Self {
+        Self {
+            base_url: String::new(),
+            enabled: true,
+            api_key: None,
+            models: None,
+        }
+    }
+}
+
 /// Reference to a secret (API key, bearer token). Serialized as
 /// a string in TOML: `env:VAR_NAME` or `keychain:account`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -201,6 +212,113 @@ impl Default for GlobalConfig {
     }
 }
 
+/// Per-workspace config overrides. Persisted at
+/// `<workspace_root>/.agentyx/config.toml` (note: the workspace
+/// `service.rs` uses a different layout — `<home>/workspaces/<id>/config.toml`
+/// — but the schema is the same). All fields are optional; missing
+/// fields fall back to `GlobalConfig`.
+///
+/// See `specs/domains/config.md` §State.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceConfig {
+    /// Schema version. Must be `1` in v0.1.
+    pub version: u32,
+    /// Override the default provider in this workspace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_provider: Option<ProviderId>,
+    /// Override the default model in this workspace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_model: Option<String>,
+    /// Override the approval mode in this workspace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approval_mode: Option<ApprovalMode>,
+    /// Workspace-specific settings.
+    #[serde(default)]
+    pub workspace: WorkspaceSettings,
+}
+
+/// Workspace settings: ignore patterns, journal cap, etc.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceSettings {
+    /// Glob patterns to ignore in `search` and the file watcher.
+    #[serde(default)]
+    pub ignore_patterns: Vec<String>,
+    /// Maximum number of journal rows before archiving (default 100_000).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub journal_max_rows: Option<u64>,
+}
+
+impl WorkspaceSettings {
+    /// Default ignore patterns (used when no workspace config exists).
+    pub const DEFAULT_IGNORE_PATTERNS: &'static [&'static str] = &[
+        ".git/",
+        "node_modules/",
+        "target/",
+        "__pycache__/",
+        ".venv/",
+        "venv/",
+        "dist/",
+        "build/",
+        ".next/",
+        ".cache/",
+    ];
+
+    /// Convert to a fresh `Vec<String>` from the defaults.
+    #[must_use]
+    pub fn default_ignore() -> Vec<String> {
+        Self::DEFAULT_IGNORE_PATTERNS
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect()
+    }
+}
+
+impl WorkspaceConfig {
+    /// Default value (used when no `config.toml` exists for the workspace).
+    #[must_use]
+    pub fn defaults() -> Self {
+        Self {
+            version: 1,
+            default_provider: None,
+            default_model: None,
+            approval_mode: None,
+            workspace: WorkspaceSettings {
+                ignore_patterns: WorkspaceSettings::default_ignore(),
+                journal_max_rows: Some(100_000),
+            },
+        }
+    }
+
+    /// Validate the workspace config. Returns `InvalidInput` on
+    /// the first problem.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.version != 1 {
+            return Err(format!(
+                "Workspace config version {} is not supported. Expected 1.",
+                self.version
+            ));
+        }
+        if self.default_model.is_some() && self.default_model.as_deref() == Some("") {
+            return Err("default_model cannot be empty when set".into());
+        }
+        if let Some(rows) = self.workspace.journal_max_rows {
+            if !(1_000..=10_000_000).contains(&rows) {
+                return Err(format!(
+                    "journal_max_rows {rows} out of range [1000, 10000000]"
+                ));
+            }
+        }
+        for pat in &self.workspace.ignore_patterns {
+            if pat.is_empty() {
+                return Err("ignore_patterns entry cannot be empty".into());
+            }
+        }
+        Ok(())
+    }
+}
+
 impl GlobalConfig {
     /// Validate the config. Returns `InvalidInput` on the first
     /// problem.
@@ -301,5 +419,235 @@ mod tests {
         let mut cfg = GlobalConfig::default();
         cfg.providers.get_mut("ollama").unwrap().base_url = "not a url".into();
         assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn workspace_config_defaults_are_valid() {
+        let cfg = WorkspaceConfig::defaults();
+        cfg.validate().unwrap();
+    }
+
+    #[test]
+    fn workspace_config_rejects_wrong_version() {
+        let mut cfg = WorkspaceConfig::defaults();
+        cfg.version = 99;
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn workspace_config_rejects_journal_max_rows_out_of_range() {
+        let mut cfg = WorkspaceConfig::defaults();
+        cfg.workspace.journal_max_rows = Some(500);
+        assert!(cfg.validate().is_err());
+
+        cfg.workspace.journal_max_rows = Some(100_000_000);
+        assert!(cfg.validate().is_err());
+
+        cfg.workspace.journal_max_rows = Some(50_000);
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn workspace_config_rejects_empty_ignore_pattern() {
+        let mut cfg = WorkspaceConfig::defaults();
+        cfg.workspace.ignore_patterns.push(String::new());
+        assert!(cfg.validate().is_err());
+    }
+}
+
+/// Patch for a `GlobalConfig`. All fields are optional; `None`
+/// means "leave unchanged". Used by the `config_update_global`
+/// Tauri command (F05).
+///
+/// Per `config.md` §Contracts, secrets are **never** written via
+/// the patch. The UI uses the dedicated `secrets_set` command for
+/// that, which writes to the OS keychain.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GlobalConfigPatch {
+    /// New approval mode, if changing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approval_mode: Option<ApprovalMode>,
+    /// New default provider, if changing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_provider: Option<ProviderId>,
+    /// New default model, if changing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_model: Option<String>,
+    /// Provider updates, keyed by provider id. Add/update/remove
+    /// semantics: if the entry exists, it is updated; if it doesn't
+    /// exist, it is added. The patch does NOT support removing
+    /// providers (UI uses a separate flow).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub providers: Option<HashMap<ProviderId, ProviderConfig>>,
+    /// New UI settings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ui: Option<UiConfig>,
+    /// Toggle telemetry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub telemetry_enabled: Option<bool>,
+    /// Toggle update check.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub check_updates: Option<bool>,
+    /// New update channel.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub update_channel: Option<UpdateChannel>,
+}
+
+impl GlobalConfigPatch {
+    /// Returns `true` if the patch contains no changes.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.approval_mode.is_none()
+            && self.default_provider.is_none()
+            && self.default_model.is_none()
+            && self.providers.is_none()
+            && self.ui.is_none()
+            && self.telemetry_enabled.is_none()
+            && self.check_updates.is_none()
+            && self.update_channel.is_none()
+    }
+
+    /// Apply the patch to `cfg`, returning the new `GlobalConfig`.
+    /// Re-validation is the caller's responsibility.
+    pub fn apply_to(&self, cfg: &mut GlobalConfig) {
+        if let Some(m) = self.approval_mode {
+            cfg.approval_mode = m;
+        }
+        if let Some(ref p) = self.default_provider {
+            cfg.default_provider = p.clone();
+        }
+        if let Some(ref m) = self.default_model {
+            cfg.default_model = m.clone();
+        }
+        if let Some(ref providers) = self.providers {
+            for (id, p) in providers {
+                cfg.providers.insert(id.clone(), p.clone());
+            }
+        }
+        if let Some(ref ui) = self.ui {
+            cfg.ui = ui.clone();
+        }
+        if let Some(t) = self.telemetry_enabled {
+            cfg.telemetry_enabled = t;
+        }
+        if let Some(c) = self.check_updates {
+            cfg.check_updates = c;
+        }
+        if let Some(c) = self.update_channel {
+            cfg.update_channel = c;
+        }
+    }
+}
+
+/// Patch for a `WorkspaceConfig`. Mirrors `GlobalConfigPatch`
+/// but with workspace-scoped fields only.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceConfigPatch {
+    /// New approval mode override, if changing. `Some(None)` is
+    /// not representable in TOML; to clear an override, the UI
+    /// re-sends the full workspace config without the field. Here
+    /// we use a wrapper: `Some(Some(mode))` to set, `None` to leave
+    /// alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approval_mode: Option<Option<ApprovalMode>>,
+    /// New default provider override.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_provider: Option<Option<ProviderId>>,
+    /// New default model override.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_model: Option<Option<String>>,
+    /// New workspace settings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<WorkspaceSettings>,
+}
+
+impl WorkspaceConfigPatch {
+    /// Returns `true` if the patch contains no changes.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.approval_mode.is_none()
+            && self.default_provider.is_none()
+            && self.default_model.is_none()
+            && self.workspace.is_none()
+    }
+
+    /// Apply the patch to `cfg`, returning the new `WorkspaceConfig`.
+    pub fn apply_to(&self, cfg: &mut WorkspaceConfig) {
+        if let Some(m) = self.approval_mode {
+            cfg.approval_mode = m;
+        }
+        if let Some(ref p) = self.default_provider {
+            cfg.default_provider = p.clone();
+        }
+        if let Some(ref m) = self.default_model {
+            cfg.default_model = m.clone();
+        }
+        if let Some(ref w) = self.workspace {
+            cfg.workspace = w.clone();
+        }
+    }
+}
+
+/// In-memory resolved config: global + workspace overrides, with
+/// secrets already expanded. **Never** serialized to disk; **never**
+/// included in the DTOs that cross the IPC boundary.
+#[derive(Debug, Clone)]
+pub struct ResolvedConfig {
+    /// The global config (latest snapshot from `ConfigService`).
+    pub global: GlobalConfig,
+    /// The workspace config (if any; `None` for a brand-new
+    /// workspace with no `config.toml`).
+    pub workspace: Option<WorkspaceConfig>,
+    /// API keys per provider, already expanded from `SecretRef`.
+    /// The values are **never** serialized to disk and **never**
+    /// logged. They live only in the in-memory `AppState.config`
+    /// and are read by the agent loop / providers.
+    pub secrets: HashMap<ProviderId, String>,
+    /// The effective final config (workspace override > global).
+    pub effective: EffectiveConfig,
+}
+
+/// Final, fully-resolved config. Computed by `resolve()` and
+/// consumed by the agent loop and providers.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EffectiveConfig {
+    /// Approval mode (workspace override > global).
+    pub approval_mode: ApprovalMode,
+    /// Default provider (workspace override > global).
+    pub default_provider: ProviderId,
+    /// Default model (workspace override > global).
+    pub default_model: String,
+    /// Workspace settings (always present; defaults if the
+    /// workspace has no `config.toml`).
+    pub workspace_settings: WorkspaceSettings,
+}
+
+impl EffectiveConfig {
+    /// Compute the effective config from a global + optional
+    /// workspace. Workspace overrides take precedence.
+    #[must_use]
+    pub fn from_configs(global: &GlobalConfig, workspace: Option<&WorkspaceConfig>) -> Self {
+        let ws_settings =
+            workspace
+                .map(|w| w.workspace.clone())
+                .unwrap_or_else(|| WorkspaceSettings {
+                    ignore_patterns: WorkspaceSettings::default_ignore(),
+                    journal_max_rows: Some(100_000),
+                });
+        Self {
+            approval_mode: workspace
+                .and_then(|w| w.approval_mode)
+                .unwrap_or(global.approval_mode),
+            default_provider: workspace
+                .and_then(|w| w.default_provider.clone())
+                .unwrap_or_else(|| global.default_provider.clone()),
+            default_model: workspace
+                .and_then(|w| w.default_model.clone())
+                .unwrap_or_else(|| global.default_model.clone()),
+            workspace_settings: ws_settings,
+        }
     }
 }

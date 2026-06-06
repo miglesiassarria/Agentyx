@@ -68,3 +68,4 @@ workspace = true
 
 [dev-dependencies]
 tempfile = "3.10"
+wiremock = "0.6"
