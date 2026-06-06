@@ -258,6 +258,13 @@ pub trait Provider: Send + Sync {
     /// 4096-token context).
     fn capabilities(&self, model_id: &str) -> ModelCapabilities;
 
+    /// List the models this provider exposes. For Ollama this is
+    /// dynamic (`GET /api/tags`); for Groq and Minimax in v1 the
+    /// list is hardcoded in the provider module. Used by F05
+    /// `providers_list_models` and by the agent loop to validate
+    /// `default_model` at startup.
+    async fn list_models(&self) -> Result<Vec<ModelInfo>, AppError>;
+
     /// Start a chat. The returned stream **must** end with
     /// `ChatEvent::MessageEnd` or `ChatEvent::Error` (not both).
     async fn chat(&self, req: ChatRequest) -> Result<ChatStream, AppError>;
