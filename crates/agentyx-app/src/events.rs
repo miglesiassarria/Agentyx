@@ -23,6 +23,7 @@ use tauri::{AppHandle, Emitter, Manager};
 ///
 /// Cloning is cheap (`Arc` inside). The bus itself is stateless;
 /// all routing goes through the Tauri event system.
+#[derive(Debug)]
 pub struct EventBus {
     // Reserved for future use: a bounded mpsc channel if we need
     // to backpressure, or an in-memory ring buffer for replay.

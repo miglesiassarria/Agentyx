@@ -10,26 +10,18 @@
 //! - Each field is loaded from disk (or fresh state if first run).
 //! - Mutations go through dedicated `update_*` methods that persist
 //!   atomically (see `config.md` and `storage.md` for the contracts).
-//!
-//! ## v0.1 status
-//!
-//! This is a minimal placeholder. The full state will be assembled
-//! as the corresponding domain crates land:
-//! - `config` crate (PR for `config.md`) → `ResolvedConfig`
-//! - `storage` crate (PR for `storage.md`) → `StoragePool`
-//! - `agents` module (PR for `agents.md`) → `AgentRegistry`
-//! - `llm` module (PR for `providers.md`) → `ProviderRegistry`
-//!
-//! For now we hold only the home dir + a `WorkspaceService`, which
-//! is enough to wire up the F02 Tauri commands.
 
-// v0.1 fields are wired but not yet read by any registered command;
-// keep the surface stable and let the next PR add the readers.
-#![allow(dead_code)]
-
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
+use agentyx_core::agents::AgentRegistry;
+use agentyx_core::config::ConfigService;
+use agentyx_core::ids::WorkspaceId;
+use agentyx_core::journal::JournalRepo;
+use agentyx_core::llm::Provider;
+use agentyx_core::session::SessionService;
+use agentyx_core::storage::Db;
 use agentyx_core::workspace::WorkspaceService;
 use agentyx_core::AppResult;
 
@@ -46,42 +38,231 @@ pub struct AppState {
     pub agentyx_home: PathBuf,
 
     /// Workspace service: registry of workspaces, extra-paths,
-    /// and per-workspace config.toml. Implemented in PR
-    /// "feat(core): workspace model".
+    /// and per-workspace config.toml.
     pub workspaces: Arc<WorkspaceService>,
+
+    /// Global config (providers, default model, approval mode,
+    /// UI prefs, telemetry, update channel). Persists to
+    /// `~/.agentyx/config.toml`. Cheap to clone (`Arc` inside).
+    pub config: Arc<ConfigService>,
+
+    /// Built-in agent registry (3 visible + 3 hidden). Loaded
+    /// once at startup; immutable thereafter. Cheap to clone.
+    pub agents: Arc<AgentRegistry>,
+
+    /// LLM provider registry. Maps `provider_id` →
+    /// `Arc<dyn Provider>`. For Phase 1 only `ollama` is wired;
+    /// `groq`/`minimax` arrive in F01-Phase2. Cheap to clone.
+    pub providers: Arc<ProviderRegistry>,
+
+    /// Active run registry. Tracks every `RunHandle` produced by
+    /// `spawn_run` so that `chat_abort` and `chat_state` can look
+    /// them up by id from any IPC command. Cheap to clone.
+    pub runs: Arc<agentyx_core::agent::RunRegistry>,
 
     /// Event bus for streaming events to the UI
     /// (`chat.*.v1`, `pty.*.v1`, `agent.*.v1`, etc.).
     pub event_bus: Arc<EventBus>,
+
+    /// Per-workspace runtime cache. Lazily created on first
+    /// access via [`AppState::workspace_runtime`]. Holds the
+    /// `Db` (state.db), the `SessionService`, and the
+    /// `JournalRepo` for the workspace.
+    pub workspace_runtimes: Mutex<HashMap<WorkspaceId, Arc<WorkspaceRuntime>>>,
 }
 
 impl AppState {
     /// Build the initial `AppState` at app startup. Creates
     /// `~/.agentyx/` if it doesn't exist; loads the workspace
-    /// registry; initializes the event bus.
-    ///
-    /// In v0.1 the rest of the state (config, storage, agents,
-    /// providers) is left as future work. See the module docs.
+    /// registry, global config, and built-in agents; wires the
+    /// LLM provider registry.
     pub fn initialize() -> AppResult<Self> {
         let agentyx_home = agentyx_home()?.to_path_buf();
 
         let workspaces = Arc::new(WorkspaceService::new(&agentyx_home)?);
 
+        let config_path = agentyx_home.join("config.toml");
+        let config = Arc::new(ConfigService::load(&config_path)?);
+
+        let agents = Arc::new(AgentRegistry::load_builtins());
+
+        let providers = Arc::new(ProviderRegistry::from_config(&config)?);
+
+        let runs = Arc::new(agentyx_core::agent::RunRegistry::new());
+
         Ok(Self {
             agentyx_home,
             workspaces,
+            config,
+            agents,
+            providers,
+            runs,
             event_bus: Arc::new(EventBus::new()),
+            workspace_runtimes: Mutex::new(HashMap::new()),
         })
+    }
+
+    /// Get or create the per-workspace runtime (Db, SessionService,
+    /// JournalRepo). Looks up the workspace in the `WorkspaceService`
+    /// first to verify it exists, then opens (or reuses from the
+    /// cache) the workspace's `state.db`.
+    pub fn workspace_runtime(&self, workspace_id: WorkspaceId) -> AppResult<Arc<WorkspaceRuntime>> {
+        if let Some(rt) = self
+            .workspace_runtimes
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&workspace_id)
+        {
+            return Ok(rt.clone());
+        }
+
+        let _workspace =
+            self.workspaces
+                .get(workspace_id)
+                .ok_or_else(|| agentyx_core::AppError::NotFound {
+                    kind: "workspace".to_string(),
+                    id: workspace_id.to_string(),
+                })?;
+        let db_path = self
+            .agentyx_home
+            .join("workspaces")
+            .join(workspace_id.to_string())
+            .join("state.db");
+        let db = Db::open(&db_path)?;
+        let session = Arc::new(SessionService::with_db(db.clone(), workspace_id));
+        let journal = Arc::new(JournalRepo::new(db));
+        let runtime = Arc::new(WorkspaceRuntime {
+            workspace_id,
+            db_path,
+            session,
+            journal,
+        });
+
+        self.workspace_runtimes
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(workspace_id, runtime.clone());
+
+        Ok(runtime)
+    }
+
+    /// Drop the cached runtime for a workspace. Called from
+    /// `workspace_delete` so subsequent commands don't reuse a
+    /// dangling session/journal pointing at a deleted db file.
+    #[allow(dead_code)]
+    pub fn evict_workspace_runtime(&self, workspace_id: WorkspaceId) {
+        self.workspace_runtimes
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&workspace_id);
+    }
+}
+
+/// Per-workspace runtime state. Created lazily and cached in
+/// `AppState::workspace_runtimes`. Cheap to clone (`Arc` inside).
+pub struct WorkspaceRuntime {
+    /// The workspace this runtime belongs to.
+    #[allow(dead_code)]
+    pub workspace_id: WorkspaceId,
+    /// Absolute path to the `state.db` file (for diagnostics).
+    #[allow(dead_code)]
+    pub db_path: PathBuf,
+    /// Session service: create, list, append_message, etc.
+    pub session: Arc<SessionService>,
+    /// Journal repo: append-only log of run events.
+    pub journal: Arc<JournalRepo>,
+}
+
+/// Registry of LLM providers, keyed by provider id
+/// (`"ollama"`, `"groq"`, ...).
+#[derive(Clone)]
+pub struct ProviderRegistry {
+    providers: HashMap<String, Arc<dyn Provider>>,
+}
+
+impl std::fmt::Debug for ProviderRegistry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProviderRegistry")
+            .field("providers", &self.providers.keys().collect::<Vec<_>>())
+            .finish()
+    }
+}
+
+impl ProviderRegistry {
+    /// Build a registry from the global config. For Phase 1
+    /// only `ollama` is wired (the `OllamaProvider` is constructed
+    /// with the `base_url` from `config.toml`; missing
+    /// providers are skipped with a `tracing::warn!`).
+    /// `groq`/`minimax` arrive in F01-Phase2.
+    pub fn from_config(config: &ConfigService) -> AppResult<Self> {
+        use agentyx_core::llm::OllamaProvider;
+        let cfg = config.get();
+        let mut providers: HashMap<String, Arc<dyn Provider>> = HashMap::new();
+
+        for (id, provider_cfg) in &cfg.providers {
+            if !provider_cfg.enabled {
+                tracing::debug!(provider = id, "provider disabled in config; skipping");
+                continue;
+            }
+            match id.as_str() {
+                "ollama" => {
+                    let base = if provider_cfg.base_url.is_empty() {
+                        agentyx_core::llm::DEFAULT_BASE_URL
+                    } else {
+                        &provider_cfg.base_url
+                    };
+                    match OllamaProvider::with_base_url(base) {
+                        Ok(p) => {
+                            providers.insert(id.clone(), Arc::new(p));
+                            tracing::info!(provider = id, base, "Ollama provider registered");
+                        }
+                        Err(e) => {
+                            tracing::warn!(provider = id, error = %e, "failed to construct OllamaProvider");
+                        }
+                    }
+                }
+                "groq" | "minimax" => {
+                    tracing::debug!(
+                        provider = id,
+                        "provider not yet wired in Phase 1; arrives in F01-Phase2"
+                    );
+                }
+                other => {
+                    tracing::warn!(provider = other, "unknown provider in config; skipping");
+                }
+            }
+        }
+
+        Ok(Self { providers })
+    }
+
+    /// Get a provider by id.
+    #[allow(dead_code)]
+    #[must_use]
+    pub fn get(&self, id: &str) -> Option<Arc<dyn Provider>> {
+        self.providers.get(id).cloned()
+    }
+
+    /// List the registered provider ids.
+    #[allow(dead_code)]
+    #[must_use]
+    pub fn ids(&self) -> Vec<String> {
+        let mut ids: Vec<String> = self.providers.keys().cloned().collect();
+        ids.sort();
+        ids
+    }
+
+    /// Snapshot the underlying map (cheap clone of the Arcs).
+    /// Used by the agent loop when constructing `AgentLoopDeps`.
+    #[must_use]
+    pub fn to_hashmap(&self) -> HashMap<String, Arc<dyn Provider>> {
+        self.providers.clone()
     }
 }
 
 /// Returns the path to the user's Agentyx home directory
 /// (`~/.agentyx/` on Unix, `%APPDATA%\agentyx` on Windows).
 /// Creates the directory if it doesn't exist.
-///
-/// This is a thin wrapper around the `dirs` crate that we'll
-/// eventually move into `agentyx-core::config` once the
-/// `config.md` PR lands.
 fn agentyx_home() -> AppResult<PathBuf> {
     let home = dirs::home_dir().ok_or_else(|| agentyx_core::AppError::Internal {
         message: "could not resolve user home directory".into(),

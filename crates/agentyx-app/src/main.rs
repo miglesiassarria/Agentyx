@@ -28,6 +28,7 @@ mod commands;
 mod deep_link;
 mod events;
 mod menu;
+mod sink;
 mod state;
 mod updater;
 mod window;
@@ -81,13 +82,15 @@ fn main() -> anyhow::Result<()> {
             commands::workspace::list_extra_paths,
             commands::workspace::effective_paths,
             commands::workspace::list_dir,
-            // commands::session::create,
-            // commands::session::send,
-            // commands::session::abort,
-            // commands::session::list,
-            // commands::session::get_history,
-            // commands::session::set_active_agent,
-            // commands::session::get_active_agent,
+            commands::session::create_session,
+            commands::session::send,
+            commands::session::abort,
+            commands::session::list_sessions,
+            commands::session::get_history,
+            commands::session::set_active_agent,
+            commands::session::get_active_agent,
+            commands::agents::list_agents,
+            commands::agents::get_agent,
             // commands::config::get_global,
             // commands::config::update_global,
             // commands::config::get_workspace,

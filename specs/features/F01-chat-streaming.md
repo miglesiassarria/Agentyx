@@ -832,7 +832,7 @@ tracing::error!(
 **Última sync**: 2026-06-06
 **Backend (Rust) — F01-Phase1**: **5 / 15 ACs cubiertos** (AC1, AC2, AC4, AC5, AC6) ✅
 **Backend (Rust) — F01-Phase2/3**: ⏸ 0 / 15 adicional (tools, permissions, multi-agent, @mention)
-**IPC (Tauri commands)**: ⏸ 0 / 7 (los stubs siguen retornando "not yet implemented")
+**IPC (Tauri commands) — F01-Phase1-app**: **9 / 9 commands cableados** ✅
 **UI (Svelte)**: ⏸ 0 / 15 (entra en F01-Phase2)
 
 ### Cobertura Phase 1 (este PR — `feat(core): F01-Phase1 backends`)
@@ -881,7 +881,7 @@ Pendientes: `chat.run.aborted.v1`, `chat.tool_call.v1`, `chat.tool_result.v1`, `
 
 ### PRs de referencia
 
-- `feat(core): F01-Phase1 backends (storage, session, agents, config, journal, llm, agent)` (este PR) — +3810 líneas core, 14 tests nuevos, 98 tests totales pasando.
-- (pendiente) `feat(app): wire F01-Phase1 commands` — Tauri commands `session_*`, `config_*`, `agents_*`, `providers_*`, `secrets_*`.
+- `feat(core): F01-Phase1 backends (storage, session, agents, config, journal, llm, agent)` (PR #13) — +3810 líneas core, 14 tests nuevos, 98 tests totales pasando.
+- `feat(app): F01-Phase1 app wiring (TauriEventSink + session/agents commands)` (pendiente) — 9 Tauri commands cableados (`session_create`, `session_send`, `session_abort`, `session_list`, `session_get_history`, `session_set_active_agent`, `session_get_active_agent`, `agents_list`, `agents_get`); TauriEventSink; AppState refactor con ProviderRegistry + per-workspace runtime cache; sin UI.
 - (pendiente) `feat(ui): F01-Phase1 chat panel` — `ChatPanel.svelte`, `MessageList.svelte`, `Composer.svelte`, integración con `lib/ipc.ts`.
 - (pendiente) `feat(core,app): F01-Phase2 (tools, permissions, max_steps loop)` — implementa AC3, AC7, AC8, AC12, AC13.

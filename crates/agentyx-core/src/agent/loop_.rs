@@ -900,6 +900,29 @@ impl RunRegistry {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    /// Snapshot all `(run_id, handle)` pairs currently in the
+    /// registry. Used by `chat_abort` to find the run for a
+    /// given session (O(runs); runs are typically <10 active).
+    #[must_use]
+    pub fn snapshot(&self) -> Vec<(RunId, RunHandle)> {
+        self.inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .map(|(k, v)| (*k, v.clone()))
+            .collect()
+    }
+
+    /// Snapshot all handles that belong to a given session.
+    /// Used by `chat_abort` (see `snapshot`).
+    #[must_use]
+    pub fn iter_for_session(&self, session_id: SessionId) -> Vec<(RunId, RunHandle)> {
+        self.snapshot()
+            .into_iter()
+            .filter(|(_, h)| h.state().session_id == session_id)
+            .collect()
+    }
 }
 
 // `Ulid` is in scope to suppress "unused import" warnings

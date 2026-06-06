@@ -524,10 +524,21 @@ mod tests {
     async fn fresh_state() -> (tempfile::TempDir, Arc<AppState>) {
         let home = tempfile::tempdir().unwrap();
         let svc = Arc::new(WorkspaceService::new(home.path()).unwrap());
+        let config = Arc::new(
+            agentyx_core::config::ConfigService::load(&home.path().join("config.toml")).unwrap(),
+        );
+        let agents = Arc::new(agentyx_core::agents::AgentRegistry::load_builtins());
+        let providers = Arc::new(crate::state::ProviderRegistry::from_config(&config).unwrap());
+        let runs = Arc::new(agentyx_core::agent::RunRegistry::new());
         let state = Arc::new(AppState {
             agentyx_home: home.path().to_path_buf(),
             workspaces: svc,
+            config,
+            agents,
+            providers,
+            runs,
             event_bus: Arc::new(EventBus::new()),
+            workspace_runtimes: std::sync::Mutex::new(std::collections::HashMap::new()),
         });
         (home, state)
     }
