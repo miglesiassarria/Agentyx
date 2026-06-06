@@ -52,8 +52,10 @@ pub mod error;
 pub mod ids;
 pub mod journal;
 pub mod llm;
+pub mod permissions;
 pub mod session;
 pub mod storage;
+pub mod tools;
 pub mod workspace;
 
 pub use error::{AppError, AppResult};

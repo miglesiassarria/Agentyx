@@ -78,6 +78,11 @@ keyring = { workspace = true, optional = true }
 # Filesystem locations (HOME, USERPROFILE, etc.)
 dirs = "5"
 
+# Tools (read_file, list_dir, search)
+walkdir = { workspace = true }
+globset = { workspace = true }
+regex = { workspace = true }
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }
 tempfile = "3.10"

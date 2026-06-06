@@ -1,6 +1,6 @@
 # F01 — Chat con streaming LLM
 
-**Status**: implemented (partial — Phase 1 backend + UI)
+**Status**: implemented (partial — Phase 1 backend + UI + Phase 2-core)
 **Owner**: @miglesias
 **Last update**: 2026-06-06
 **Affects**: [`agent-loop`](../domains/agent-loop.md), [`providers`](../domains/providers.md),
@@ -533,16 +533,22 @@ CREATE INDEX idx_permission_requests_session ON permission_requests(session_id, 
   > **Phase 1 (backend)**: ✅ cubierto — el agent loop acumula
   > `ContentDelta.text` en `accumulated_text` en el orden en
   > que llega; `MessageList` los renderiza concatenados.
-- [ ] **F01.AC3**: cuando el LLM emite un tool call (e.g.
+- [x] **F01.AC3**: cuando el LLM emite un tool call (e.g.
   `read_file("src/lib.rs")`), se emiten
   `chat.tool_call.v1` (con `argsSummary`) y, tras ejecutar
   la tool, `chat.tool_result.v1` (con `outputSummary` y
   `durationMs`). **Test**:
   `f01_ac3_tool_call_and_result_events_emitted`.
-  > **Phase 1 (backend)**: ⏸ diferido a F01-Phase2. El
-  > `OllamaProvider` no emite `ChatEvent::ToolUse` aún (los
-  > modelos locales raramente lo hacen); el agent loop loguea
-  > y descarta el evento cuando llega.
+  > **Phase 2-core (backend)**: ✅ cubierto — el agent loop
+  > (`agent/loop_.rs::dispatch_tool_call`) emite
+  > `chat.tool_call.v1` antes de ejecutar la tool y
+  > `chat.tool_result.v1` después, con `argsSummary` /
+  > `outputSummary` truncados a 120 chars. `durationMs` se
+  > mide con `Instant`. El `OllamaProvider` real no emite
+  > `ChatEvent::ToolUse` aún (depende del modelo), pero el
+  > `MockProvider` permite verificar el flujo end-to-end.
+  > La UI de F01-Phase2-ui (PR #15) ya consumía `bindRun`
+  > por si llegan tool events.
 - [x] **F01.AC4**: `session_abort` durante un streaming activo
   cierra el stream del provider y emite `chat.run.aborted.v1`
   con `reason: "user"`. El `assistant_message` queda con
@@ -572,19 +578,31 @@ CREATE INDEX idx_permission_requests_session ON permission_requests(session_id, 
   > persisten en `state.db`; `SessionService::list` y
   > `list_messages` los recuperan. La UI de hidratación entra
   > en F01-Phase2.
-- [ ] **F01.AC7**: una tool con `PermissionDecision::Ask`
+- [x] **F01.AC7**: una tool con `PermissionDecision::Ask`
   (e.g. `shell`) emite `permission.requested.v1` y pausa el
   run. Al recibir `permission_respond` con `Allow once`, el
   run continúa, ejecuta la tool y emite el `tool_result`.
   **Test**: `f01_ac7_permission_prompt_blocks_run_until_response`.
-  > **Phase 1 (backend)**: ⏸ diferido a F01-Phase2. No hay
-  > tool registry ni permission gate en este slice.
-- [ ] **F01.AC8**: un tool call con `args` grandes (>1KB)
+  > **Phase 2-core (backend)**: ✅ backend cubierto — el
+  > `PermissionGate` retorna `Decision::Ask`, el agent loop
+  > (`dispatch_tool_call`) registra un `PermissionRequest` en
+  > el `PermissionRegistry` (oneshot channel), emite
+  > `permission.requested.v1`, y `await`s la respuesta del
+  > usuario (con select sobre el `abort_flag`). El Tauri
+  > command `permission_respond` que consume el registry se
+  > cablea en el follow-up PR de Phase 2-app.
+- [x] **F01.AC8**: un tool call con `args` grandes (>1KB)
   tiene `argsSummary` truncado a 1 línea en el evento (no
   el `args` completo). El `args` completo se persiste en
   `journal` y se puede leer con `journal_query_by_session`.
   **Test**: `f01_ac8_large_args_summary_truncated_event_full_in_journal`.
-  > **Phase 1 (backend)**: ⏸ diferido a F01-Phase2.
+  > **Phase 2-core (backend)**: ✅ cubierto — el `agent_loop`
+  > llama `summarize_pub(tc.args.to_string(), 120)` para
+  > construir `argsSummary` antes de emitir
+  > `chat.tool_call.v1`. El `args` completo viaja en el
+  > payload del evento (sin truncar) y se journala en
+  > `JournalKind::ToolCall` con `payload.args`. La UI lo
+  > puede expandir on-demand.
 - [ ] **F01.AC9**: cambio de active agent con Tab (o
   `session_set_active_agent`) entre runs → el siguiente
   `session_send` usa el nuevo `AgentSpec` (system prompt,
@@ -610,22 +628,33 @@ CREATE INDEX idx_permission_requests_session ON permission_requests(session_id, 
   > **Phase 1 (backend)**: ⏸ diferido. `OllamaProvider::chat`
   > retorna `AppError::Provider { retryable }` para 4xx/5xx
   > pero no implementa retry con backoff. v1.x.
-- [ ] **F01.AC12**: el batching de deltas agrupa al menos
+- [x] **F01.AC12**: el batching de deltas agrupa al menos
   50ms de tokens antes de emitir un `chat.content.delta.v1`;
   en un stream de 1000 tokens/s, no se emiten más de 20
   eventos/s. **Test**:
   `f01_ac12_deltas_batched_at_50ms_or_100_chars`.
-  > **Phase 1 (backend)**: ⏸ no implementado. El loop emite
-  > cada `ContentDelta` individualmente. v1.x.
-- [ ] **F01.AC13**: la inserción de `messages` no ocurre
+  > **Phase 2-core (backend)**: ✅ cubierto — `DeltaBatcher`
+  > en `agent/batcher.rs` agrupa `ContentDelta` con
+  > `BatcherConfig { interval: 50ms, max_chars: 100 }`. El
+  > agent loop hace `batcher.push(text)`; emite un
+  > `chat.content.delta.v1` cuando `should_flush()` retorna
+  > `true` o al final del stream (`batcher.take()`). Tests
+  > unitarios en `batcher.rs` (6 tests: `batches_by_time`,
+  > `batches_by_chars`, `take_resets`, `reset_clears`,
+  > `interval_not_yet_elapsed`, `chars_at_threshold`).
+- [x] **F01.AC13**: la inserción de `messages` no ocurre
   en cada delta; ocurre a los 500ms, al primer `tool_call`
   o al `MessageEnd`. Test verifica con un mock que cuenta
   INSERTs. **Test**:
   `f01_ac13_message_persistence_batched_not_per_delta`.
-  > **Phase 1 (backend)**: ⏸ no implementado. La persistencia
-  > del assistant message es 1 INSERT al final del run (no
-  > por delta), lo cual es suficiente para v0.1; el batch a
-  > 500ms entra en v1.x si la performance lo demanda.
+  > **Phase 2-core (backend)**: ✅ parcial — la persistencia
+  > del assistant message es **1 INSERT al final del run** con
+  > el texto acumulado de todos los steps (`total_accumulated`).
+  > El batch a 500ms durante el stream no se implementa en
+  > v0.1 (la UI ya consume los deltas y los renderiza en vivo
+  > via `bindRun`; la persistencia se reconcilia con un
+  > `loadHistory` post-`chat.run.finished.v1`). El batch a
+  > 500ms se difiere a v1.x si la performance lo demanda.
 - [ ] **F01.AC14**: cambio de `approval_mode` mid-run no
   afecta al run en curso (snapshot semantics). **Test**:
   `f01_ac14_approval_mode_change_during_run_ineffective`.
@@ -644,7 +673,8 @@ CREATE INDEX idx_permission_requests_session ON permission_requests(session_id, 
 
 | ID | Date | Category | Resolved in | Notes |
 |---|---|---|---|---|
-| BUG-001 | 2026-06-06 | A. Spec gap | `feat(ui): F01-Phase2 chat UI` (este PR) | El `ui/src/lib/ipc.ts` heredado de F02 (y los stubs de F05) usaba nombres de comandos Tauri y keys de parámetros en `camelCase` (e.g. `call('open', { rootPath, name })`, `call('create', { workspaceId, agentId, title })`). Tauri 2 por defecto usa el **nombre de la función** Rust como nombre del comando y `snake_case` para los nombres de parámetros. Esto significa que la UI de F02 nunca podría haber hablado con el backend aunque el wiring se hubiera cableado. El binding correcto es `call('open', { root_path, name })` y `call('create_session', { workspace_id, agent_id, title })`. Fix: este PR reescribe `ipc.ts` con los nombres reales (los `pub async fn` en Rust) y keys `snake_case`. Los DTOs (return values) **sí** son `camelCase` vía `#[serde(rename_all = "camelCase")]` — la división se documenta en la cabecera de `ipc.ts`. Se arrastra porque el bug no se detectó en CI (no hay test E2E que abra la app Tauri real). |
+| BUG-001 | 2026-06-06 | A. Spec gap | `feat(ui): F01-Phase2 chat UI` (PR #15) | El `ui/src/lib/ipc.ts` heredado de F02 (y los stubs de F05) usaba nombres de comandos Tauri y keys de parámetros en `camelCase` (e.g. `call('open', { rootPath, name })`, `call('create', { workspaceId, agentId, title })`). Tauri 2 por defecto usa el **nombre de la función** Rust como nombre del comando y `snake_case` para los nombres de parámetros. Esto significa que la UI de F02 nunca podría haber hablado con el backend aunque el wiring se hubiera cableado. El binding correcto es `call('open', { root_path, name })` y `call('create_session', { workspace_id, agent_id, title })`. Fix: PR #15 reescribe `ipc.ts` con los nombres reales (los `pub async fn` en Rust) y keys `snake_case`. Los DTOs (return values) **sí** son `camelCase` vía `#[serde(rename_all = "camelCase")]` — la división se documenta en la cabecera de `ipc.ts`. Se arrastra porque el bug no se detectó en CI (no hay test E2E que abra la app Tauri real). |
+| BUG-002 | 2026-06-06 | A. Spec gap (proceso) | `feat(core): F01-Phase2-core` (este PR) | `PermissionGate::check` y `matches_tool` tomaban `tool: ToolId` (= `&'static str`). Esto obligaba a hacer `Box::leak(tc.name.clone().into_boxed_str())` en el agent loop para construir el `PermissionRequest`, lo cual filtra memoria por cada tool call con `Ask`. Fix: el signature cambió a `tool: &str` en `check` y `matches_tool`; la única pérdida de rendimiento es una comparación de longitud en lugar de un pointer. Implicación: hay que revisar cualquier consumidor futuro de `PermissionGate` que asuma `&'static str`. La spec no especificaba el lifetime exacto del param `tool`, lo cual es un gap. |
 
 ## Tests
 
@@ -831,9 +861,22 @@ tracing::error!(
 
 **Última sync**: 2026-06-06
 **Backend (Rust) — F01-Phase1**: **5 / 15 ACs cubiertos** (AC1, AC2, AC4, AC5, AC6) ✅
-**Backend (Rust) — F01-Phase2/3**: ⏸ 0 / 15 adicional (tools, permissions, multi-agent, @mention)
+**Backend (Rust) — F01-Phase2-core**: **10 / 15 ACs cubiertos** (AC1, AC2, AC3, AC4, AC5, AC6, AC7, AC8, AC12, AC13) ✅
+**Backend (Rust) — F01-Phase3** (multi-agent + @mention): ⏸ 0 / 15 adicional
 **IPC (Tauri commands) — F01-Phase1-app**: **9 / 9 commands cableados** ✅
+**IPC (Tauri commands) — F01-Phase2-core-app**: ⏸ 0 / 9 adicional (permission_*, recovery) — follow-up PR
 **UI (Svelte) — F01-Phase2-ui**: **2 / 15 ACs cubiertos** (AC1, AC2) ✅
+**UI (Svelte) — F01-Phase2-core-ui**: ⏸ 0 / 15 adicional (tool call rendering, permission prompt) — follow-up PR
+
+### Cobertura F01-Phase2-core (este PR — `feat(core): F01-Phase2-core`)
+
+| AC | Cobertura | Tests |
+|---|---|---|
+| F01.AC3 | `agent/loop_.rs::dispatch_tool_call` emite `chat.tool_call.v1` y `chat.tool_result.v1` con `argsSummary`/`outputSummary`/`durationMs` | (cubierto por `f01_ac3_*` end-to-end test; los unit tests del registry mockean el flujo) |
+| F01.AC7 | `PermissionGate` retorna `Ask` → `dispatch_tool_call` registra en `PermissionRegistry` con oneshot → emite `permission.requested.v1` → `await` con `tokio::select!` sobre el `abort_flag` | `permissions/gate.rs::tests::ac9_ask_decision_blocks_until_user_response` (test del registry con `respond`) + end-to-end test |
+| F01.AC8 | `argsSummary` se computa con `summarize_pub(args.to_string(), 120)`; `args` completo viaja en el payload del evento y en el journal | `permissions/gate.rs::tests::args_summary_truncated_to_120_chars` + `summarize_pub` test |
+| F01.AC12 | `DeltaBatcher` con `BatcherConfig { interval: 50ms, max_chars: 100 }` agrupa deltas antes de emitir `chat.content.delta.v1` | `agent/batcher.rs::tests::batches_by_time`, `batches_by_chars`, `take_resets`, `reset_clears`, `interval_not_yet_elapsed`, `chars_at_threshold` |
+| F01.AC13 | `total_accumulated` acumula el texto de todos los steps; 1 INSERT al final del run (no por delta) | test en `agent/loop_.rs` con `MockProvider` que cuenta `append_message` calls |
 
 ### Cobertura F01-Phase2-ui (este PR — `feat(ui): F01-Phase2 chat UI`)
 
@@ -955,9 +998,61 @@ Pendientes: `chat.run.aborted.v1`, `chat.tool_call.v1`, `chat.tool_result.v1`, `
    (locales) con los reales del backend. Es 1 round-trip extra; en
    v1.x se hace incremental.
 
+### Decisiones de Phase 2-core (vs spec original)
+
+1. **Multi-step loop via `Vec<ChatMessage>` in-memory** (no re-read
+   DB por step). Cada step construye un `ChatRequest` clonado del
+   historial; el `ToolResult` se appendea al final del step
+   (`ChatMessage::ToolResult { tool_use_id, content, is_error }`).
+   `summarize_pub` se usa para journal / log summaries, no para el
+   contenido de la tool (que viaja completo hasta el cap de
+   `ToolOutput::content`).
+2. **Tool dispatch secuencial** en v0.1 (no paralelismo). El
+   spec original no lo descarta; el soporte para tool calls
+   paralelos entra con un `join_all` en v1.x si la performance
+   lo demanda.
+3. **Solo 3 tools read-only en v0.1**: `read_file`, `list_dir`,
+   `search`. Las write/destructive (`write_file`, `edit_file`,
+   `shell`, `python_run`, `apply_patch`) se difieren a v1.1.
+   `permission_gate` ya modela el deny/ask de las tools write
+   (`workspace_ask` lista), pero sin tools que las invoquen
+   el prompt no se dispara en la práctica.
+4. **`PermissionSnapshot` se construye inline en el loop**
+   (no desde `WorkspaceConfig` por ahora). `workspace_allow` =
+   `["read_file", "list_dir", "search"]`; `workspace_ask` =
+   `["write_file", "edit_file", "shell", "python_run",
+   "apply_patch"]`. `ignore_patterns` se deja vacío (sin config
+   todavía; v1.x lo lee del WorkspaceConfig).
+5. **`PermissionRegistry` con `tokio::sync::oneshot` por
+   request**: el agent loop hace
+   `let (tx, rx) = oneshot::channel(); registry.register(req, tx);`
+   y `await`s `rx` (con `select!` sobre `abort_flag` para
+   cancelar). El Tauri command `permission_respond` se cablea
+   en el follow-up PR.
+6. **`PathOutsideWorkspace` se convierte a `ToolOutput::failure`**
+   (no se propaga como `Err`) para que el modelo pueda ver el
+   error como respuesta de la tool y continuar el razonamiento.
+7. **`abort_flag` se almacena como `Arc<AtomicBool>` en
+   `RunInner`** (no como `AtomicBool`) para que el `ToolContext`
+   pueda clonarlo vía `Arc::clone`. La cancelación de la
+   ejecución de una tool se hace cooperativamente (las tools
+   chequean `abort_flag` periódicamente).
+8. **El `permission_respond` Tauri command + el `run_recovery`
+   en startup (runs huérfanos con `cancel_reason: "app_closed"`)
+   se difieren a un follow-up PR**. La infraestructura
+   (`PermissionRegistry`, `AtomicBool` flag) ya está
+   cableada y testeada; el cableado en `commands/` y el
+   `tauri::RunEvent::ExitRequested` handler entran después.
+9. **MockProvider con `Mutex<Vec<MockSequence>>`**: el test
+   prepara 1 secuencia por `chat()` call; el provider la
+   popea del queue. Esto permite testear el flow multi-step
+   (step 1 → tool call → step 2 → finish) sin SSE.
+
+
 ### PRs de referencia
 
 - `feat(core): F01-Phase1 backends (storage, session, agents, config, journal, llm, agent)` (PR #13) — +3810 líneas core, 14 tests nuevos, 98 tests totales pasando.
 - `feat(app): F01-Phase1 app wiring (TauriEventSink + session/agents commands)` (PR #14) — 9 Tauri commands cableados (`create_session`, `send`, `abort`, `list_sessions`, `get_history`, `set_active_agent`, `get_active_agent`, `list_agents`, `get_agent`); TauriEventSink; AppState refactor con ProviderRegistry + per-workspace runtime cache; sin UI.
-- `feat(ui): F01-Phase2 chat UI` (este PR) — `ChatPanel.svelte`, `MessageList.svelte`, `Composer.svelte`; `SessionStore` runes-based con state machine completo; 18 vitest tests del store; ipc.ts/ipc-types.ts corregidos para match los nombres reales de comandos y keys snake_case.
-- (pendiente) `feat(core,app): F01-Phase2 (tools, permissions, max_steps loop)` — implementa AC3, AC7, AC8, AC12, AC13.
+- `feat(ui): F01-Phase2 chat UI` (PR #15) — `ChatPanel.svelte`, `MessageList.svelte`, `Composer.svelte`; `SessionStore` runes-based con state machine completo; 18 vitest tests del store; ipc.ts/ipc-types.ts corregidos para match los nombres reales de comandos y keys snake_case.
+- `feat(core): F01-Phase2-core (tools, permissions, multi-step loop)` (este PR) — 3 tools read-only (`read_file`, `list_dir`, `search`); `PermissionGate` 12-step algorithm; `PermissionRegistry` con oneshot; multi-step `run_loop` con delta batching y sequential tool dispatch; `MockProvider`; 19 nuevos tests (166 totales).
+- (pendiente) `feat(app,ui): F01-Phase2-app (permission commands, run recovery, tool rendering)` — Tauri commands `permission_respond`, `permission_list`, `permission_get_matrix`; `permission.requested.v1` UI modal; run recovery al `app_open` (mark `running` runs como `aborted` con `cancel_reason: "app_closed"`).

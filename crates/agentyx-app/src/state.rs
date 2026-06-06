@@ -20,8 +20,10 @@ use agentyx_core::config::ConfigService;
 use agentyx_core::ids::WorkspaceId;
 use agentyx_core::journal::JournalRepo;
 use agentyx_core::llm::Provider;
+use agentyx_core::permissions::{PermissionGate, PermissionRegistry};
 use agentyx_core::session::SessionService;
 use agentyx_core::storage::Db;
+use agentyx_core::tools::{built_in_registry, Tool};
 use agentyx_core::workspace::WorkspaceService;
 use agentyx_core::AppResult;
 
@@ -69,6 +71,19 @@ pub struct AppState {
     /// `Db` (state.db), the `SessionService`, and the
     /// `JournalRepo` for the workspace.
     pub workspace_runtimes: Mutex<HashMap<WorkspaceId, Arc<WorkspaceRuntime>>>,
+
+    /// Tool registry. Built once at startup from the built-in
+    /// set; custom tools land in v1.1. Cheap to clone
+    /// (`Arc<Vec<Arc<dyn Tool>>>`).
+    pub tool_registry: Arc<Vec<Arc<dyn Tool>>>,
+
+    /// Permission gate. Stateless; takes a snapshot per run.
+    pub permission_gate: PermissionGate,
+
+    /// Permission registry. Holds the oneshot responders for
+    /// `Ask` decisions; the `permission_respond` Tauri command
+    /// (F01-Phase2-core follow-up) resolves them.
+    pub permission_registry: PermissionRegistry,
 }
 
 impl AppState {
@@ -90,6 +105,11 @@ impl AppState {
 
         let runs = Arc::new(agentyx_core::agent::RunRegistry::new());
 
+        let tool_registry: Arc<Vec<Arc<dyn Tool>>> =
+            Arc::new(built_in_registry().into_iter().collect());
+        let permission_gate = PermissionGate::new();
+        let permission_registry = PermissionRegistry::new();
+
         Ok(Self {
             agentyx_home,
             workspaces,
@@ -99,6 +119,9 @@ impl AppState {
             runs,
             event_bus: Arc::new(EventBus::new()),
             workspace_runtimes: Mutex::new(HashMap::new()),
+            tool_registry,
+            permission_gate,
+            permission_registry,
         })
     }
 
