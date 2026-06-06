@@ -45,8 +45,15 @@
 #![warn(missing_docs)]
 #![warn(rustdoc::broken_intra_doc_links)]
 
+pub mod agent;
+pub mod agents;
+pub mod config;
 pub mod error;
 pub mod ids;
+pub mod journal;
+pub mod llm;
+pub mod session;
+pub mod storage;
 pub mod workspace;
 
 pub use error::{AppError, AppResult};

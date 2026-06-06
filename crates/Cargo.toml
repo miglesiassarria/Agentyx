@@ -39,6 +39,9 @@ reqwest = { version = "0.12", default-features = false, features = [
     "gzip",
 ] }
 
+# Byte buffer type used by reqwest streams.
+bytes = "1.7"
+
 # SQLite (bundled, no system dep)
 rusqlite = { version = "0.32", features = ["bundled", "blob"] }
 
@@ -58,7 +61,7 @@ tracing-subscriber = { version = "0.3", features = [
 ] }
 
 # Identifiers
-ulid = "1.1"
+ulid = { version = "1.1", features = ["serde"] }
 
 # Time
 chrono = { version = "0.4", features = ["serde"] }
