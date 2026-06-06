@@ -77,6 +77,34 @@ pub struct EffectivePathsDto {
     pub extras: Vec<PathBuf>,
 }
 
+/// DTO for a single directory entry returned by `workspace_list_dir`.
+///
+/// Consumed by the UI `FileTree` component. The `path` is canonical
+/// and guaranteed to be within the workspace's effective paths
+/// (root ∪ extras). Symlinks are reported via `is_symlink` so the
+/// UI can render a different icon, but the `is_dir` flag reflects
+/// the symlink's *target*, not the link itself (per Unix
+/// `metadata()` semantics). Callers that need to refuse loops
+/// must canonicalize and re-check on traversal.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileEntryDto {
+    /// Basename (no path separators).
+    pub name: String,
+    /// Absolute canonical path of this entry.
+    pub path: PathBuf,
+    /// Whether the entry is a directory (resolved through symlinks).
+    pub is_dir: bool,
+    /// Whether the entry is itself a symbolic link.
+    pub is_symlink: bool,
+    /// File size in bytes (0 for directories and on stat failure).
+    #[serde(default)]
+    pub size: u64,
+    /// Last-modified time in epoch milliseconds (0 if unavailable).
+    #[serde(default)]
+    pub modified_at: i64,
+}
+
 // ============================================================
 // DTO conversions
 // ============================================================
@@ -229,6 +257,99 @@ pub(crate) async fn effective_paths_impl(
         })
 }
 
+/// List the entries of a directory inside the workspace's sandbox
+/// (root ∪ extras per ADR-0007). Returns entries sorted with
+/// directories first, then files, both groups alphabetically
+/// (case-insensitive). Hidden entries (basename starts with `.`)
+/// are included — the UI `FileTree` filters them when the user
+/// toggles the "show hidden" affordance.
+///
+/// **Errors**:
+/// - `not_found` — workspace id is unknown.
+/// - `path_outside_workspace` — `path` is not within the workspace
+///   sandbox (after canonicalization).
+/// - `io` — the path does not exist, is not a directory, or cannot
+///   be read.
+#[allow(clippy::unused_async)]
+pub(crate) async fn list_dir_impl(
+    svc: &WorkspaceService,
+    id: WorkspaceId,
+    path: &Path,
+) -> AppResult<Vec<FileEntryDto>> {
+    let eff = svc
+        .effective_paths(id)
+        .ok_or(agentyx_core::AppError::NotFound {
+            kind: "workspace".into(),
+            id: id.to_string(),
+        })?;
+    let canonical = agentyx_core::workspace::canonicalize(path)?;
+    if !eff.contains(&canonical) {
+        return Err(agentyx_core::AppError::PathOutsideWorkspace {
+            path: canonical.to_string_lossy().to_string(),
+        });
+    }
+    let meta = std::fs::metadata(&canonical).map_err(|e| agentyx_core::AppError::Io {
+        op: format!("stat {}", canonical.display()),
+        reason: e.to_string(),
+    })?;
+    if !meta.is_dir() {
+        return Err(agentyx_core::AppError::InvalidInput {
+            message: format!("not a directory: {}", canonical.display()),
+        });
+    }
+    let read = std::fs::read_dir(&canonical).map_err(|e| agentyx_core::AppError::Io {
+        op: format!("read_dir {}", canonical.display()),
+        reason: e.to_string(),
+    })?;
+    let mut entries: Vec<FileEntryDto> = read
+        .filter_map(Result::ok)
+        .filter_map(|ent| {
+            let name = ent.file_name().to_string_lossy().to_string();
+            if name.is_empty() {
+                return None;
+            }
+            let path = ent.path();
+            let file_meta = ent.metadata().ok();
+            let is_symlink = file_meta.as_ref().is_some_and(|m| m.is_symlink());
+            let (is_dir, size, modified_at) = match file_meta {
+                Some(m) => {
+                    let resolved = if is_symlink {
+                        std::fs::metadata(&path).ok()
+                    } else {
+                        Some(m.clone())
+                    };
+                    match resolved {
+                        Some(rm) => (
+                            rm.is_dir(),
+                            if rm.is_dir() { 0 } else { rm.len() },
+                            rm.modified()
+                                .ok()
+                                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                                .map_or(0, |d| d.as_millis() as i64),
+                        ),
+                        None => (false, 0, 0),
+                    }
+                }
+                None => (false, 0, 0),
+            };
+            Some(FileEntryDto {
+                name,
+                path,
+                is_dir,
+                is_symlink,
+                size,
+                modified_at,
+            })
+        })
+        .collect();
+    entries.sort_by(|a, b| match (a.is_dir, b.is_dir) {
+        (true, false) => std::cmp::Ordering::Less,
+        (false, true) => std::cmp::Ordering::Greater,
+        _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+    });
+    Ok(entries)
+}
+
 /// Read the `venv.path` override from the workspace's `config.toml`,
 /// if any. Returns `Ok(None)` if the config doesn't exist or has
 /// no `venv` block.
@@ -375,6 +496,18 @@ pub async fn effective_paths(
     workspace_id: WorkspaceId,
 ) -> AppResult<EffectivePathsDto> {
     effective_paths_impl(&state.workspaces, workspace_id).await
+}
+
+/// List a directory's entries within the workspace sandbox.
+/// The path must be canonical and within `root_path ∪ extra_paths`.
+/// See [`list_dir_impl`] for error semantics.
+#[tauri::command]
+pub async fn list_dir(
+    state: State<'_, Arc<AppState>>,
+    workspace_id: WorkspaceId,
+    path: PathBuf,
+) -> AppResult<Vec<FileEntryDto>> {
+    list_dir_impl(&state.workspaces, workspace_id, &path).await
 }
 
 // ============================================================
@@ -784,4 +917,110 @@ mod tests {
     // (kept in case future tests need it).
     #[allow(dead_code)]
     fn _ensure_config_imported(_: WorkspaceConfig) {}
+
+    // ============================================================
+    // list_dir_impl tests (F02 UI: FileTree needs a backend listdir)
+    // ============================================================
+
+    #[tokio::test]
+    async fn f02_ac3_list_dir_impl_returns_root_entries() {
+        // F02.AC3: selecting a workspace loads its file tree.
+        let (_home, state) = fresh_state().await;
+        let (root, ws) = make_workspace(&state, "main");
+        // Seed a small tree: a file, a subfolder, and a hidden entry.
+        std::fs::write(root.path().join("README.md"), "hello").unwrap();
+        std::fs::create_dir(root.path().join("src")).unwrap();
+        std::fs::write(root.path().join("src").join("lib.rs"), "").unwrap();
+        std::fs::write(root.path().join(".gitignore"), "").unwrap();
+
+        let out = list_dir_impl(&state.workspaces, ws.id, root.path())
+            .await
+            .unwrap();
+        let names: Vec<&str> = out.iter().map(|e| e.name.as_str()).collect();
+
+        // Sort order: directories first, then files, both groups
+        // case-insensitive. `.gitignore` < `README.md` < `src` per
+        // the case-insensitive comparison, so the file group is
+        // `.gitignore`, `README.md`; the only directory is `src`.
+        assert_eq!(
+            names,
+            vec!["src", ".gitignore", "README.md"],
+            "entries must be sorted: dirs first, then files (case-insensitive)"
+        );
+        assert_eq!(out[0].name, "src");
+        assert!(out[0].is_dir);
+        assert!(!out[0].is_symlink);
+    }
+
+    #[tokio::test]
+    async fn f02_ac9_list_dir_impl_empty_workspace() {
+        // F02.AC9: workspace with zero files is not an error.
+        let (_home, state) = fresh_state().await;
+        let (root, ws) = make_workspace(&state, "empty");
+        let out = list_dir_impl(&state.workspaces, ws.id, root.path())
+            .await
+            .unwrap();
+        assert!(out.is_empty());
+    }
+
+    #[tokio::test]
+    async fn f02_list_dir_impl_rejects_path_outside_sandbox() {
+        // F02 path-sandbox: a path outside root ∪ extras is rejected.
+        let (_home, state) = fresh_state().await;
+        let (_root, ws) = make_workspace(&state, "main");
+        let outside = tempfile::tempdir().unwrap(); // NOT inside the workspace root
+        let err = list_dir_impl(&state.workspaces, ws.id, outside.path())
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            agentyx_core::AppError::PathOutsideWorkspace { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn f02_list_dir_impl_allows_extra_path() {
+        // F02: extra paths are part of the sandbox.
+        let (_home, state) = fresh_state().await;
+        let (root, ws) = make_workspace(&state, "main");
+        let extra = extra_in_workspace(root.path());
+        let _ = state
+            .workspaces
+            .add_extra_path(ws.id, extra.path(), Some("assets".into()))
+            .unwrap();
+        std::fs::write(extra.path().join("photo.png"), [0u8; 16]).unwrap();
+
+        let out = list_dir_impl(&state.workspaces, ws.id, extra.path())
+            .await
+            .unwrap();
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].name, "photo.png");
+        assert!(!out[0].is_dir);
+        assert_eq!(out[0].size, 16);
+    }
+
+    #[tokio::test]
+    async fn f02_list_dir_impl_unknown_workspace_is_not_found() {
+        let (_home, state) = fresh_state().await;
+        let err = list_dir_impl(
+            &state.workspaces,
+            WorkspaceId::new(),
+            std::path::Path::new("."),
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(err, agentyx_core::AppError::NotFound { .. }));
+    }
+
+    #[tokio::test]
+    async fn f02_list_dir_impl_rejects_file_not_directory() {
+        let (_home, state) = fresh_state().await;
+        let (root, ws) = make_workspace(&state, "main");
+        let file = root.path().join("README.md");
+        std::fs::write(&file, "x").unwrap();
+        let err = list_dir_impl(&state.workspaces, ws.id, &file)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, agentyx_core::AppError::InvalidInput { .. }));
+    }
 }

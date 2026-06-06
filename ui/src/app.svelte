@@ -1,71 +1,62 @@
 <script lang="ts">
-  import type { Snippet } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
 
-  interface Props {
-    children?: Snippet;
+  import EmptyState from './lib/components/EmptyState.svelte';
+  import Sidebar from './lib/components/Sidebar.svelte';
+  import WorkspaceView from './lib/components/WorkspaceView.svelte';
+  import { workspaceStore } from './lib/stores/workspace.svelte';
+
+  let detach: (() => void) | null = null;
+
+  onMount(async () => {
+    detach = await workspaceStore.attach();
+    await workspaceStore.loadList();
+  });
+
+  onDestroy(() => {
+    detach?.();
+  });
+
+  function handleOpen(): void {
+    void workspaceStore.openViaDialog();
   }
-
-  let { children }: Props = $props();
 </script>
 
-<main class="app-shell">
-  <header class="app-header">
-    <h1>Agentyx</h1>
-    <span class="version">v0.1.0</span>
-  </header>
-
-  <section class="placeholder">
-    <p>Bootstrap OK. La UI se implementa en Fase D.</p>
-    <p class="hint">Tauri commands y eventos streaming se montan en F01-F05.</p>
-    {@render children?.()}
+<div class="app-shell">
+  <Sidebar />
+  <section class="main">
+    {#if workspaceStore.selected === null}
+      {#if workspaceStore.list.length === 0 && !workspaceStore.loadingList}
+        <EmptyState
+          title="No workspace open"
+          message="Pick a folder to start. Agentyx gives the agent read/write access to that folder (and any extras you add)."
+          actionLabel="+ Open workspace"
+          onaction={handleOpen}
+        />
+      {:else}
+        <EmptyState
+          title="Select a workspace"
+          message="Pick a folder from the sidebar to see its files and extra paths."
+        />
+      {/if}
+    {:else}
+      <WorkspaceView workspace={workspaceStore.selected} />
+    {/if}
   </section>
-</main>
+</div>
 
 <style>
   .app-shell {
     display: grid;
-    grid-template-rows: auto 1fr;
+    grid-template-columns: auto 1fr;
     height: 100%;
     background: var(--color-bg);
     color: var(--color-fg);
   }
 
-  .app-header {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    padding: var(--space-3) var(--space-4);
-    border-bottom: 1px solid var(--color-border-subtle);
-    background: var(--color-bg-elevated);
-  }
-
-  .app-header h1 {
-    margin: 0;
-    font-size: var(--font-size-lg);
-    font-weight: 600;
-  }
-
-  .version {
-    color: var(--color-fg-subtle);
-    font-size: var(--font-size-sm);
-    font-family: var(--font-mono);
-  }
-
-  .placeholder {
+  .main {
+    overflow: hidden;
     display: flex;
     flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: var(--space-6);
-    gap: var(--space-2);
-  }
-
-  .placeholder p {
-    margin: 0;
-  }
-
-  .hint {
-    color: var(--color-fg-muted);
-    font-size: var(--font-size-sm);
   }
 </style>
