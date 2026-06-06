@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { uiStore } from '$lib/stores/ui.svelte';
   import { workspaceStore } from '$lib/stores/workspace.svelte';
 
   import WorkspaceListItem from './WorkspaceListItem.svelte';
@@ -21,6 +22,15 @@
       + Add
     </button>
   </header>
+
+  <button
+    type="button"
+    class="settings-link"
+    class:active={uiStore.activeView === 'settings'}
+    onclick={() => uiStore.showSettings()}
+  >
+    Settings
+  </button>
 
   <div class="list">
     {#if workspaceStore.loadingList && workspaceStore.list.length === 0}
@@ -95,6 +105,22 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-1);
+  }
+
+  .settings-link {
+    margin: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--color-fg-muted);
+    text-align: left;
+  }
+
+  .settings-link:hover,
+  .settings-link.active {
+    background: var(--color-bg-subtle);
+    color: var(--color-fg);
   }
 
   .loading,

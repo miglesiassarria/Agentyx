@@ -31,16 +31,22 @@ import type {
   EffectivePathsDto,
   ExtraPathDto,
   FileEntryDto,
+  GlobalConfigDto,
+  GlobalConfigPatchDto,
   MessageDto,
   PermissionMatrixDto,
   PermissionRequestDto,
   PermissionRequestedPayload,
+  ResolvedConfigDto,
   RunHandleDto,
   RunId,
   SessionId,
   SessionSummaryDto,
+  TestConnectionRequest,
   TestConnectionResult,
   VenvSpec,
+  WorkspaceConfigDto,
+  WorkspaceConfigPatchDto,
   WorkspaceId,
   WorkspaceDto,
 } from './ipc-types';
@@ -159,22 +165,26 @@ export const agents = {
   get: (id: AgentId): Promise<AgentInfoDto> => call('get_agent', { id }),
 };
 
-// === Config commands (F05, deferred) ===
+// === Config commands (F05) ===
 
 export const config = {
-  getGlobal: (): Promise<unknown /* GlobalConfigDto */> => call('get_global'),
-  updateGlobal: (patch: unknown): Promise<unknown> => call('update_global', { patch }),
-  getWorkspace: (workspaceId: WorkspaceId): Promise<unknown> =>
-    call('get_workspace_config', { workspace_id: workspaceId }),
-  updateWorkspace: (workspaceId: WorkspaceId, patch: unknown): Promise<unknown> =>
-    call('update_workspace_config', { workspace_id: workspaceId, patch }),
+  getGlobal: (): Promise<GlobalConfigDto> => call('config_get_global'),
+  updateGlobal: (patch: GlobalConfigPatchDto): Promise<GlobalConfigDto> =>
+    call('config_update_global', { patch }),
+  getWorkspace: (workspaceId: WorkspaceId): Promise<ResolvedConfigDto> =>
+    call('config_get_workspace', { workspace_id: workspaceId }),
+  updateWorkspace: (
+    workspaceId: WorkspaceId,
+    patch: WorkspaceConfigPatchDto,
+  ): Promise<WorkspaceConfigDto> =>
+    call('config_update_workspace', { workspace_id: workspaceId, patch }),
 };
 
 // === Providers (F05 test connection) ===
 
 export const providers = {
-  testConnection: (providerId: string): Promise<TestConnectionResult> =>
-    call('test_connection', { provider_id: providerId }),
+  testConnection: (request: TestConnectionRequest): Promise<TestConnectionResult> =>
+    call('providers_test_connection', { request }),
 };
 
 // === Secrets (F05 keychain) ===

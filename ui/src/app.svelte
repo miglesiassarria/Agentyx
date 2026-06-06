@@ -2,8 +2,10 @@
   import { onDestroy, onMount } from 'svelte';
 
   import EmptyState from './lib/components/EmptyState.svelte';
+  import SettingsView from './lib/components/settings/SettingsView.svelte';
   import Sidebar from './lib/components/Sidebar.svelte';
   import WorkspaceView from './lib/components/WorkspaceView.svelte';
+  import { uiStore } from './lib/stores/ui.svelte';
   import { workspaceStore } from './lib/stores/workspace.svelte';
 
   let detach: (() => void) | null = null;
@@ -25,7 +27,9 @@
 <div class="app-shell">
   <Sidebar />
   <section class="main">
-    {#if workspaceStore.selected === null}
+    {#if uiStore.activeView === 'settings'}
+      <SettingsView workspace={workspaceStore.selected} />
+    {:else if workspaceStore.selected === null}
       {#if workspaceStore.list.length === 0 && !workspaceStore.loadingList}
         <EmptyState
           title="No workspace open"

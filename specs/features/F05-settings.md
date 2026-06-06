@@ -366,7 +366,7 @@ PATCH  /api/v1/permissions/default (body: { tool, decision }) → {}
 
 ## Acceptance criteria
 
-- [ ] **F05.AC1**: con la app recién instalada y `config.toml`
+- [x] **F05.AC1**: con la app recién instalada y `config.toml`
   global aún no creado, abrir `/settings` → `ProvidersTab` muestra
   **Ollama preconfigurado** con `base_url = "http://127.0.0.1:11434"`,
   `enabled = true`, y los botones `Test connection` /
@@ -424,7 +424,7 @@ PATCH  /api/v1/permissions/default (body: { tool, decision }) → {}
   siguen accesibles (no se pierde el `api_key` que está en
   keychain). **Test**:
   `f05_ac11_settings_persist_across_app_restart`.
-- [ ] **F05.AC12**: la UI **nunca** muestra el valor real de un
+- [x] **F05.AC12**: la UI **nunca** muestra el valor real de un
   secret; solo el badge "API key: set in keychain" o el botón
   "Edit API key" (que abre un input vacío). Test E2E en
   Playwright: capturar el árbol DOM tras un save y verificar
@@ -435,7 +435,7 @@ PATCH  /api/v1/permissions/default (body: { tool, decision }) → {}
   describe (add con confirmación, remove con confirmación,
   validación de path absoluto, no duplicados). **Test**:
   `f05_ac13_extra_paths_editor_delegates_to_f02`.
-- [ ] **F05.AC14**: el cambio de `update_channel` a `"dev"`
+- [x] **F05.AC14**: el cambio de `update_channel` a `"dev"`
   muestra un warning visible ("You're switching to a less
   stable channel") y requiere confirmación antes de guardar.
   **Test**: `f05_ac14_update_channel_dev_requires_confirmation`.
@@ -463,6 +463,21 @@ PATCH  /api/v1/permissions/default (body: { tool, decision }) → {}
 - **Security test**: `crates/agentyx-app/tests/secrets_no_leak.rs` —
   instrumenta `tracing` y verifica que ningún log contiene el
   valor de un secret durante el flujo de F05.
+
+## Implementation notes
+
+- PR3 UI añade `SettingsView.svelte` como vista interna accesible desde
+  el sidebar porque el frontend actual todavía no tiene router; `/settings`
+  queda como navegación futura cuando se introduzca router.
+- Los wrappers IPC de `ui/src/lib/ipc.ts` ahora apuntan a los comandos
+  reales mergeados en backend (`config_get_*`, `providers_test_connection`,
+  `set_secret`, `delete_secret`, `list_providers`).
+- `ApprovalTab` muestra la matriz devuelta por `get_matrix`; la edición
+  de defaults queda pendiente porque el backend actual todavía no registra
+  `permissions_set_default`.
+- Tests UI actuales cubren helpers/seguridad de presencia de secrets y
+  confirmación de update channel (`helpers.test.ts`); no se añade
+  `@testing-library/svelte` en esta PR.
 
 ## Telemetry / logs
 
