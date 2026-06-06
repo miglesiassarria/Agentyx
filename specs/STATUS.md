@@ -4,11 +4,15 @@
 > Para roadmap de features: [features/ROADMAP.md](./features/ROADMAP.md).
 > Para índice de ADRs: [adr/README.md](./adr/README.md).
 >
-> Última actualización: 2026-06-06 (PR feat(app,ui): F01-Phase2-app)
+> Última actualización: 2026-06-06 (Pitch-Driven SDD Lite habilitado)
 >
-> **Disciplina de status**: este archivo **debe** actualizarse en
-> el mismo PR que cambia el estado de cualquier spec. Ver
-> `AGENTS.md` §17 Spec-Driven Development (regla §17.5).
+> **Disciplina de status**: este archivo se actualiza en el mismo PR
+> que cambia el estado real de cualquier pitch/spec o deja el board
+> obsoleto. Ver `AGENTS.md` §17 Pitch-Driven SDD Lite (regla §17.5).
+>
+> Estados preferidos para trabajo nuevo: `proposed` → `ready` →
+> `shipped` → `deprecated`. Los estados históricos `draft`, `review`,
+> `approved` e `implemented` siguen aceptados para specs existentes.
 
 ## 🟡 Draft (en construcción)
 _(vacío)_
@@ -130,13 +134,23 @@ _(ninguno)_
 
 | De → A | Trigger |
 |---|---|
+| `proposed` → `ready` | Pitch con problema, alcance, contratos y ACs suficientes |
+| `ready` → `shipped` | Código mergeado y tests/verificación pasando |
+| `shipped` → `deprecated` | Pitch/spec retirado o reemplazado |
+| cualquier → `proposed` | Cambios materiales vuelven a diseño |
 | `draft` → `review` | El autor pide review (PR o comentario) |
 | `review` → `approved` | Al menos 1 aprobación humana y ACs completos |
 | `approved` → `implemented` | Código mergeado y tests pasando |
 | `implemented` → `deprecated` | Spec retirada o reemplazada (con ADR que lo justifique) |
 | cualquier → `draft` | Cambios materiales vuelven al inicio del ciclo |
 
-Una spec `draft` **puede codearse**, pero el código no se mergea hasta que la spec esté `approved` (salvo hotfixes blocker, ver `AGENTS.md` §Gestión de bugs).
+Las cinco primeras filas son el flujo preferido para trabajo nuevo. Las
+filas `draft/review/approved/implemented` quedan como compatibilidad
+para specs existentes.
+
+Un pitch `proposed` puede explorarse, pero una feature nueva no se
+mergea hasta que esté `ready` (o `approved` si es spec histórica), salvo
+hotfixes blocker según `AGENTS.md` §18.
 
 ## Nota sobre el ciclo de reforma (PR 1)
 

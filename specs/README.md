@@ -1,8 +1,8 @@
 # Agentyx — Specs
 
-> Fuente de verdad del diseño. Cualquier cambio de comportamiento
-> que toque más de un archivo debe estar documentado aquí antes
-> de implementarse.
+> Fuente de verdad del diseño. Agentyx usa **Pitch-Driven SDD Lite**:
+> cambios de comportamiento, contratos o arquitectura se diseñan antes
+> de implementarse, pero con documentos breves y lectura selectiva.
 >
 > Las specs son **versionadas** con el código: viven en el repo,
 > en el mismo commit que el código que describen. No en Notion,
@@ -45,8 +45,9 @@
 
 ## Convenciones
 
-- **Tipos de spec**: `global` (visión, glosario, arquitectura, IPC) · `domain` (un dominio del core) · `feature` (funcionalidad vertical de cara al usuario) · `adr` (decisión de arquitectura) · `bug` (reporte y resolución).
-- **Status**: `draft` → `review` → `approved` → `implemented` → `deprecated`.
+- **Tipos de spec**: `global` (visión, glosario, arquitectura, IPC) · `domain` (un dominio del core) · `feature` o `pitch` (funcionalidad vertical de cara al usuario) · `adr` (decisión de arquitectura) · `bug` (reporte y resolución).
+- **Status preferidos**: `proposed` → `ready` → `shipped` → `deprecated`.
+- **Status históricos aceptados**: `draft` → `review` → `approved` → `implemented` → `deprecated`.
 - **Numeración**: dominios libres; features `F<NN>-slug.md`; ADRs `NNNN-slug.md`; bugs `BUG-<NN>-slug.md`.
 - **Metadata obligatoria** al inicio de cada spec (ver [templates/](./templates/)):
 
@@ -56,7 +57,12 @@
   **Last update**: YYYY-MM-DD
   ```
 
-- **Acceptance criteria** al final en formato checklist markdown:
+- **Feature pitches**: usar la plantilla ligera de
+  [`templates/feature-spec.md`](./templates/feature-spec.md). Objetivo:
+  120-180 líneas, con `Problem`, `Appetite`, `Solution Shape`,
+  `Contracts`, `Acceptance Criteria`, `No-gos`, `Risks / Rabbit holes`
+  y `Test Map`.
+- **Acceptance criteria** en formato checklist markdown:
 
   ```markdown
   ## Acceptance criteria
@@ -64,21 +70,24 @@
   - [ ] AC2 …
   ```
 
-- **Refs cruzadas**: las features referencian dominios (`Affects:`); los dominios nunca referencian features. Los ADRs referencian la decisión tomada y, si aplica, la spec que la consumirá.
+- **Refs cruzadas**: las features/pitches referencian dominios
+  (`Affects:`); los dominios nunca referencian features. Los ADRs
+  referencian la decisión tomada y, si aplica, la spec que la consumirá.
 
 ## Reglas de modificación
 
-1. Cambios en APIs de Tauri command, endpoint HTTP o evento streaming → actualizar [ipc.md](./ipc.md) **y** la spec de dominio afectada en el mismo PR.
-2. Cambios de comportamiento de usuario → actualizar la feature spec y sus acceptance criteria.
-3. Decisiones de stack/arquitectura nuevas → crear ADR (no editar uno antiguo; los ADRs son inmutables una vez `accepted`).
-4. PRs que no referencian al menos una spec → **rechazados** en review (ver `AGENTS.md` §Spec-Driven Development).
-5. Specs desactualizadas son bugs categoría A (ver `AGENTS.md` §Gestión de bugs).
+1. Cambios en APIs de Tauri command, endpoint HTTP, evento streaming o error code → actualizar [ipc.md](./ipc.md) **y** el pitch/spec afectado en el mismo PR.
+2. Cambios de comportamiento visible, persistencia, permisos, sandbox, providers, agentes, PTY o tools → referenciar o actualizar un pitch/spec.
+3. Refactors internos, cambios de estilo, renombres locales, tests de comportamiento existente o docs operativas → pueden usar `Refs: N/A — <motivo>`.
+4. Decisiones de stack/arquitectura difíciles de revertir → crear ADR. No crear ADR para detalles reversibles.
+5. `STATUS.md` se actualiza solo si cambia el estado de un pitch/spec o el board queda obsoleto.
+6. Specs desactualizadas son bugs categoría A (ver `AGENTS.md` §Gestión de bugs).
 
 ## Cómo busca la IA (o un humano nuevo)
 
 ```bash
-# Qué specs hay en draft
-rg -l "Status: draft" specs/
+# Qué pitches/specs están en diseño
+rg -l "Status: (proposed|draft|review)" specs/
 
 # Qué menciona streaming
 rg -l "streaming" specs/
@@ -96,4 +105,13 @@ rg "^- \[ \]" specs/
 rg "Status: accepted" specs/adr/
 ```
 
-La IA (o el humano) **no carga todas las specs en contexto**. Carga solo las que el cambio toca. Empieza por `specs/README.md` y desde ahí navega con `grep`/`glob`.
+La IA (o el humano) **no carga todas las specs en contexto**. Carga
+solo lo necesario:
+
+1. `specs/README.md`.
+2. El pitch/spec directamente afectado.
+3. `specs/ipc.md` solo si cambia IPC/contratos.
+4. ADR solo si hay una decisión arquitectónica nueva o afectada.
+
+Para specs largas existentes, leer primero `## Agent context` si existe
+y saltar al AC/contrato relevante con `rg`.

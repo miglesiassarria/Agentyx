@@ -1,106 +1,85 @@
-# Feature Spec — Plantilla
+# Feature Pitch — Plantilla ligera
 
-**Status**: draft
+**Status**: proposed
 **Owner**: @<nick>
 **Last update**: YYYY-MM-DD
-**Affects**: lista de specs de dominio que esta feature consume
-**Depends on**: lista de features (F<NN>) de las que depende
+**Affects**: `domains/<x>.md`, `specs/ipc.md` si aplica
+**Depends on**: `F<NN>` o `N/A`
 
-> Copiar este archivo a `specs/features/F<NN>-<slug>.md` (con el
-> siguiente número libre) y rellenar. **Toda feature debe referenciar
-> al menos un dominio en `Affects:`**.
+> Copiar a `specs/features/F<NN>-<slug>.md`. Objetivo: 120-180 líneas.
+> Si una feature necesita más, dividirla o añadir solo lo imprescindible.
 
-## User story
+## Agent context
 
-Como **<rol>**, quiero **<acción>**, para **<beneficio>**.
+- Leer este pitch antes de tocar la feature.
+- Leer `specs/ipc.md` solo si cambia `Contracts`.
+- Leer ADRs solo si se toma o modifica una decisión difícil de revertir.
 
-## Scope
+## Problem
 
-- **In-scope**: qué entra.
-- **Out-of-scope**: qué NO entra. (Mejor explícito que implícito.)
+Qué duele hoy, a quién afecta y por qué merece inversión. 5-8 líneas.
 
-## UX / UI
+## Appetite
 
-- Pantallas afectadas (rutas de Svelte, componentes).
-- Estados: `empty`, `loading`, `error`, `success`, etc.
-- Bocetos en ASCII o links a Figma si los hay.
-- Strings visibles al usuario (i18n futura).
+**Budget**: small (1-2 días) | medium (1 semana) | large (2-3 semanas)
 
-## Flow
+Cómo el presupuesto limita la solución. Qué se recorta primero si el
+trabajo crece.
 
-Diagrama de secuencia: `user → UI → IPC → core → side-effect`.
+## Solution Shape
 
-```
-user: "<acción>"
-  → UI (Svelte) llama ipc.invoke("command_name", { ... })
-  → Tauri command / HTTP handler
-  → core: domain::operation
-  → side effect (file, network, pty, …)
-  → journal.append
-  → emit evento chat.tool_result.v1
-  → UI actualiza
-```
+Descripción de alto nivel de la solución. Incluir solo las piezas que
+orientan la implementación: módulos Rust, comandos Tauri, componentes
+Svelte, persistencia o flujos principales.
 
-## Affected domains
+## Contracts
 
-- `domains/<x>.md` — qué cambia, qué operations se usan.
-- `domains/<y>.md` — idem.
+Solo contratos que cambian. Si no cambia ninguno, escribir `N/A`.
+
+- **Commands**: `command_name(args) -> Result<T, AppError>`
+- **Events**: `event.name.v1 { ... }`
+- **Storage**: tabla/migración/campo
+- **Errors**: `error_code`
+
+## Acceptance Criteria
+
+Cada AC debe ser observable y testeable. Usar `Given / When / Then`
+cuando ayude.
+
+- [ ] F<NN>.AC1: Given ..., When ..., Then ...
+- [ ] F<NN>.AC2: Given ..., When ..., Then ...
+- [ ] F<NN>.AC3: Given ..., When ..., Then ...
+
+## Test Map
+
+Cada AC implementado debe apuntar a test automatizado o verificación
+manual explícita si no es automatizable.
+
+- `F<NN>.AC1` -> `crate_or_file::f<NN>_ac1_<short>`
+- `F<NN>.AC2` -> `ui/src/.../<test>.test.ts`
+- `F<NN>.AC3` -> manual: <pasos cortos>
+
+## No-gos
+
+Qué queda fuera para mantener el alcance pequeño.
+
 - ...
 
-## Affected Tauri commands / endpoints / events
+## Risks / Rabbit holes
 
-Ver [ipc.md](../ipc.md).
+Riesgos que pueden disparar coste o ambigüedad.
 
-- Commands: lista.
-- HTTP endpoints: lista.
-- Eventos: lista.
+- ...
 
-## Acceptance criteria
+## Implementation notes
 
-Cada item es **medible y testeable**. El test del AC vive en el crate
-de Rust o de TS correspondiente, con nombre derivado del AC.
-
-- [ ] F<NN>.AC1: ...
-- [ ] F<NN>.AC2: ...
-- [ ] F<NN>.AC3: ...
-
-## Tests
-
-- **Unit (Rust)**: `crates/agentyx-core/src/<scope>/<file>.rs::tests`.
-  Naming: `f<NN>_ac<n>_<short>`.
-- **Integration (Rust)**: `crates/agentyx-core/tests/<scope>.rs`.
-- **Unit (TS)**: `ui/src/lib/components/<X>.test.ts`.
-- **E2E (Playwright)**: `ui/e2e/<feature>.spec.ts`.
-
-## Telemetry / logs
-
-Qué se loguea, con qué nivel y qué campos. Recordar: **nunca** loguear
-contenido de archivos del usuario ni secrets.
-
-```rust
-tracing::info!(
-    workspace_id = %id,
-    duration_ms = ms,
-    "feature completed"
-);
-```
-
-## Security notes
-
-- ¿Toca auth, permisos, secrets, path traversal?
-- ¿Cambia capabilities Tauri o CSP?
-
-## Rollout
-
-- ¿Feature flag?
-- ¿Detrás de settings del workspace o global?
-- ¿Migración de datos necesaria?
-
-## Open questions
+Opcional. Máximo 5 bullets. Usar solo después de implementar si deja
+contexto útil para futuros cambios.
 
 - ...
 
 ## References
 
-- [ipc.md](../ipc.md)
-- Dominios afectados (ver `Affects:` arriba)
+- `specs/README.md`
+- `specs/ipc.md` si aplica
+- Dominios afectados
