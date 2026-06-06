@@ -501,67 +501,59 @@ mod tests {
     }
 
     /// Create a workspace inside a path that the whitelist accepts.
-    /// On macOS the whitelist is `/Users`, on Linux `/home`, so
-    /// we synthesize a path under `dirs::home_dir()` for the
-    /// workspace root. The dir is **not** auto-deleted (leaked) —
-    /// tests run in CI sandboxes that get reaped on exit; explicit
-    /// cleanup would require threading the `TempDir` through every
-    /// call site, which is not worth it for v0.1.
-    fn make_workspace(svc: &WorkspaceService, label: &str) -> (PathBuf, Workspace) {
+    /// On macOS the whitelist is `/Users`, on Linux `/home`, on
+    /// Windows `C:\Users`, so we synthesize a path under
+    /// `dirs::home_dir()` for the workspace root.
+    ///
+    /// Returns the `TempDir` (which keeps the on-disk dir alive
+    /// for the duration of the test) and the opened `Workspace`.
+    /// Tests that need the workspace path should call
+    /// `dir.path()`. When the test ends, `dir`'s `Drop` removes
+    /// the on-disk dir, so no leftover files accumulate in
+    /// `$HOME` between CI runs.
+    fn make_workspace(svc: &WorkspaceService, label: &str) -> (tempfile::TempDir, Workspace) {
         let dir = whitelisted_tempdir();
-        let path = dir.path().to_path_buf();
         let ws = svc
             .open(
-                &path,
+                dir.path(),
                 OpenOptions {
                     name: Some(label.into()),
                 },
             )
             .unwrap();
-        // Leak: process exit will reap. See fn docstring.
-        std::mem::forget(dir);
-        (path, ws)
+        (dir, ws)
     }
 
-    /// Create a temp dir under the user's home (which is in the
-    /// whitelist on macOS `/Users` and Linux `/home`). Caller is
-    /// responsible for `mem::forget` or explicit cleanup.
+    /// Create a `tempfile::TempDir` under the user's home (which
+    /// is in the workspace-root whitelist on every supported
+    /// OS). The returned `TempDir` cleans itself up on `Drop`,
+    /// so tests do not pollute `$HOME` with leftover directories
+    /// after they run. Caller binds the return to a variable
+    /// for the duration of the test, e.g.
+    /// `let dir = whitelisted_tempdir();`.
     fn whitelisted_tempdir() -> tempfile::TempDir {
-        let parent = dirs::home_dir().expect("home dir must be set in tests");
-        let tag = ulid::Ulid::new().to_string();
-        let dir = parent.join(format!("agentyx-test-{tag}"));
-        std::fs::create_dir_all(&dir).expect("create test dir");
-        // TempDir's drop deletes the dir; we want the dir to live
-        // for the test duration. Use a new-in variant that returns
-        // a path inside, then keep the outer dir alive via mem::forget
-        // in the caller. The inner temp dir has a unique name.
-        let inner = parent.join(format!("agentyx-test-{tag}"));
-        std::fs::create_dir_all(&inner).expect("create inner dir");
-        // Return a TempDir that we manually construct via keep.
+        let home = dirs::home_dir().expect("home dir must be set in tests");
         tempfile::Builder::new()
-            .prefix("ws-")
-            .tempdir_in(&inner)
-            .expect("create tempdir")
+            .prefix("agentyx-")
+            .tempdir_in(&home)
+            .expect("create whitelisted tempdir")
     }
 
     /// Create a temp dir **inside** an existing workspace root,
     /// so it passes the `root_path ∪ extra_paths` sandbox check
-    /// used by `add_extra_path`. The dir lives for the test
-    /// (caller drops the TempDir).
+    /// used by `add_extra_path`. The `TempDir`'s `Drop` removes
+    /// it when the test ends, leaving the workspace root clean.
     fn extra_in_workspace(root: &std::path::Path) -> tempfile::TempDir {
-        let tag = ulid::Ulid::new().to_string();
-        let wrapper = root.join(format!("extra-{tag}"));
-        std::fs::create_dir_all(&wrapper).expect("create wrapper");
         tempfile::Builder::new()
-            .prefix("sub-")
-            .tempdir_in(&wrapper)
+            .prefix("extra-")
+            .tempdir_in(root)
             .expect("create extra tempdir")
     }
 
     #[test]
     fn open_creates_workspace_dir_and_config_toml() {
         let (_home, svc) = fresh_service();
-        let (root, ws) = make_workspace(&svc, "test-ws");
+        let (dir, ws) = make_workspace(&svc, "test-ws");
 
         // The per-workspace dir under ~/.agentyx/workspaces/<id>/
         let ws_dir = svc
@@ -573,7 +565,7 @@ mod tests {
         assert!(ws_dir.join(".last_opened").is_file());
 
         // Open should be idempotent.
-        let again = svc.open(&root, OpenOptions::default()).unwrap();
+        let again = svc.open(dir.path(), OpenOptions::default()).unwrap();
         assert_eq!(again.id, ws.id);
         assert_eq!(again.name, "test-ws");
     }
@@ -618,9 +610,9 @@ mod tests {
     #[test]
     fn list_returns_all_workspaces_ordered_by_last_opened() {
         let (_home, svc) = fresh_service();
-        let (_r1, w1) = make_workspace(&svc, "first");
+        let (_dir1, w1) = make_workspace(&svc, "first");
         std::thread::sleep(std::time::Duration::from_millis(10));
-        let (_r2, w2) = make_workspace(&svc, "second");
+        let (_dir2, w2) = make_workspace(&svc, "second");
 
         let listed = svc.list();
         assert_eq!(listed.len(), 2);
@@ -631,7 +623,7 @@ mod tests {
     #[test]
     fn delete_removes_workspace_and_its_dir() {
         let (_home, svc) = fresh_service();
-        let (_root, ws) = make_workspace(&svc, "to-delete");
+        let (_dir, ws) = make_workspace(&svc, "to-delete");
         let ws_dir = svc
             .agentyx_home()
             .join("workspaces")
@@ -654,8 +646,8 @@ mod tests {
     #[test]
     fn add_extra_path_persists_in_registry_and_config() {
         let (_home, svc) = fresh_service();
-        let (root, ws) = make_workspace(&svc, "main");
-        let extras_dir = extra_in_workspace(&root);
+        let (dir, ws) = make_workspace(&svc, "main");
+        let extras_dir = extra_in_workspace(dir.path());
 
         let extra = svc
             .add_extra_path(ws.id, extras_dir.path(), Some("assets".into()))
@@ -681,17 +673,17 @@ mod tests {
     #[test]
     fn add_extra_path_equal_to_root_rejected() {
         let (_home, svc) = fresh_service();
-        let (root, ws) = make_workspace(&svc, "main");
+        let (dir, ws) = make_workspace(&svc, "main");
 
-        let err = svc.add_extra_path(ws.id, &root, None).unwrap_err();
+        let err = svc.add_extra_path(ws.id, dir.path(), None).unwrap_err();
         assert!(matches!(err, AppError::Conflict { .. }));
     }
 
     #[test]
     fn add_extra_path_duplicate_rejected() {
         let (_home, svc) = fresh_service();
-        let (root, ws) = make_workspace(&svc, "main");
-        let extra = extra_in_workspace(&root);
+        let (dir, ws) = make_workspace(&svc, "main");
+        let extra = extra_in_workspace(dir.path());
 
         svc.add_extra_path(ws.id, extra.path(), None).unwrap();
         let err = svc.add_extra_path(ws.id, extra.path(), None).unwrap_err();
@@ -705,7 +697,7 @@ mod tests {
         // rejected with `PathOutsideWorkspace` and **does not**
         // persist anywhere.
         let (_home, svc) = fresh_service();
-        let (_root, ws) = make_workspace(&svc, "main");
+        let (_dir, ws) = make_workspace(&svc, "main");
         let bad_extra = tempfile::tempdir().unwrap();
 
         let err = svc
@@ -723,8 +715,8 @@ mod tests {
     #[test]
     fn remove_extra_path_persists() {
         let (_home, svc) = fresh_service();
-        let (root, ws) = make_workspace(&svc, "main");
-        let extra = extra_in_workspace(&root);
+        let (dir, ws) = make_workspace(&svc, "main");
+        let extra = extra_in_workspace(dir.path());
 
         let added = svc.add_extra_path(ws.id, extra.path(), None).unwrap();
         svc.remove_extra_path(ws.id, &added.path).unwrap();
@@ -742,7 +734,7 @@ mod tests {
     #[test]
     fn remove_unknown_extra_path_returns_not_found() {
         let (_home, svc) = fresh_service();
-        let (_root, ws) = make_workspace(&svc, "main");
+        let (_dir, ws) = make_workspace(&svc, "main");
         let missing = tempfile::tempdir().unwrap();
 
         let err = svc.remove_extra_path(ws.id, missing.path()).unwrap_err();
@@ -752,12 +744,12 @@ mod tests {
     #[test]
     fn list_extra_paths_orders_by_added_at() {
         let (_home, svc) = fresh_service();
-        let (root, ws) = make_workspace(&svc, "main");
-        let e1 = extra_in_workspace(&root);
+        let (dir, ws) = make_workspace(&svc, "main");
+        let e1 = extra_in_workspace(dir.path());
         std::thread::sleep(std::time::Duration::from_millis(5));
-        let e2 = extra_in_workspace(&root);
+        let e2 = extra_in_workspace(dir.path());
         std::thread::sleep(std::time::Duration::from_millis(5));
-        let e3 = extra_in_workspace(&root);
+        let e3 = extra_in_workspace(dir.path());
 
         svc.add_extra_path(ws.id, e1.path(), None).unwrap();
         svc.add_extra_path(ws.id, e2.path(), None).unwrap();
@@ -772,8 +764,8 @@ mod tests {
     #[test]
     fn effective_paths_contains_returns_correctly() {
         let (_home, svc) = fresh_service();
-        let (root, ws) = make_workspace(&svc, "main");
-        let extra = extra_in_workspace(&root);
+        let (dir, ws) = make_workspace(&svc, "main");
+        let extra = extra_in_workspace(dir.path());
         let subdir_in_extra = extra.path().join("sub");
         std::fs::create_dir(&subdir_in_extra).unwrap();
         // `unrelated` is a path that is NOT under the workspace
@@ -810,7 +802,7 @@ mod tests {
         // Windows verbatim `\\?\` prefix on win). Compare
         // canonical-to-canonical so the assertion is meaningful
         // cross-platform.
-        let root_c = crate::workspace::canonicalize(&root).unwrap();
+        let root_c = crate::workspace::canonicalize(dir.path()).unwrap();
         let sub_c = crate::workspace::canonicalize(&subdir_in_extra).unwrap();
         let unrelated_c = crate::workspace::canonicalize(unrelated.path()).unwrap();
         assert!(eff.contains(&root_c));

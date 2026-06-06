@@ -440,36 +440,28 @@ mod tests {
     }
 
     /// Create a `tempfile::TempDir` under a path the workspace
-    /// whitelist accepts (typically `dirs::home_dir()`). The OS
-    /// reaps the dir on process exit; we keep the TempDir alive
-    /// for the duration of the test by leaking the wrapper via
-    /// a leaked `Box` (the test process exits and the OS reaps).
+    /// whitelist accepts (typically `dirs::home_dir()`). The
+    /// returned `TempDir` lives in `$HOME` and is removed when
+    /// the test ends via `Drop`, so no leftover files
+    /// accumulate in the user's home. The caller must bind the
+    /// return to a variable for the duration of the test, e.g.
+    /// `let dir = whitelisted_tempdir();`.
     fn whitelisted_tempdir() -> tempfile::TempDir {
-        let parent = dirs::home_dir().expect("home dir must be set in tests");
-        let tag = ulid::Ulid::new().to_string();
-        let wrapper = parent.join(format!("agentyx-app-test-{tag}"));
-        std::fs::create_dir_all(&wrapper).expect("create wrapper dir");
-        let inner = tempfile::Builder::new()
-            .prefix("ws-")
-            .tempdir_in(&wrapper)
-            .expect("create tempdir");
-        // Leak the wrapper path so the inner TempDir's parent
-        // doesn't disappear on drop. Process exit reaps it.
-        let _ = Box::leak(Box::new(wrapper));
-        inner
+        let home = dirs::home_dir().expect("home dir must be set in tests");
+        tempfile::Builder::new()
+            .prefix("agentyx-")
+            .tempdir_in(&home)
+            .expect("create whitelisted tempdir")
     }
 
     /// Create a temp dir **inside** the workspace root, so it
     /// passes the `root_path ∪ extra_paths` sandbox check used
-    /// by `add_extra_path`. The dir lives for the test; OS
-    /// reaps on process exit.
+    /// by `add_extra_path`. The `TempDir`'s `Drop` removes it
+    /// when the test ends, leaving the workspace root clean.
     fn extra_in_workspace(workspace_root: &std::path::Path) -> tempfile::TempDir {
-        let tag = ulid::Ulid::new().to_string();
-        let parent = workspace_root.join(format!("extra-{tag}"));
-        std::fs::create_dir_all(&parent).expect("create parent");
         tempfile::Builder::new()
-            .prefix("sub-")
-            .tempdir_in(&parent)
+            .prefix("extra-")
+            .tempdir_in(workspace_root)
             .expect("create extra tempdir")
     }
 
