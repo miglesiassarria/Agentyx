@@ -4,7 +4,7 @@
 > Para roadmap de features: [features/ROADMAP.md](./features/ROADMAP.md).
 > Para índice de ADRs: [adr/README.md](./adr/README.md).
 >
-> Última actualización: 2026-06-06 (PR feat(core): F01-Phase2-core)
+> Última actualización: 2026-06-06 (PR feat(app,ui): F01-Phase2-app)
 >
 > **Disciplina de status**: este archivo **debe** actualizarse en
 > el mismo PR que cambia el estado de cualquier spec. Ver
@@ -51,7 +51,7 @@ _(vacío)_
   command; AC7 sigue parcial: el check de runs activos llega con
   el PR de `agent-loop`).
 - **features/F01-chat-streaming.md** — `approved` →
-  `implemented (partial — Phase 1 backend + UI + Phase 2-core)`. PRs:
+  `implemented (partial — Phase 1 backend + UI + Phase 2-core + Phase 2-app)`. PRs:
   - `feat(core): F01-Phase1 backends` (PR #13): 5/15 ACs
     backend cubiertos (AC1, AC2, AC4, AC5, AC6).
   - `feat(app): F01-Phase1 app wiring` (PR #14):
@@ -66,7 +66,7 @@ _(vacío)_
     folding para chat.run.started/finished/error, message_start,
     content.delta); 18/18 vitest tests del store pasando;
     UI checks (svelte-check/tsc/eslint/prettier/build) verdes.
-  - `feat(core): F01-Phase2-core` (este PR):
+  - `feat(core): F01-Phase2-core` (PR #16):
     3 tools read-only (read_file, list_dir, search) en
     `crates/agentyx-core/src/tools/`; `PermissionGate` con
     12-step algorithm + `PermissionRegistry` (oneshot); agent
@@ -74,10 +74,14 @@ _(vacío)_
     tool dispatch, permission ask flow, sequential-to-allow
     transition; `DeltaBatcher` (50ms / 100 chars); `MockProvider`
     para tests; 10/15 ACs backend cubiertos (AC1, AC2, AC3,
-    AC4, AC5, AC6, AC7, AC8, AC12, AC13). Tests: 142 core
-    + 24 app + 18 UI = 184 totales. Pendientes: Tauri commands
-    `permission_respond/list/get_matrix` + UI `PermissionPrompt`
-    (follow-up PR); multi-agent + @mention (F01-Phase3).
+    AC4, AC5, AC6, AC7, AC8, AC12, AC13).
+  - `feat(app,ui): F01-Phase2-app` (este PR):
+    Permission Tauri commands (`respond`, `list`, `get_matrix`);
+    `PermissionPrompt.svelte` modal en `WorkspaceView`;
+    `SessionStore` permission event handling + recovery
+    (`AppState::recover_orphan_runs` al startup: `Running` →
+    `Aborted` "app_closed"); `chat.run.aborted.v1` emitido
+    en run abort. F01-Phase2 backend+app+UI cubiertos.
     Ver `## Implementation status` en el spec.
 
 ## ⚫ Deprecated

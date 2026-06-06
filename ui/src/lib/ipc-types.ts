@@ -181,3 +181,33 @@ export interface ChatRunErrorPayload {
   message: string;
   retryable: boolean;
 }
+
+/** Payload of `chat.run.aborted.v1` (F01.AC4 finalization). */
+export interface ChatRunAbortedPayload {
+  runId: RunId;
+  sessionId: SessionId;
+  reason: 'user' | 'timeout' | 'error' | 'max_steps' | 'aborted';
+}
+
+/** Payload of `permission.requested.v1` (F01.AC7). */
+export interface PermissionRequestedPayload {
+  runId: RunId;
+  sessionId: SessionId;
+  requestId: string;
+  tool: ToolId;
+  args: unknown;
+  argsSummary: string;
+  reason: string;
+}
+
+/** DTO returned by `permissions.list`. */
+export interface PermissionRequestDto {
+  requestId: string;
+  runId: string;
+  sessionId: string;
+  tool: ToolId;
+  args: unknown;
+  argsSummary: string;
+  reason: string;
+  createdAt: string;
+}

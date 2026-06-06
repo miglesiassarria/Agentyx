@@ -47,6 +47,7 @@ interface FakeEventsApi {
   onContentDelta?: EventHandler;
   onFinished?: EventHandler;
   onError?: EventHandler;
+  onAborted?: EventHandler;
 }
 
 const stub = vi.hoisted(() => ({
@@ -59,7 +60,10 @@ const stub = vi.hoisted(() => ({
   sessionsGetActiveAgent: vi.fn(),
   agentsList: vi.fn(),
   agentsGet: vi.fn(),
+  permissionsList: vi.fn(),
+  permissionsRespond: vi.fn(),
   lastRunHandlers: null as FakeEventsApi | null,
+  lastPermissionHandler: null as EventHandler | null,
 }));
 
 vi.mock('$lib/ipc', () => {
@@ -70,6 +74,14 @@ vi.mock('$lib/ipc', () => {
         return () => {
           if (stub.lastRunHandlers === handlers) {
             stub.lastRunHandlers = null;
+          }
+        };
+      },
+      permissionRequested: async (cb: EventHandler): Promise<() => void> => {
+        stub.lastPermissionHandler = cb;
+        return () => {
+          if (stub.lastPermissionHandler === cb) {
+            stub.lastPermissionHandler = null;
           }
         };
       },
@@ -86,6 +98,10 @@ vi.mock('$lib/ipc', () => {
     agents: {
       list: stub.agentsList,
       get: stub.agentsGet,
+    },
+    permissions: {
+      list: stub.permissionsList,
+      respond: stub.permissionsRespond,
     },
   };
 });
@@ -157,12 +173,16 @@ function fireFinished(p: ChatRunFinishedPayload): void {
 function fireError(p: ChatRunErrorPayload): void {
   stub.lastRunHandlers?.onError?.(p);
 }
+function fireAborted(p: { runId: string; reason: string }): void {
+  stub.lastRunHandlers?.onAborted?.(p);
+}
 
 // === Lifecycle ===
 
 beforeEach(() => {
   vi.clearAllMocks();
   stub.lastRunHandlers = null;
+  stub.lastPermissionHandler = null;
   stub.sessionsCreate.mockResolvedValue(makeSummary());
   stub.sessionsSend.mockResolvedValue(makeRunHandle());
   stub.sessionsAbort.mockResolvedValue(undefined);
@@ -171,6 +191,8 @@ beforeEach(() => {
   stub.sessionsSetActiveAgent.mockResolvedValue(undefined);
   stub.sessionsGetActiveAgent.mockResolvedValue(AGENT_BUILD);
   stub.agentsList.mockResolvedValue(visibleAgents);
+  stub.permissionsList.mockResolvedValue([]);
+  stub.permissionsRespond.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -479,3 +501,148 @@ void _ctor;
 // consumer in the file.
 const _handlers: FakeEventsApi | null = stub.lastRunHandlers;
 void _handlers;
+
+// === Permission flow (F01.AC7) ===
+
+describe('SessionStore — permission flow', () => {
+  it('subscribes to permission.requested.v1 on attach', async () => {
+    const store = new SessionStore();
+    await store.attach(WS_ID);
+    expect(stub.lastPermissionHandler).not.toBeNull();
+  });
+
+  it('queues a request when a permission.requested.v1 event arrives', async () => {
+    const store = new SessionStore();
+    await store.attach(WS_ID);
+    expect(store.pendingPermissions).toEqual([]);
+    expect(store.currentPermission).toBeNull();
+    stub.lastPermissionHandler?.({
+      runId: '01HWS000000000000000000R0N',
+      sessionId: SESSION_ID,
+      requestId: '01HWS000000000000000000P01',
+      tool: 'shell',
+      args: { command: 'ls' },
+      argsSummary: '{ "command": "ls" }',
+      reason: 'user_approval',
+    });
+    expect(store.pendingPermissions).toHaveLength(1);
+    expect(store.currentPermission?.requestId).toBe('01HWS000000000000000000P01');
+    expect(store.currentPermission?.tool).toBe('shell');
+  });
+
+  it('de-duplicates requests with the same requestId', async () => {
+    const store = new SessionStore();
+    await store.attach(WS_ID);
+    const payload = {
+      runId: '01HWS000000000000000000R0N',
+      sessionId: SESSION_ID,
+      requestId: '01HWS000000000000000000P01',
+      tool: 'shell',
+      args: { command: 'ls' },
+      argsSummary: '{ "command": "ls" }',
+      reason: 'user_approval',
+    };
+    stub.lastPermissionHandler?.(payload);
+    stub.lastPermissionHandler?.(payload);
+    expect(store.pendingPermissions).toHaveLength(1);
+  });
+
+  it('respondToPermission delivers the decision and removes from the queue', async () => {
+    const store = new SessionStore();
+    await store.attach(WS_ID);
+    stub.lastPermissionHandler?.({
+      runId: '01HWS000000000000000000R0N',
+      sessionId: SESSION_ID,
+      requestId: '01HWS000000000000000000P01',
+      tool: 'shell',
+      args: { command: 'ls' },
+      argsSummary: '{ "command": "ls" }',
+      reason: 'user_approval',
+    });
+    await store.respondToPermission('01HWS000000000000000000P01', { kind: 'allowOnce' });
+    expect(stub.permissionsRespond).toHaveBeenCalledWith('01HWS000000000000000000P01', {
+      kind: 'allowOnce',
+    });
+    expect(store.pendingPermissions).toEqual([]);
+  });
+
+  it('respondToPermission rolls back the queue on IPC failure', async () => {
+    const store = new SessionStore();
+    await store.attach(WS_ID);
+    stub.lastPermissionHandler?.({
+      runId: '01HWS000000000000000000R0N',
+      sessionId: SESSION_ID,
+      requestId: '01HWS000000000000000000P01',
+      tool: 'shell',
+      args: { command: 'rm -rf /' },
+      argsSummary: '{ "command": "rm -rf /" }',
+      reason: 'user_approval',
+    });
+    stub.permissionsRespond.mockRejectedValueOnce(new Error('ipc failure'));
+    await expect(
+      store.respondToPermission('01HWS000000000000000000P01', { kind: 'deny' }),
+    ).rejects.toThrow('ipc failure');
+    expect(store.pendingPermissions).toHaveLength(1);
+  });
+
+  it('clears pending permissions on detach', async () => {
+    const store = new SessionStore();
+    await store.attach(WS_ID);
+    stub.lastPermissionHandler?.({
+      runId: '01HWS000000000000000000R0N',
+      sessionId: SESSION_ID,
+      requestId: '01HWS000000000000000000P01',
+      tool: 'shell',
+      args: {},
+      argsSummary: '{}',
+      reason: 'user_approval',
+    });
+    expect(store.pendingPermissions).toHaveLength(1);
+    store.detach();
+    expect(store.pendingPermissions).toEqual([]);
+  });
+});
+
+describe('SessionStore — restore pending permissions on attach', () => {
+  it('loads pending requests from the backend on attach', async () => {
+    stub.permissionsList.mockResolvedValue([
+      {
+        requestId: '01HWS000000000000000000P01',
+        runId: '01HWS000000000000000000R0N',
+        sessionId: SESSION_ID,
+        tool: 'shell',
+        args: { command: 'ls' },
+        argsSummary: '{ "command": "ls" }',
+        reason: 'user_approval',
+        createdAt: '2026-06-06T10:00:00.000Z',
+      },
+    ]);
+    const store = new SessionStore();
+    await store.attach(WS_ID);
+    expect(stub.permissionsList).toHaveBeenCalled();
+    expect(store.pendingPermissions).toHaveLength(1);
+    expect(store.currentPermission?.tool).toBe('shell');
+  });
+});
+
+describe('SessionStore — chat.run.aborted.v1', () => {
+  it('surfaces a transient error message when the run is aborted', async () => {
+    const store = new SessionStore();
+    await store.attach(WS_ID);
+    store.activeSession = makeSummary();
+    await store.send('hello');
+    expect(store.runStatus).toBe('running');
+    fireAborted({ runId: '01HWS000000000000000000R0N', reason: 'user' });
+    expect(store.lastError?.code).toBe('aborted');
+    expect(store.lastError?.message).toContain('user');
+  });
+
+  it('ignores the aborted event for a different run', async () => {
+    const store = new SessionStore();
+    await store.attach(WS_ID);
+    store.activeSession = makeSummary();
+    await store.send('hello');
+    fireAborted({ runId: '01HWS000000000000000000RZZ', reason: 'user' });
+    expect(store.lastError).toBeNull();
+  });
+});

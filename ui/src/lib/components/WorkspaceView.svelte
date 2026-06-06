@@ -3,7 +3,9 @@
 
   import ChatPanel from './ChatPanel.svelte';
   import FileTree from './FileTree.svelte';
+  import PermissionPrompt from './PermissionPrompt.svelte';
   import VenvBadge from './VenvBadge.svelte';
+  import { sessionStore } from '$lib/stores/session.svelte';
   import { workspaceStore } from '$lib/stores/workspace.svelte';
 
   interface Props {
@@ -11,6 +13,17 @@
   }
 
   let { workspace }: Props = $props();
+
+  async function respondToPermission(
+    requestId: string,
+    response:
+      | { kind: 'allowOnce' }
+      | { kind: 'allowSession' }
+      | { kind: 'allowAlways'; tool: string }
+      | { kind: 'deny' },
+  ): Promise<void> {
+    await sessionStore.respondToPermission(requestId, response);
+  }
 </script>
 
 <main class="view">
@@ -41,6 +54,8 @@
       <ChatPanel workspaceId={workspace.id} />
     </section>
   </div>
+
+  <PermissionPrompt request={sessionStore.currentPermission} onrespond={respondToPermission} />
 </main>
 
 <style>

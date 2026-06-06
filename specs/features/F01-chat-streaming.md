@@ -554,11 +554,15 @@ CREATE INDEX idx_permission_requests_session ON permission_requests(session_id, 
   con `reason: "user"`. El `assistant_message` queda con
   `status: "aborted"` y el texto recibido hasta el corte.
   **Test**: `f01_ac4_abort_terminates_run_with_partial_text`.
-  > **Phase 1 (backend)**: ✅ parcial — `RunHandle::abort()`
-  > activa un `AtomicBool` que el agent loop chequea entre
-  > deltas; el status final queda en `Aborted`. El evento
-  > `chat.run.aborted.v1` se añade cuando se implemente la
-  > command `session_abort` en la app (F01-Phase2).
+  > **Phase 1 + Phase 2-core + Phase 2-app**: ✅ cubierto —
+  > `RunHandle::abort()` activa un `AtomicBool` que el agent
+  > loop chequea entre deltas y entre tool calls; el status
+  > final queda en `Aborted`. Phase 2-app (PR actual) añade
+  > la emisión de `chat.run.aborted.v1` con `reason: "user" |
+  > "max_steps" | "aborted"` cuando `final_status ==
+  > RunStatus::Aborted`. La UI escucha el evento en
+  > `SessionStore.#onRunAborted` y surface un toast transitorio
+  > "Run stopped (...)".
 - [x] **F01.AC5**: tras un run, los `messages` rows
   correspondientes existen en `state.db` con `content`
   completo (todos los deltas acumulados) y `usage_json`
@@ -583,14 +587,26 @@ CREATE INDEX idx_permission_requests_session ON permission_requests(session_id, 
   run. Al recibir `permission_respond` con `Allow once`, el
   run continúa, ejecuta la tool y emite el `tool_result`.
   **Test**: `f01_ac7_permission_prompt_blocks_run_until_response`.
-  > **Phase 2-core (backend)**: ✅ backend cubierto — el
-  > `PermissionGate` retorna `Decision::Ask`, el agent loop
-  > (`dispatch_tool_call`) registra un `PermissionRequest` en
-  > el `PermissionRegistry` (oneshot channel), emite
-  > `permission.requested.v1`, y `await`s la respuesta del
-  > usuario (con select sobre el `abort_flag`). El Tauri
-  > command `permission_respond` que consume el registry se
-  > cablea en el follow-up PR de Phase 2-app.
+  > **Phase 2-core (backend) + Phase 2-app (este PR)**:
+  > ✅ end-to-end cubierto — el `PermissionGate` retorna
+  > `Decision::Ask`, el agent loop (`dispatch_tool_call`)
+  > registra un `PermissionRequest` en el `PermissionRegistry`
+  > (oneshot), emite `permission.requested.v1`, y `await`s la
+  > respuesta del usuario (con `select!` sobre `abort_flag`).
+  > El Tauri command `permission_respond` (cableado en
+  > Phase 2-app) entrega el `UserDecision` al oneshot. La UI
+  > (`SessionStore.pendingPermissions` +
+  > `PermissionPrompt.svelte`) renderiza el modal con 4
+  > botones (Deny / Allow once / Allow for run / Allow always)
+  > y llama `permission_respond` con el `kind` apropiado.
+  > Vitest tests: `subscribes to permission.requested.v1 on
+  > attach`, `queues a request when a permission.requested.v1
+  > event arrives`, `de-duplicates requests with the same
+  > requestId`, `respondToPermission delivers the decision and
+  > removes from the queue`, `respondToPermission rolls back
+  > the queue on IPC failure`, `clears pending permissions on
+  > detach`, `loads pending requests from the backend on
+  > attach`.
 - [x] **F01.AC8**: un tool call con `args` grandes (>1KB)
   tiene `argsSummary` truncado a 1 línea en el evento (no
   el `args` completo). El `args` completo se persiste en
@@ -661,13 +677,22 @@ CREATE INDEX idx_permission_requests_session ON permission_requests(session_id, 
   > **Phase 1 (backend)**: ⏸ N/A — no hay permission gate
   > en este slice; la snapshot ya es implícita (los runs
   > no releen config mid-loop).
-- [ ] **F01.AC15**: cierre forzado de la app durante un run
+- [x] **F01.AC15**: cierre forzado de la app durante un run
   → al reabrir, el run queda en estado `aborted` con
   `cancel_reason: "app_closed"` y la UI muestra banner
   explicativo. **Test**:
   `f01_ac15_run_aborted_on_app_close_recovered_on_reopen`.
-  > **Phase 1 (backend)**: ⏸ N/A — la app-side se cablea en
-  > F01-Phase2 (handlers de `tauri::RunEvent::ExitRequested`).
+  > **Phase 2-app (este PR)**: ✅ backend cubierto —
+  > `AppState::recover_orphan_runs()` se llama en `main()` justo
+  > después de `AppState::initialize()`. Itera sobre todos los
+  > workspaces, abre cada `state.db` directamente (sin pasar por
+  > el cache `workspace_runtimes`), busca sesiones con
+  > `status: Running`, y las marca `Aborted` con
+  > `last_run_finish_reason = "app_closed"`. La UI verá
+  > `SessionSummaryDto.status === 'aborted'` en el sidebar y
+  > renderizará el mensaje truncado del último run. El banner
+  > "Last run was interrupted" entra con F-agents-ui (no en
+  > este PR).
 
 ## Discovered bugs (post-approval)
 
@@ -1043,11 +1068,65 @@ Pendientes: `chat.run.aborted.v1`, `chat.tool_call.v1`, `chat.tool_result.v1`, `
    (`PermissionRegistry`, `AtomicBool` flag) ya está
    cableada y testeada; el cableado en `commands/` y el
    `tauri::RunEvent::ExitRequested` handler entran después.
+   → **Resuelto en Phase 2-app**: ver §Decisiones de Phase 2-app.
 9. **MockProvider con `Mutex<Vec<MockSequence>>`**: el test
    prepara 1 secuencia por `chat()` call; el provider la
    popea del queue. Esto permite testear el flow multi-step
    (step 1 → tool call → step 2 → finish) sin SSE.
 
+### Decisiones de Phase 2-app (vs spec original)
+
+1. **`PermissionResponse` como enum con `tag = "kind"`**: el
+   wire shape es `{ kind: "allowOnce" | "allowSession" |
+   "allowAlways"; tool?: string }` en `camelCase`. La
+   variante `AllowAlways` lleva `tool: String` (no `ToolId`)
+   porque el deserialize necesita owned data; la matrix
+   persiste el rule en `WorkspaceConfig.permissions.allow`.
+2. **`AllowOnce` y `AllowSession` colapsan en v0.1** a un
+   único `Allow { persist: false }` en el `UserDecision`. La
+   razón: el agent loop's snapshot es per-run, no per-session,
+   así que el "for this session" no tiene semántica distinta.
+   Cuando F-agents-ui extienda a multi-session, se separan.
+3. **4 botones en el modal**: `Deny`, `Allow once`, `Allow
+   for this run`, `Allow always`. El spec original mencionaba
+   "Allow for this session" pero eso se reduce a "for this
+   run" en v0.1.
+4. **Run recovery abre el `state.db` directamente** (sin
+   pasar por el cache `workspace_runtimes`). El cache guarda
+   `Arc<WorkspaceRuntime>` con `Db` + `SessionService` +
+   `JournalRepo` para runs activas; abrir el DB directamente
+   es más simple y no contamina el cache con sesiones
+   huérfanas.
+5. **`chat.run.aborted.v1` se emite **después** de
+   `chat.run.finished.v1`**: el `finished` lleva el status
+   canónico; el `aborted` es una notificación especializada
+   con `reason`. La UI puede escuchar solo `finished` y
+   recibir el status; `aborted` es opt-in para UX (toast
+   "Stopped", sin polling del DB).
+6. **`SessionStore.currentPermission` es `$derived`** del
+   primer elemento de `pendingPermissions`. La cola es FIFO;
+   cuando se entrega el primero, el segundo se surface
+   automáticamente. Esto evita un modal-stack complejo en
+   v0.1 (un solo prompt visible a la vez).
+7. **Restauración de pending permissions en `attach`**: al
+   cambiar de workspace, `SessionStore` llama a
+   `permissions.list` y rellena `pendingPermissions` con lo
+   que el backend tenga en `PermissionRegistry`. Esto
+   recupera prompts colgados en un crash/reload del UI.
+8. **`PermissionPrompt.svelte` no usa `DOMPurify` para el
+   `argsSummary`**: el `argsSummary` viene del backend
+   (formateado con `summarize_pub`); es texto plano, no HTML.
+   El modal no renderiza `args` completo (solo el summary)
+   para no mostrar args con paths absolutos del workspace.
+9. **Tests Vitest del flow completo**: 7 tests para
+   `permission.requested.v1` event + queue +
+   `respondToPermission`; 2 tests para `chat.run.aborted.v1`.
+   Los tests usan `vi.hoisted(...)` + `vi.mock('$lib/ipc')`
+   para evitar el import real del Tauri runtime en jsdom.
+10. **`PermissionMatrix` es read-only en v0.1**: el Tauri
+    command `get_matrix` existe y devuelve el snapshot
+    efectivo, pero `set_matrix` se difiere a F05 (que
+    introduce la UI de Settings y el `ConfigService::update`).
 
 ### PRs de referencia
 

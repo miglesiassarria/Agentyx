@@ -14,7 +14,7 @@
 /// See `../../../specs/features/F01-chat-streaming.md` and
 /// `../../../specs/domains/agent-loop.md` for the full contract.
 
-import { events, session as sessionIpc, agents as agentsIpc } from '$lib/ipc';
+import { events, session as sessionIpc, agents as agentsIpc, permissions } from '$lib/ipc';
 import type {
   AgentId,
   AgentInfoDto,
@@ -25,6 +25,8 @@ import type {
   ChatRunFinishedPayload,
   ChatRunStartedPayload,
   MessageDto,
+  PermissionRequestDto,
+  PermissionRequestedPayload,
   RunHandleDto,
   RunId,
   SessionId,
@@ -32,6 +34,12 @@ import type {
   StreamingMessage,
   WorkspaceId,
 } from '$lib/ipc-types';
+
+type PermissionResponse =
+  | { kind: 'allowOnce' }
+  | { kind: 'allowSession' }
+  | { kind: 'allowAlways'; tool: string }
+  | { kind: 'deny' };
 
 /// Run lifecycle status in the UI store. Mirrors the Rust `RunStatus`
 /// but adds a transient `starting` state (between user submit and
@@ -86,12 +94,21 @@ class SessionStore {
   /** Visible agents from the registry. Populated by `loadAgents`. */
   agents = $state<AgentInfoDto[]>([]);
 
+  /**
+   * Queue of pending permission requests (F01.AC7). The UI
+   * surfaces the first one in a modal; subsequent ones stack
+   * behind it.
+   */
+  pendingPermissions = $state<PermissionRequestDto[]>([]);
+
   // === Private state ===
 
   /** Monotonically increasing seq for synthetic messages (user input, optimistic). */
   #nextLocalSeq = 0;
   /** Currently-bound unlisten handle for chat events. */
   #unbindRun: (() => void) | null = null;
+  /** Currently-bound unlisten handle for permission events. */
+  #unbindPermission: (() => void) | null = null;
   /** AbortController for in-flight loaders (so we can cancel on switch). */
   #abortCtl: AbortController | null = null;
 
@@ -117,6 +134,10 @@ class SessionStore {
       : (this.agents.find((a) => a.id === this.activeSession?.activeAgent) ?? null),
   );
 
+  /** The first pending permission request (or null). The modal
+   * renders this; subsequent requests stack behind it. */
+  currentPermission = $derived<PermissionRequestDto | null>(this.pendingPermissions[0] ?? null);
+
   // === Lifecycle ===
 
   /**
@@ -128,6 +149,16 @@ class SessionStore {
     this.#teardown();
     this.workspaceId = workspaceId;
     this.#abortCtl = new AbortController();
+    this.#bindPermissionEvents();
+    // Restore any pending requests that were left over from a
+    // prior page session (the agent loop keeps them in
+    // PermissionRegistry across the reload).
+    try {
+      const list = await permissions.list();
+      this.pendingPermissions = list.map(toPermissionRequest);
+    } catch (e) {
+      console.warn('permissions.list failed:', e);
+    }
     try {
       await this.loadAgents();
     } catch (e) {
@@ -153,6 +184,10 @@ class SessionStore {
       this.#unbindRun();
       this.#unbindRun = null;
     }
+    if (this.#unbindPermission !== null) {
+      this.#unbindPermission();
+      this.#unbindPermission = null;
+    }
     this.runId = null;
     this.runStatus = 'idle';
     this.starting = false;
@@ -160,6 +195,7 @@ class SessionStore {
     this.activeSession = null;
     this.lastError = null;
     this.agents = [];
+    this.pendingPermissions = [];
   }
 
   // === Loaders ===
@@ -309,6 +345,52 @@ class SessionStore {
 
   // === Event subscriptions ===
 
+  #bindPermissionEvents(): void {
+    if (this.#unbindPermission !== null) {
+      this.#unbindPermission();
+      this.#unbindPermission = null;
+    }
+    void events
+      .permissionRequested((p) => this.#onPermissionRequested(p))
+      .then((unbind) => {
+        this.#unbindPermission = unbind;
+      });
+  }
+
+  #onPermissionRequested(p: PermissionRequestedPayload): void {
+    const req: PermissionRequestDto = {
+      requestId: p.requestId,
+      runId: p.runId,
+      sessionId: p.sessionId,
+      tool: p.tool,
+      args: p.args,
+      argsSummary: p.argsSummary,
+      reason: p.reason,
+      createdAt: new Date().toISOString(),
+    };
+    // Skip duplicates (a re-emit for an existing request_id).
+    if (this.pendingPermissions.some((r) => r.requestId === req.requestId)) return;
+    this.pendingPermissions = [...this.pendingPermissions, req];
+  }
+
+  /**
+   * Deliver the user's response to a pending permission request.
+   * Calls the `permission_respond` Tauri command and removes
+   * the request from the local queue.
+   */
+  async respondToPermission(requestId: string, response: PermissionResponse): Promise<void> {
+    // Optimistic remove; if the IPC fails, re-add on catch.
+    const prev = this.pendingPermissions;
+    this.pendingPermissions = prev.filter((r) => r.requestId !== requestId);
+    try {
+      await permissions.respond(requestId, response);
+    } catch (e) {
+      this.pendingPermissions = prev;
+      this.lastError = normalizeError(e);
+      throw e;
+    }
+  }
+
   #bindRunEvents(runId: RunId): void {
     // Defensive: if a previous binding is still live (shouldn't
     // happen, but guards against double-`send` race), unbind first.
@@ -323,10 +405,24 @@ class SessionStore {
         onContentDelta: (p) => this.#onContentDelta(p),
         onFinished: (p) => this.#onRunFinished(p),
         onError: (p) => this.#onRunError(p),
+        onAborted: (p) => this.#onRunAborted(p),
       })
       .then((unbind) => {
         this.#unbindRun = unbind;
       });
+  }
+
+  #onRunAborted(p: { runId: RunId; reason: string }): void {
+    if (this.runId !== p.runId) return;
+    // Surface a transient "Stopped" toast via `lastError` with a
+    // synthetic code. The `chat.run.finished.v1` will arrive
+    // right after with `status: "aborted"` and finalize the run.
+    this.lastError = {
+      code: 'aborted',
+      message: `Run stopped (${p.reason})`,
+      retryable: false,
+      at: new Date().toISOString(),
+    };
   }
 
   #onRunStarted(_p: ChatRunStartedPayload): void {
@@ -455,6 +551,19 @@ function toStreaming(m: MessageDto, status: StreamingMessage['status']): Streami
     ...m,
     status,
     isStreaming: false,
+  };
+}
+
+function toPermissionRequest(p: PermissionRequestDto): PermissionRequestDto {
+  return {
+    requestId: p.requestId,
+    runId: p.runId,
+    sessionId: p.sessionId,
+    tool: p.tool,
+    args: p.args,
+    argsSummary: p.argsSummary,
+    reason: p.reason,
+    createdAt: p.createdAt,
   };
 }
 

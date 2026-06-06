@@ -53,6 +53,14 @@ fn main() -> anyhow::Result<()> {
 
     let app_state = AppState::initialize().context("initializing AppState")?;
 
+    // Recover from an unclean shutdown: mark any session that
+    // was `Running` when the app died as `Aborted` with
+    // `last_run_finish_reason = "app_closed"`. The user sees a
+    // truncated history next time they open the session.
+    if let Err(e) = app_state.recover_orphan_runs() {
+        tracing::warn!(error = %e, "orphan run recovery failed; continuing");
+    }
+
     let state = Arc::new(app_state);
 
     tauri::Builder::default()
@@ -101,9 +109,9 @@ fn main() -> anyhow::Result<()> {
             // commands::secrets::set,
             // commands::secrets::delete,
             // commands::secrets::list_providers,
-            // commands::permissions::get_matrix,
-            // commands::permissions::set_default,
-            // commands::permissions::respond,
+            commands::permissions::respond,
+            commands::permissions::list,
+            commands::permissions::get_matrix,
         ])
         .run(tauri::generate_context!())
         .context("running Tauri app")?;
