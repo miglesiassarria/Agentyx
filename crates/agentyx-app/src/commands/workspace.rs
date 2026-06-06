@@ -525,7 +525,10 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let svc = Arc::new(WorkspaceService::new(home.path()).unwrap());
         let config = Arc::new(
-            agentyx_core::config::ConfigService::load(&home.path().join("config.toml")).unwrap(),
+            agentyx_core::config::ConfigService::load(
+                &agentyx_core::config::ServiceConfigPaths::from_agentyx_home(home.path()),
+            )
+            .unwrap(),
         );
         let agents = Arc::new(agentyx_core::agents::AgentRegistry::load_builtins());
         let providers = Arc::new(crate::state::ProviderRegistry::from_config(&config).unwrap());
