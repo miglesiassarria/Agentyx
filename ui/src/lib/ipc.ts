@@ -14,6 +14,7 @@ import type {
   AtMention,
   EffectivePathsDto,
   ExtraPathDto,
+  FileEntryDto,
   PermissionMatrixDto,
   RunHandle,
   SessionSummaryDto,
@@ -97,7 +98,7 @@ export const workspace = {
   detectVenv: (workspaceId: string): Promise<VenvSpec | null> =>
     call('detect_venv', { workspaceId }),
 
-  addExtraPath: (workspaceId: string, path: string, label?: string): Promise<ExtraPathDto> =>
+  addExtraPath: (workspaceId: string, path: string, label?: string | null): Promise<ExtraPathDto> =>
     call('add_extra_path', { workspaceId, path, label }),
 
   removeExtraPath: (workspaceId: string, path: string): Promise<void> =>
@@ -108,6 +109,9 @@ export const workspace = {
 
   effectivePaths: (workspaceId: string): Promise<EffectivePathsDto> =>
     call('effective_paths', { workspaceId }),
+
+  listDir: (workspaceId: string, path: string): Promise<FileEntryDto[]> =>
+    call('list_dir', { workspaceId, path }),
 };
 
 // === Config commands (F05) ===

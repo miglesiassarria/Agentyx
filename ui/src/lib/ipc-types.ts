@@ -9,6 +9,22 @@ export type RunId = string;
 export type WorkspaceId = string;
 export type ToolId = string;
 
+/** A single directory entry returned by `workspace.list_dir`. */
+export interface FileEntryDto {
+  /** Basename (no path separators). */
+  name: string;
+  /** Absolute canonical path of the entry. */
+  path: string;
+  /** Whether the entry is a directory (resolved through symlinks). */
+  isDir: boolean;
+  /** Whether the entry is itself a symbolic link. */
+  isSymlink: boolean;
+  /** File size in bytes (0 for directories or on stat failure). */
+  size: number;
+  /** Last-modified time in epoch milliseconds (0 if unavailable). */
+  modifiedAt: number;
+}
+
 /** `@<agent-id>` mention in a user message. */
 export interface AtMention {
   agentId: AgentId;

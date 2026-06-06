@@ -80,6 +80,7 @@ fn main() -> anyhow::Result<()> {
             commands::workspace::remove_extra_path,
             commands::workspace::list_extra_paths,
             commands::workspace::effective_paths,
+            commands::workspace::list_dir,
             // commands::session::create,
             // commands::session::send,
             // commands::session::abort,
