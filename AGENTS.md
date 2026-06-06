@@ -555,6 +555,15 @@ pub trait Provider: Send + Sync {
 - [ ] Smoke test manual con Ollama local.
 - [ ] Sin secretos nuevos en el diff.
 - [ ] CHANGELOG actualizado si hay cambio de cara al usuario.
+- [ ] **Spec sync (regla §17.5)**: si el PR toca código cubierto
+      por una spec, el diff incluye:
+      1. `specs/STATUS.md` actualizado (spec movida a su nueva
+         sección, fecha "Última actualización" refrescada).
+      2. La spec afectada con `Status` cambiado, ACs marcados
+         con `[x]`, y (si aplica) sección `## Implementation
+         status` y/o `## Discovered bugs` actualizadas.
+      3. Sección `## Spec status changes` del cuerpo del PR
+         listando cada spec tocada y su nuevo estado.
 
 ---
 
@@ -616,6 +625,98 @@ Si un PR viola las reglas 1-4 de §17.1:
 - Se rechaza en review con la plantilla:
   > "Bloqueado por AGENTS.md §17. Actualiza/crea la spec correspondiente antes de mergear."
 - No se discute en el PR; se discute en la spec.
+
+### 17.5 Disciplina de status: STATUS.md se actualiza en el mismo PR (OBLIGATORIO)
+
+> **Esta regla existe porque ya fallamos aquí.** F02 fue mergeado
+> en PRs #5 y #6 mientras el spec seguía en `review`, y nadie
+> actualizó `specs/STATUS.md` para reflejar la implementación del
+> backend. La spec quedó desincronizada del código durante semanas.
+>
+> Regla dura, sin excepciones fuera de hotfixes blocker (§18.4).
+
+#### 17.5.1 Lo que se actualiza atómicamente con cada PR
+
+Cualquier PR que toque código cubierto por una spec **debe**, en
+el **mismo PR** (mismo commit, no follow-up), actualizar **todos**
+estos archivos cuando aplique:
+
+1. **`specs/STATUS.md`** — mover la spec a su nueva sección si
+   cambió de estado (`review` → `approved`, `approved` →
+   `implemented`, etc.). Actualizar la fecha "Última actualización"
+   del board.
+2. **La spec afectada** (`specs/features/F<NN>-<slug>.md` o
+   `specs/domains/<x>.md`):
+   - Cambiar el `Status` en la cabecera.
+   - Marcar ACs cubiertos con `[x]`; dejar `[ ]` los pendientes.
+   - Añadir o actualizar una sección `## Implementation status`
+     con snapshot de cobertura (backend / IPC / UI, % ACs).
+   - Añadir entradas en `## Discovered bugs (post-approval)` si
+     el PR descubrió gaps (categoría A) o se desvió de la spec
+     (categoría B) — ver §18.
+3. **El template del PR** (`.github/PULL_REQUEST_TEMPLATE.md`):
+   la sección `## Spec status changes` debe listar cada spec
+   tocada y el nuevo estado.
+
+#### 17.5.2 Cuándo aplica
+
+| Tipo de cambio en el PR | STATUS.md | Spec afectada |
+|---|---|---|
+| Promueve spec `draft` → `review` / `approved` | ✅ mover de sección | ✅ cambiar Status + marcar ACs |
+| Implementa ACs (código mergeado + tests pasando) | ✅ mover a ✅ Implemented (o nota de parcial) | ✅ marcar ACs con `[x]` + Implementation status |
+| Cambia un dominio / IPC | ✅ añadir nota en la sección correspondiente | ✅ actualizar Status / Edge cases / ACs |
+| Spec-wrong (categoría A) → revocar a `review` | ✅ mover a Review | ✅ cambiar Status + sección Discovered bugs |
+| Deprecated una spec | ✅ mover a Deprecated | ✅ cambiar Status + link al ADR de deprecation |
+| PR solo de código (no toca specs) | ❌ no aplica | ❌ no aplica |
+
+#### 17.5.3 Cómo verificarlo
+
+- **Pre-merge (checklist §15)**: el PR no se aprueba si el diff
+  de `specs/` no refleja la nueva realidad cuando hay código
+  tocado que cae bajo una spec.
+- **CI** (futuro, v0.1.x): un job de CI parsea la sección
+  `## Spec status changes` del cuerpo del PR y comprueba que
+  los `Refs:` apunten a specs que existen y cuyo status en
+  `STATUS.md` es coherente con la sección `## Implementation
+  status` del spec (si dice "8/18 ACs", STATUS.md debe tener
+  la spec en `Approved` con nota, no en `Implemented`).
+- **Post-merge**: el autor actualiza el board en el mismo commit.
+  **Nunca** se abre un PR "fix(status): sync STATUS.md" — eso
+  es síntoma de que se saltó la regla.
+
+#### 17.5.4 Ejemplos
+
+**Bien** (un solo PR cubre todo):
+
+```
+feat(core,app): implement F02 backend (PR #5)
+├── código: WorkspaceService + 9 Tauri commands
+├── tests: 34 en core + 18 en app
+├── specs/STATUS.md: F02 movido a ✅ Implemented con nota de parcial
+├── specs/features/F02-multi-workspace.md: Status: implemented,
+│   8 ACs marcados [x], sección Implementation status añadida
+└── PR template: "## Spec status changes" lista F02 → implemented
+```
+
+**Mal** (lo que NO se debe hacer):
+
+```
+feat(core,app): implement F02 backend (PR #5)     ← código
+feat(specs): F02 → implemented                    ← follow-up semanas después
+chore(status): sync STATUS.md                     ← parcheo manual
+```
+
+#### 17.5.5 Recuperación de drift (caso F02)
+
+Si se detecta que una spec quedó desincronizada del código (como
+pasó con F02), el PR correctivo debe:
+
+1. Recalificar la spec a su estado real (`approved` si la spec
+   es sólida y el código cumple ACs; `review` si la spec no
+   cubre el código actual; `draft` si hay que reescribir).
+2. Añadir una entrada en `## Discovered bugs` con categoría
+   "A. Spec gap (proceso)" y la causa raíz.
+3. Endurecer las reglas si el gap es de proceso (como este PR).
 
 ---
 
