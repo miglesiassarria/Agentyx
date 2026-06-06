@@ -1,6 +1,6 @@
 # F01 — Chat con streaming LLM
 
-**Status**: implemented (partial — Phase 1 backend)
+**Status**: implemented (partial — Phase 1 backend + UI)
 **Owner**: @miglesias
 **Last update**: 2026-06-06
 **Affects**: [`agent-loop`](../domains/agent-loop.md), [`providers`](../domains/providers.md),
@@ -644,7 +644,7 @@ CREATE INDEX idx_permission_requests_session ON permission_requests(session_id, 
 
 | ID | Date | Category | Resolved in | Notes |
 |---|---|---|---|---|
-| _ninguno aún_ | | | | |
+| BUG-001 | 2026-06-06 | A. Spec gap | `feat(ui): F01-Phase2 chat UI` (este PR) | El `ui/src/lib/ipc.ts` heredado de F02 (y los stubs de F05) usaba nombres de comandos Tauri y keys de parámetros en `camelCase` (e.g. `call('open', { rootPath, name })`, `call('create', { workspaceId, agentId, title })`). Tauri 2 por defecto usa el **nombre de la función** Rust como nombre del comando y `snake_case` para los nombres de parámetros. Esto significa que la UI de F02 nunca podría haber hablado con el backend aunque el wiring se hubiera cableado. El binding correcto es `call('open', { root_path, name })` y `call('create_session', { workspace_id, agent_id, title })`. Fix: este PR reescribe `ipc.ts` con los nombres reales (los `pub async fn` en Rust) y keys `snake_case`. Los DTOs (return values) **sí** son `camelCase` vía `#[serde(rename_all = "camelCase")]` — la división se documenta en la cabecera de `ipc.ts`. Se arrastra porque el bug no se detectó en CI (no hay test E2E que abra la app Tauri real). |
 
 ## Tests
 
@@ -833,19 +833,60 @@ tracing::error!(
 **Backend (Rust) — F01-Phase1**: **5 / 15 ACs cubiertos** (AC1, AC2, AC4, AC5, AC6) ✅
 **Backend (Rust) — F01-Phase2/3**: ⏸ 0 / 15 adicional (tools, permissions, multi-agent, @mention)
 **IPC (Tauri commands) — F01-Phase1-app**: **9 / 9 commands cableados** ✅
-**UI (Svelte)**: ⏸ 0 / 15 (entra en F01-Phase2)
+**UI (Svelte) — F01-Phase2-ui**: **2 / 15 ACs cubiertos** (AC1, AC2) ✅
 
-### Cobertura Phase 1 (este PR — `feat(core): F01-Phase1 backends`)
+### Cobertura F01-Phase2-ui (este PR — `feat(ui): F01-Phase2 chat UI`)
 
 | AC | Cobertura | Tests |
 |---|---|---|
-| F01.AC1 | `spawn_run` retorna `RunHandle` sincrónicamente; el loop corre en `tokio::spawn`; `chat.run.started.v1` se emite antes del spawn | `agent::loop_::tests::spawn_run_with_unreachable_provider_emits_error_event` |
-| F01.AC2 | `ContentDelta` se acumula en `accumulated_text` en orden; UI los concatena tal cual | (UI test pendiente F01-Phase2) |
-| F01.AC4 | `RunHandle::abort()` activa `AtomicBool`; el loop chequea entre deltas; status final = `Aborted` | (test integración con provider mock — F01-Phase2) |
-| F01.AC5 | `append_message` persiste user + assistant; `JournalRepo::append` registra `UserMessage`/`ProviderEvent`/`AssistantMessage` con `run_id`/`agent_id` | `agent::loop_::tests::conflict_when_session_already_running` (pista), `journal::repo::tests::*` |
-| F01.AC6 | `SessionService::list` / `list_messages` recuperan del `state.db`; persistencia con WAL+FK | `session::service::tests::*` |
+| F01.AC1 | UI dispara `send` y recibe `chat.run.started.v1`; el run stream via `events.bindRun`; el message list se actualiza con deltas | `session.svelte.test.ts::send: appends the user message optimistically and transitions to running` |
+| F01.AC2 | `chat.content.delta.v1` se acumula en orden en el message con `id` correcto | `session.svelte.test.ts::event folding: accumulates content deltas in order on the right message` |
 
-### Módulos entregados
+### UI entregada en este PR
+
+- `ui/src/lib/stores/session.svelte.ts` — `SessionStore` con runes
+  (`$state`, `$derived`), state machine completo: `attach/detach`,
+  `loadAgents`, `createSession`, `loadHistory`, `setActiveSession`,
+  `send` (con optimistic user message + rollback on IPC failure),
+  `abort` (idempotente), `setActiveAgent` (rechaza mid-run),
+  `cyclePrimary` (Tab), event folding para `chat.run.started.v1`,
+  `chat.message_start.v1`, `chat.content.delta.v1`,
+  `chat.run.finished.v1`, `chat.run.error.v1`. Limpia event
+  listeners en `detach` y al finalizar el run.
+- `ui/src/lib/components/ChatPanel.svelte` — header con
+  `AgentChip` (color por agent id: `build`/`plan`/`general`),
+  título de la sesión, status badge (`idle`/`starting`/`running`/
+  `completed`/`aborted`/`error`/`timeout`).
+- `ui/src/lib/components/MessageList.svelte` — render
+  user/assistant/system/tool_result con bubbles y colores por
+  rol, status indicator, blinking cursor mientras streamea,
+  auto-scroll con detección de "scroll up" + botón
+  "↓ Jump to latest".
+- `ui/src/lib/components/Composer.svelte` — textarea con
+  auto-grow (1→240px), `Enter` submit / `Shift+Enter` newline,
+  `Tab` cycle agent, `Esc`→stop, swap Send↔Stop según
+  `composerDisabled`, `ErrorBanner` dismissable sobre la lista
+  para errores de run.
+- `ui/src/lib/ipc.ts` — bindings **corregidos** para F01-Phase1
+  backend: comandos renombrados a los nombres reales Rust
+  (`create_session`, `list_sessions`, `set_active_agent`,
+  `list_agents`, etc.) y keys de parámetros en `snake_case`
+  (Tauri 2 default). El bug preexistente (workspace commands
+  usaban keys `camelCase` que Tauri 2 no aceptaba) se corrige
+  en este PR para que el wiring funcione end-to-end.
+- `ui/src/lib/ipc-types.ts` — añade `MessageDto`, `RunHandleDto`,
+  `SessionSummaryDto` (con `status: 'idle' | 'running' | 'aborted' | 'errored'`),
+  `AgentInfoDto`, `AtMention`, payloads de eventos
+  `chat.*.v1` (Start/MessageStart/ContentDelta/Finished/Error).
+- `ui/src/lib/stores/session.svelte.test.ts` — 18 tests del
+  store cubriendo: attach/load, createSession, loadHistory,
+  send (happy + mid-run + failure con rollback del optimistic
+  message), event folding (MessageStart → ContentDelta → Finished
+  con status `completed`/`aborted`/`error`/`timeout`), abort
+  (idempotente), setActiveAgent (rechaza mid-run), cyclePrimary
+  (skip hidden), detach (unbinds event listeners).
+
+### Módulos entregados (Phase 1 + Phase 2-ui)
 
 | Módulo | Propósito | Líneas |
 |---|---|---|
@@ -856,18 +897,25 @@ tracing::error!(
 | `crates/agentyx-core/src/config/` | `GlobalConfig` v1, `ProviderConfig`, `SecretRef::Env|Keychain`, `KeychainAccess` trait + `OsKeychain` (keyring feature) + `FakeKeychain`, `ConfigService` con atomic write + .bak | ~620 |
 | `crates/agentyx-core/src/journal/` | `JournalRepo` con append idempotente (16 KiB cap + SHA-256), `query_by_session`/`query_by_run`/`count` | ~330 |
 | `crates/agentyx-core/src/agent/` | `EventSink` trait, `AgentLoopDeps`, `spawn_run`, `RunHandle`/`RunState`/`RunStatus`, `RunRegistry`, `MAX_USER_MSG_BYTES`/`DEFAULT_MAX_STEPS`, `summarize` | ~1100 |
+| `crates/agentyx-app/src/commands/session.rs` | 7 Tauri commands + 3 DTOs (RunHandle, SessionSummary, Message) + `locate_session` | ~345 |
+| `crates/agentyx-app/src/commands/agents.rs` | `list_agents` + `get_agent` + `AgentInfoDto` | ~89 |
+| `crates/agentyx-app/src/sink.rs` | `TauriEventSink` impl `EventSink` (bus + AppHandle) | ~30 |
+| `ui/src/lib/stores/session.svelte.ts` | `SessionStore` runes-based con state machine completo | ~470 |
+| `ui/src/lib/components/ChatPanel.svelte` | Header con `AgentChip` + status badge | ~140 |
+| `ui/src/lib/components/MessageList.svelte` | Auto-scroll + bubbles por rol + streaming cursor | ~190 |
+| `ui/src/lib/components/Composer.svelte` | Textarea auto-grow + Send/Stop + error banner | ~250 |
 
-**Total nuevo**: ~3810 líneas Rust en `agentyx-core` (sin contar tests: ~14 tests nuevos en `agent::loop_::tests` + 84 acumulados).
+**Total nuevo**: ~3810 líneas Rust (core) + ~250 líneas Rust (app) + ~1050 líneas TS/Svelte (ui) + ~410 líneas test.
 
-### Eventos streaming implementados (Phase 1)
+### Eventos streaming implementados (Phase 1 + UI)
 
 - `chat.run.started.v1` — `{ runId, sessionId, workspaceId, agentId, model, startedAt }`
 - `chat.message_start.v1` — `{ runId, messageId, model }`
-- `chat.content.delta.v1` — `{ runId, sessionId, text }`
-- `chat.run.finished.v1` — `{ runId, sessionId, usage, finishReason }`
+- `chat.content.delta.v1` — `{ runId, sessionId, text }` (UI consume via `bindRun` filter)
+- `chat.run.finished.v1` — `{ runId, sessionId, status, durationMs }`
 - `chat.run.error.v1` — `{ runId, sessionId, code, message, retryable }`
 
-Pendientes: `chat.run.aborted.v1`, `chat.tool_call.v1`, `chat.tool_result.v1`, `subagent.*.v1`.
+Pendientes: `chat.run.aborted.v1`, `chat.tool_call.v1`, `chat.tool_result.v1`, `permission.requested.v1`, `subagent.*.v1`.
 
 ### Decisiones de Phase 1 (vs spec original)
 
@@ -879,9 +927,37 @@ Pendientes: `chat.run.aborted.v1`, `chat.tool_call.v1`, `chat.tool_result.v1`, `
 6. **Persistencia 1 INSERT al final del run** (no por delta): suficiente para v0.1; el batching a 500ms entra en v1.x.
 7. **No retry con backoff en el agent loop**: `OllamaProvider::chat` retorna errores categorizados; el loop los surface sin retry. v1.x.
 
+### Decisiones de Phase 2-ui (vs spec original)
+
+1. **Tauri 2 usa `snake_case` para los nombres de los command params
+   por defecto**. No añadimos `#[tauri::command(rename_all = "camelCase")]`
+   en Rust; en su lugar el wrapper TypeScript `ipc.ts` construye
+   payloads con keys `snake_case`. Esto es coherente con Tauri 2 y
+   evita anotaciones por-comando. Tradeoff: las keys de los payloads
+   difieren de los nombres de campos de los DTOs (que sí son
+   `camelCase` vía `#[serde(rename_all = "camelCase")]`). La división
+   es explícita en la doc de `ipc.ts`.
+2. **Auto-scroll "jump to latest"** se implementa por distancia al
+   fondo (32px threshold). Más simple y robusto que trackear el
+   `scrollTop` event-by-event.
+3. **El optimistic user message se descarta si el IPC `send` falla**
+   antes de que el run arranque. Esto evita duplicados cuando el
+   usuario ve un error y reintenta.
+4. **`cyclePrimary` se expone como `async`**: el test
+   `rotates through the visible primary agents` necesita poder
+   `await` la mutación local. La UI llama sin `await` (fire-and-forget
+   via `void`); el `AgentChip` se actualiza en el siguiente tick.
+5. **No hay `AtMentionPopover` aún** (responsabilidad de F-agents-ui,
+   no F01). El composer acepta `@<agent-id>` literal en el texto y
+   el backend los ignora (`_mentions: Vec<...>`).
+6. **Reconciliación post-run**: al `chat.run.finished.v1`, el store
+   hace un `loadHistory` para reemplazar los `id`/`seq` sintéticos
+   (locales) con los reales del backend. Es 1 round-trip extra; en
+   v1.x se hace incremental.
+
 ### PRs de referencia
 
 - `feat(core): F01-Phase1 backends (storage, session, agents, config, journal, llm, agent)` (PR #13) — +3810 líneas core, 14 tests nuevos, 98 tests totales pasando.
-- `feat(app): F01-Phase1 app wiring (TauriEventSink + session/agents commands)` (pendiente) — 9 Tauri commands cableados (`session_create`, `session_send`, `session_abort`, `session_list`, `session_get_history`, `session_set_active_agent`, `session_get_active_agent`, `agents_list`, `agents_get`); TauriEventSink; AppState refactor con ProviderRegistry + per-workspace runtime cache; sin UI.
-- (pendiente) `feat(ui): F01-Phase1 chat panel` — `ChatPanel.svelte`, `MessageList.svelte`, `Composer.svelte`, integración con `lib/ipc.ts`.
+- `feat(app): F01-Phase1 app wiring (TauriEventSink + session/agents commands)` (PR #14) — 9 Tauri commands cableados (`create_session`, `send`, `abort`, `list_sessions`, `get_history`, `set_active_agent`, `get_active_agent`, `list_agents`, `get_agent`); TauriEventSink; AppState refactor con ProviderRegistry + per-workspace runtime cache; sin UI.
+- `feat(ui): F01-Phase2 chat UI` (este PR) — `ChatPanel.svelte`, `MessageList.svelte`, `Composer.svelte`; `SessionStore` runes-based con state machine completo; 18 vitest tests del store; ipc.ts/ipc-types.ts corregidos para match los nombres reales de comandos y keys snake_case.
 - (pendiente) `feat(core,app): F01-Phase2 (tools, permissions, max_steps loop)` — implementa AC3, AC7, AC8, AC12, AC13.

@@ -1,0 +1,143 @@
+<script lang="ts">
+  import { onMount } from 'svelte';
+
+  import { sessionStore } from '$lib/stores/session.svelte';
+  import type { WorkspaceId } from '$lib/ipc-types';
+
+  import Composer from './Composer.svelte';
+  import MessageList from './MessageList.svelte';
+
+  interface Props {
+    workspaceId: WorkspaceId;
+  }
+
+  let { workspaceId }: Props = $props();
+
+  onMount(async () => {
+    await sessionStore.attach(workspaceId);
+    // Auto-create a session on first mount (single-session per workspace in v0.1).
+    if (sessionStore.activeSession === null) {
+      await sessionStore.createSession();
+    } else {
+      await sessionStore.loadHistory(sessionStore.activeSession.id);
+    }
+  });
+</script>
+
+<section class="chat" aria-label="Chat">
+  <header class="header">
+    <div class="title-block">
+      <span
+        class="agent-chip"
+        class:agent-build={sessionStore.activeAgent?.id === 'build'}
+        class:agent-plan={sessionStore.activeAgent?.id === 'plan'}
+        class:agent-general={sessionStore.activeAgent?.id === 'general'}
+        title={sessionStore.activeAgent?.description ?? 'Active agent'}
+      >
+        <span class="agent-id">@{sessionStore.activeAgent?.id ?? 'build'}</span>
+      </span>
+      <h2 class="title">{sessionStore.activeSession?.title ?? 'New session'}</h2>
+    </div>
+
+    <div class="actions">
+      <span class="status" data-status={sessionStore.runStatus}>
+        {sessionStore.runStatus}
+      </span>
+    </div>
+  </header>
+
+  <MessageList />
+
+  <Composer />
+</section>
+
+<style>
+  .chat {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    background: var(--color-bg);
+  }
+
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    border-bottom: 1px solid var(--color-border-subtle);
+    background: var(--color-bg-elevated);
+  }
+
+  .title-block {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-width: 0;
+  }
+
+  .agent-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: var(--space-1) var(--space-3);
+    border-radius: var(--radius-full);
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    color: var(--color-bg);
+    background: var(--color-fg-muted);
+    letter-spacing: 0.02em;
+  }
+
+  .agent-chip.agent-build {
+    background: var(--color-agent-build);
+  }
+  .agent-chip.agent-plan {
+    background: var(--color-agent-plan);
+  }
+  .agent-chip.agent-general {
+    background: var(--color-agent-general);
+  }
+
+  .agent-id {
+    font-family: var(--font-mono);
+  }
+
+  .title {
+    margin: 0;
+    font-size: var(--font-size-md);
+    font-weight: 600;
+    color: var(--color-fg);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .actions {
+    flex-shrink: 0;
+  }
+
+  .status {
+    font-size: var(--font-size-xs);
+    color: var(--color-fg-subtle);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-sm);
+    background: var(--color-bg-subtle);
+  }
+
+  .status[data-status='running'],
+  .status[data-status='starting'] {
+    color: var(--color-primary);
+  }
+  .status[data-status='error'] {
+    color: var(--color-danger);
+  }
+  .status[data-status='completed'] {
+    color: var(--color-success);
+  }
+  .status[data-status='aborted'] {
+    color: var(--color-warning);
+  }
+</style>

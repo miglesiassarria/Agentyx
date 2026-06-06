@@ -6,20 +6,39 @@
 ///
 /// See `../../../specs/ipc.md` for the full contract (event names,
 /// error shapes, snake_case ↔ camelCase conventions).
+///
+/// **Conventions** (must stay in sync with the Rust side):
+/// - Tauri command **names** are the Rust function names, snake_case
+///   (e.g. `create_session`, `list_sessions`, `add_extra_path`).
+/// - Tauri command **parameter keys** are snake_case (Tauri 2 default;
+///   the Rust commands do not opt into `rename_all = "camelCase"`).
+/// - DTO **field names** (return values) are camelCase — the Rust
+///   DTOs use `#[serde(rename_all = "camelCase")]`.
 
 import { invoke as tauriInvoke } from '@tauri-apps/api/core';
 import { listen as tauriListen, type UnlistenFn } from '@tauri-apps/api/event';
 
 import type {
+  AgentId,
+  AgentInfoDto,
   AtMention,
+  ChatContentDeltaPayload,
+  ChatMessageStartPayload,
+  ChatRunErrorPayload,
+  ChatRunFinishedPayload,
+  ChatRunStartedPayload,
   EffectivePathsDto,
   ExtraPathDto,
   FileEntryDto,
+  MessageDto,
   PermissionMatrixDto,
-  RunHandle,
+  RunHandleDto,
+  RunId,
+  SessionId,
   SessionSummaryDto,
   TestConnectionResult,
   VenvSpec,
+  WorkspaceId,
   WorkspaceDto,
 } from './ipc-types';
 
@@ -53,207 +72,214 @@ async function listen<T>(event: string, handler: (payload: T) => void): Promise<
 }
 
 // === Session commands (F01) ===
+// Tauri command names: create_session, send, abort, list_sessions,
+// get_history, set_active_agent, get_active_agent.
 
 export const session = {
   create: (
-    workspaceId: string,
-    agentId?: string,
+    workspaceId: WorkspaceId,
+    agentId?: AgentId,
     title?: string,
-  ): Promise<unknown /* SessionDto */> => call('create', { workspaceId, agentId, title }),
+  ): Promise<SessionSummaryDto> =>
+    call('create_session', {
+      workspace_id: workspaceId,
+      agent_id: agentId,
+      title,
+    }),
 
-  send: (sessionId: string, content: string, mentions: AtMention[] = []): Promise<RunHandle> =>
-    call('send', { sessionId, content, mentions }),
+  send: (
+    sessionId: SessionId,
+    content: string,
+    mentions: AtMention[] = [],
+  ): Promise<RunHandleDto> =>
+    call('send', {
+      session_id: sessionId,
+      content,
+      mentions,
+    }),
 
-  abort: (sessionId: string): Promise<void> => call('abort', { sessionId }),
+  abort: (sessionId: SessionId): Promise<void> => call('abort', { session_id: sessionId }),
 
-  list: (workspaceId: string, limit?: number, before?: string): Promise<SessionSummaryDto[]> =>
-    call('list', { workspaceId, limit, before }),
+  list: (workspaceId: WorkspaceId, limit?: number): Promise<SessionSummaryDto[]> =>
+    call('list_sessions', { workspace_id: workspaceId, limit }),
 
-  getHistory: (
-    sessionId: string,
-    limit?: number,
-    before?: string,
-  ): Promise<unknown /* JournalEntry[] */> => call('get_history', { sessionId, limit, before }),
+  getHistory: (sessionId: SessionId, limit?: number): Promise<MessageDto[]> =>
+    call('get_history', { session_id: sessionId, limit }),
 
-  setActiveAgent: (sessionId: string, agentId: string): Promise<void> =>
-    call('set_active_agent', { sessionId, agentId }),
+  setActiveAgent: (sessionId: SessionId, agentId: AgentId): Promise<void> =>
+    call('set_active_agent', { session_id: sessionId, agent_id: agentId }),
 
-  getActiveAgent: (sessionId: string): Promise<string /* AgentId */> =>
-    call('get_active_agent', { sessionId }),
+  getActiveAgent: (sessionId: SessionId): Promise<AgentId> =>
+    call('get_active_agent', { session_id: sessionId }),
 };
 
 // === Workspace commands (F02) ===
 
 export const workspace = {
-  list: (): Promise<WorkspaceDto[]> => call('list'),
+  list: (): Promise<WorkspaceDto[]> => call('list_workspaces'),
 
   open: (rootPath: string, name?: string): Promise<WorkspaceDto> =>
-    call('open', { rootPath, name }),
+    call('open', { root_path: rootPath, name }),
 
-  get: (workspaceId: string): Promise<WorkspaceDto> => call('get', { workspaceId }),
+  get: (workspaceId: WorkspaceId): Promise<WorkspaceDto> =>
+    call('get_workspace', { workspace_id: workspaceId }),
 
-  delete: (workspaceId: string, force = false): Promise<void> =>
-    call('delete', { workspaceId, force }),
+  delete: (workspaceId: WorkspaceId, force = false): Promise<void> =>
+    call('delete_workspace', { workspace_id: workspaceId, force }),
 
-  detectVenv: (workspaceId: string): Promise<VenvSpec | null> =>
-    call('detect_venv', { workspaceId }),
+  detectVenv: (workspaceId: WorkspaceId): Promise<VenvSpec | null> =>
+    call('detect_workspace_venv', { workspace_id: workspaceId }),
 
-  addExtraPath: (workspaceId: string, path: string, label?: string | null): Promise<ExtraPathDto> =>
-    call('add_extra_path', { workspaceId, path, label }),
+  addExtraPath: (
+    workspaceId: WorkspaceId,
+    path: string,
+    label?: string | null,
+  ): Promise<ExtraPathDto> => call('add_extra_path', { workspace_id: workspaceId, path, label }),
 
-  removeExtraPath: (workspaceId: string, path: string): Promise<void> =>
-    call('remove_extra_path', { workspaceId, path }),
+  removeExtraPath: (workspaceId: WorkspaceId, path: string): Promise<void> =>
+    call('remove_extra_path', { workspace_id: workspaceId, path }),
 
-  listExtraPaths: (workspaceId: string): Promise<ExtraPathDto[]> =>
-    call('list_extra_paths', { workspaceId }),
+  listExtraPaths: (workspaceId: WorkspaceId): Promise<ExtraPathDto[]> =>
+    call('list_extra_paths', { workspace_id: workspaceId }),
 
-  effectivePaths: (workspaceId: string): Promise<EffectivePathsDto> =>
-    call('effective_paths', { workspaceId }),
+  effectivePaths: (workspaceId: WorkspaceId): Promise<EffectivePathsDto> =>
+    call('effective_paths', { workspace_id: workspaceId }),
 
-  listDir: (workspaceId: string, path: string): Promise<FileEntryDto[]> =>
-    call('list_dir', { workspaceId, path }),
-};
-
-// === Config commands (F05) ===
-
-export const config = {
-  getGlobal: (): Promise<unknown /* GlobalConfigDto */> => call('get_global'),
-  updateGlobal: (patch: unknown): Promise<unknown> => call('update_global', { patch }),
-  getWorkspace: (workspaceId: string): Promise<unknown> => call('get_workspace', { workspaceId }),
-  updateWorkspace: (workspaceId: string, patch: unknown): Promise<unknown> =>
-    call('update_workspace', { workspaceId, patch }),
+  listDir: (workspaceId: WorkspaceId, path: string): Promise<FileEntryDto[]> =>
+    call('list_dir', { workspace_id: workspaceId, path }),
 };
 
 // === Agents (multi-agent) ===
 
 export const agents = {
-  list: (): Promise<unknown /* AgentInfo[] */> => call('list'),
-  get: (id: string): Promise<unknown /* AgentInfo */> => call('get', { id }),
+  list: (): Promise<AgentInfoDto[]> => call('list_agents'),
+  get: (id: AgentId): Promise<AgentInfoDto> => call('get_agent', { id }),
+};
+
+// === Config commands (F05, deferred) ===
+
+export const config = {
+  getGlobal: (): Promise<unknown /* GlobalConfigDto */> => call('get_global'),
+  updateGlobal: (patch: unknown): Promise<unknown> => call('update_global', { patch }),
+  getWorkspace: (workspaceId: WorkspaceId): Promise<unknown> =>
+    call('get_workspace_config', { workspace_id: workspaceId }),
+  updateWorkspace: (workspaceId: WorkspaceId, patch: unknown): Promise<unknown> =>
+    call('update_workspace_config', { workspace_id: workspaceId, patch }),
 };
 
 // === Providers (F05 test connection) ===
 
 export const providers = {
   testConnection: (providerId: string): Promise<TestConnectionResult> =>
-    call('test_connection', { providerId }),
+    call('test_connection', { provider_id: providerId }),
 };
 
 // === Secrets (F05 keychain) ===
 
 export const secrets = {
-  set: (providerId: string, value: string): Promise<void> => call('set', { providerId, value }),
-  delete: (providerId: string): Promise<void> => call('delete', { providerId }),
+  set: (providerId: string, value: string): Promise<void> =>
+    call('set_secret', { provider_id: providerId, value }),
+  delete: (providerId: string): Promise<void> => call('delete_secret', { provider_id: providerId }),
   listProviders: (): Promise<string[]> => call('list_providers'),
 };
 
 // === Permissions (F01 + F05) ===
 
 export const permissions = {
-  getMatrix: (workspaceId?: string): Promise<PermissionMatrixDto> =>
-    call('get_matrix', { workspaceId }),
+  getMatrix: (workspaceId?: WorkspaceId): Promise<PermissionMatrixDto> =>
+    call('get_matrix', { workspace_id: workspaceId }),
   setDefault: (tool: string, decision: 'allow' | 'ask' | 'deny'): Promise<void> =>
     call('set_default', { tool, decision }),
   respond: (
     requestId: string,
     response: { kind: 'allowOnce' | 'allowSession' | 'allowAlways' | 'deny' },
-  ): Promise<void> => call('respond', { requestId, response }),
+  ): Promise<void> => call('respond', { request_id: requestId, response }),
 };
 
 // === Streaming events (F01) ===
 
+export interface ChatRunListeners {
+  onStarted: (cb: (p: ChatRunStartedPayload) => void) => Promise<UnlistenFn>;
+  onMessageStart: (cb: (p: ChatMessageStartPayload) => void) => Promise<UnlistenFn>;
+  onContentDelta: (cb: (p: ChatContentDeltaPayload) => void) => Promise<UnlistenFn>;
+  onFinished: (cb: (p: ChatRunFinishedPayload) => void) => Promise<UnlistenFn>;
+  onError: (cb: (p: ChatRunErrorPayload) => void) => Promise<UnlistenFn>;
+}
+
+/** Filter an event listener to a specific runId. */
+function forRun<T extends { runId: RunId }>(
+  cb: (p: T) => void,
+  runId: RunId | null,
+): (p: T) => void {
+  return (p) => {
+    if (runId === null || p.runId === runId) cb(p);
+  };
+}
+
 export const events = {
   // chat.*.v1
-  chatRunStarted: (cb: (p: { sessionId: string; runId: string; agentId: string }) => void) =>
-    listen('chat.run.started.v1', cb),
-  chatMessageStart: (cb: (p: { sessionId: string; runId: string; messageId: string }) => void) =>
-    listen('chat.message.start.v1', cb),
-  chatContentDelta: (
-    cb: (p: { sessionId: string; runId: string; messageId: string; text: string }) => void,
-  ) => listen('chat.content.delta.v1', cb),
-  chatToolCall: (
-    cb: (p: {
-      sessionId: string;
-      runId: string;
-      messageId: string;
-      toolCallId: string;
-      name: string;
-      args: unknown;
-      argsSummary: string;
-    }) => void,
-  ) => listen('chat.tool_call.v1', cb),
-  chatToolResult: (
-    cb: (p: {
-      sessionId: string;
-      runId: string;
-      toolCallId: string;
-      output: string;
-      outputSummary: string;
-      isError: boolean;
-      durationMs: number;
-      truncated: boolean;
-    }) => void,
-  ) => listen('chat.tool_result.v1', cb),
-  chatMessageEnd: (
-    cb: (p: {
-      sessionId: string;
-      runId: string;
-      messageId: string;
-      usage: { promptTokens: number; completionTokens: number; totalTokens: number };
-      finishReason: 'stop' | 'length' | 'tool_use' | 'error' | 'aborted';
-    }) => void,
-  ) => listen('chat.message.end.v1', cb),
-  chatRunFinished: (
-    cb: (p: {
-      sessionId: string;
-      runId: string;
-      status: 'completed' | 'aborted' | 'error' | 'timeout';
-      durationMs: number;
-    }) => void,
-  ) => listen('chat.run.finished.v1', cb),
-  chatRunError: (
-    cb: (p: {
-      sessionId: string;
-      runId: string;
-      code: string;
-      message: string;
-      retryable: boolean;
-    }) => void,
-  ) => listen('chat.run.error.v1', cb),
-  chatRunAborted: (
-    cb: (p: {
-      sessionId: string;
-      runId: string;
-      reason: 'user' | 'timeout' | 'error' | 'max_steps';
-    }) => void,
-  ) => listen('chat.run.aborted.v1', cb),
-  permissionRequested: (
-    cb: (p: {
-      sessionId: string;
-      runId: string;
-      requestId: string;
-      tool: string;
-      args: unknown;
-      argsSummary: string;
-    }) => void,
-  ) => listen('permission.requested.v1', cb),
+  chatRunStarted: (cb: (p: ChatRunStartedPayload) => void) => listen('chat.run.started.v1', cb),
+  chatMessageStart: (cb: (p: ChatMessageStartPayload) => void) =>
+    listen('chat.message_start.v1', cb),
+  chatContentDelta: (cb: (p: ChatContentDeltaPayload) => void) =>
+    listen('chat.content.delta.v1', cb),
+  chatRunFinished: (cb: (p: ChatRunFinishedPayload) => void) => listen('chat.run.finished.v1', cb),
+  chatRunError: (cb: (p: ChatRunErrorPayload) => void) => listen('chat.run.error.v1', cb),
+
+  /**
+   * Subscribe to all chat events for a specific run. Returns an
+   * async unbind handle. Call `await bindRun(...)` to wait for
+   * the listeners to be attached, then call the returned function
+   * to release them.
+   */
+  async bindRun(
+    runId: RunId,
+    handlers: {
+      onStarted?: (p: ChatRunStartedPayload) => void;
+      onMessageStart?: (p: ChatMessageStartPayload) => void;
+      onContentDelta?: (p: ChatContentDeltaPayload) => void;
+      onFinished?: (p: ChatRunFinishedPayload) => void;
+      onError?: (p: ChatRunErrorPayload) => void;
+    },
+  ): Promise<() => void> {
+    const unlistens: UnlistenFn[] = await Promise.all([
+      handlers.onStarted
+        ? events.chatRunStarted(forRun(handlers.onStarted, runId))
+        : Promise.resolve<UnlistenFn>(() => undefined),
+      handlers.onMessageStart
+        ? events.chatMessageStart(forRun(handlers.onMessageStart, runId))
+        : Promise.resolve<UnlistenFn>(() => undefined),
+      handlers.onContentDelta
+        ? events.chatContentDelta(forRun(handlers.onContentDelta, runId))
+        : Promise.resolve<UnlistenFn>(() => undefined),
+      handlers.onFinished
+        ? events.chatRunFinished(forRun(handlers.onFinished, runId))
+        : Promise.resolve<UnlistenFn>(() => undefined),
+      handlers.onError
+        ? events.chatRunError(forRun(handlers.onError, runId))
+        : Promise.resolve<UnlistenFn>(() => undefined),
+    ]);
+    return () => unlistens.forEach((u) => u());
+  },
 
   // agent.*.v1 (F-agents-ui)
-  agentChanged: (cb: (p: { sessionId: string; fromAgentId: string; toAgentId: string }) => void) =>
-    listen('agent.changed.v1', cb),
+  agentChanged: (
+    cb: (p: { sessionId: SessionId; fromAgentId: AgentId; toAgentId: AgentId }) => void,
+  ) => listen('agent.changed.v1', cb),
   subagentStarted: (
-    cb: (p: { parentRunId: string; childSessionId: string; subagentId: string }) => void,
+    cb: (p: { parentRunId: RunId; childSessionId: SessionId; subagentId: AgentId }) => void,
   ) => listen('subagent.started.v1', cb),
   subagentFinished: (
-    cb: (p: { parentRunId: string; childSessionId: string; result: unknown }) => void,
+    cb: (p: { parentRunId: RunId; childSessionId: SessionId; result: unknown }) => void,
   ) => listen('subagent.finished.v1', cb),
   subagentAborted: (
-    cb: (p: { parentRunId: string; childSessionId: string; reason: string }) => void,
+    cb: (p: { parentRunId: RunId; childSessionId: SessionId; reason: string }) => void,
   ) => listen('subagent.aborted.v1', cb),
 
   // workspace.*.v1 (F02)
   workspaceExtraPathAdded: (
-    cb: (p: { workspaceId: string; path: string; label?: string }) => void,
+    cb: (p: { workspaceId: WorkspaceId; path: string; label?: string }) => void,
   ) => listen('workspace.extra_path_added.v1', cb),
-  workspaceExtraPathRemoved: (cb: (p: { workspaceId: string; path: string }) => void) =>
+  workspaceExtraPathRemoved: (cb: (p: { workspaceId: WorkspaceId; path: string }) => void) =>
     listen('workspace.extra_path_removed.v1', cb),
 };
