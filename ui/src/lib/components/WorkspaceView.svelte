@@ -1,9 +1,10 @@
 <script lang="ts">
   import type { WorkspaceDto } from '$lib/ipc-types';
-  import { workspaceStore } from '$lib/stores/workspace.svelte';
 
+  import ChatPanel from './ChatPanel.svelte';
   import FileTree from './FileTree.svelte';
   import VenvBadge from './VenvBadge.svelte';
+  import { workspaceStore } from '$lib/stores/workspace.svelte';
 
   interface Props {
     workspace: WorkspaceDto;
@@ -30,17 +31,16 @@
     </div>
   </header>
 
-  <section class="content">
-    <h2 class="section-title">Files</h2>
-    <FileTree />
-  </section>
+  <div class="split">
+    <aside class="files">
+      <h2 class="section-title">Files</h2>
+      <FileTree />
+    </aside>
 
-  <footer class="footer">
-    <button type="button" class="open-chat" disabled title="Coming in F01 (chat streaming)">
-      Open chat
-    </button>
-    <span class="hint">Chat with the agent (F01)</span>
-  </footer>
+    <section class="chat">
+      <ChatPanel workspaceId={workspace.id} />
+    </section>
+  </div>
 </main>
 
 <style>
@@ -103,15 +103,6 @@
     font-size: var(--font-size-sm);
   }
 
-  .content {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-3);
-    padding: var(--space-4) var(--space-5);
-    overflow: auto;
-  }
-
   .section-title {
     margin: 0;
     font-size: var(--font-size-sm);
@@ -121,32 +112,26 @@
     letter-spacing: 0.05em;
   }
 
-  .footer {
+  .split {
+    flex: 1;
+    display: grid;
+    grid-template-columns: minmax(220px, 320px) 1fr;
+    gap: 0;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .files {
     display: flex;
-    align-items: center;
+    flex-direction: column;
     gap: var(--space-3);
-    padding: var(--space-3) var(--space-5);
-    border-top: 1px solid var(--color-border-subtle);
-    background: var(--color-bg-elevated);
+    padding: var(--space-4) var(--space-5);
+    overflow: auto;
+    border-right: 1px solid var(--color-border-subtle);
   }
 
-  .open-chat {
-    background: var(--color-primary);
-    color: var(--color-primary-fg);
-    border: 1px solid var(--color-primary);
-    padding: var(--space-2) var(--space-4);
-    border-radius: var(--radius-md);
-    font: inherit;
-    cursor: pointer;
-  }
-
-  .open-chat:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .hint {
-    color: var(--color-fg-subtle);
-    font-size: var(--font-size-xs);
+  .chat {
+    min-height: 0;
+    overflow: hidden;
   }
 </style>

@@ -4,7 +4,7 @@
 > Para roadmap de features: [features/ROADMAP.md](./features/ROADMAP.md).
 > Para índice de ADRs: [adr/README.md](./adr/README.md).
 >
-> Última actualización: 2026-06-06
+> Última actualización: 2026-06-06 (PR feat(ui): F01-Phase2 chat UI)
 >
 > **Disciplina de status**: este archivo **debe** actualizarse en
 > el mismo PR que cambia el estado de cualquier spec. Ver
@@ -51,16 +51,24 @@ _(vacío)_
   command; AC7 sigue parcial: el check de runs activos llega con
   el PR de `agent-loop`).
 - **features/F01-chat-streaming.md** — `approved` →
-  `implemented (partial — Phase 1 backend)`. PRs:
+  `implemented (partial — Phase 1 backend + UI)`. PRs:
   - `feat(core): F01-Phase1 backends` (PR #13): 5/15 ACs
     backend cubiertos (AC1, AC2, AC4, AC5, AC6).
-  - `feat(app): F01-Phase1 app wiring` (pendiente):
-    9/9 Tauri commands cableados (session_create, send,
-    abort, list, get_history, set/get_active_agent,
-    agents_list, agents_get); TauriEventSink; AppState
-    refactor. Faltan: UI (Phase 2), tools + permissions
-    (Phase 2), multi-agent + @mention (Phase 3). Ver
-    `## Implementation status` en el spec.
+  - `feat(app): F01-Phase1 app wiring` (PR #14):
+    9/9 Tauri commands cableados (create_session, send,
+    abort, list_sessions, get_history, set/get_active_agent,
+    list_agents, get_agent); TauriEventSink; AppState
+    refactor.
+  - `feat(ui): F01-Phase2 chat UI` (pendiente — este PR):
+    ChatPanel + MessageList + Composer con Svelte 5 runes;
+    `session.svelte.ts` store con state machine completo
+    (create/send/abort/setActiveAgent/cyclePrimary + event
+    folding para chat.run.started/finished/error, message_start,
+    content.delta); 19/19 vitest tests del store pasando;
+    UI checks (svelte-check/tsc/eslint/prettier/build) verdes.
+    Faltan: tools + permissions (Phase 2 backend), multi-agent
+    + @mention (Phase 3). Ver `## Implementation status` en
+    el spec.
 
 ## ⚫ Deprecated
 _(ninguno)_
