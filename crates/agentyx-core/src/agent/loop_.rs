@@ -1424,6 +1424,8 @@ mod tests {
     /// Build a fresh `AgentLoopDeps` rooted at a temp `state.db`
     /// and a default config.
     fn fresh_deps() -> (tempfile::TempDir, AgentLoopDeps) {
+        use crate::config::ServiceConfigPaths;
+
         let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("state.db");
         let ws_id = WorkspaceId::new();
@@ -1431,8 +1433,8 @@ mod tests {
         let session = SessionService::with_db(db.clone(), ws_id);
         let journal = JournalRepo::new(db);
 
-        let config_path = dir.path().join("config.toml");
-        let config = ConfigService::load(&config_path).unwrap();
+        let config_paths = ServiceConfigPaths::from_agentyx_home(dir.path());
+        let config = ConfigService::load(&config_paths).unwrap();
 
         let mut providers: HashMap<String, Arc<dyn Provider>> = HashMap::new();
         let p = crate::llm::OllamaProvider::with_base_url("http://127.0.0.1:1").unwrap();

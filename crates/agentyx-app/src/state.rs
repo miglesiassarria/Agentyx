@@ -16,7 +16,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use agentyx_core::agents::AgentRegistry;
-use agentyx_core::config::ConfigService;
+use agentyx_core::config::{ConfigService, OsKeychain, ServiceConfigPaths};
 use agentyx_core::ids::WorkspaceId;
 use agentyx_core::journal::JournalRepo;
 use agentyx_core::llm::Provider;
@@ -145,8 +145,9 @@ impl AppState {
 
         let workspaces = Arc::new(WorkspaceService::new(&agentyx_home)?);
 
-        let config_path = agentyx_home.join("config.toml");
-        let config = Arc::new(ConfigService::load(&config_path)?);
+        let config_paths = ServiceConfigPaths::from_agentyx_home(&agentyx_home);
+        let keychain: Arc<dyn agentyx_core::config::KeychainAccess> = Arc::new(OsKeychain);
+        let config = Arc::new(ConfigService::load_with_keychain(&config_paths, keychain)?);
 
         let agents = Arc::new(AgentRegistry::load_builtins());
 
@@ -261,13 +262,14 @@ impl std::fmt::Debug for ProviderRegistry {
 }
 
 impl ProviderRegistry {
-    /// Build a registry from the global config. For Phase 1
-    /// only `ollama` is wired (the `OllamaProvider` is constructed
-    /// with the `base_url` from `config.toml`; missing
-    /// providers are skipped with a `tracing::warn!`).
-    /// `groq`/`minimax` arrive in F01-Phase2.
+    /// Build a registry from the global config. For each enabled
+    /// provider we instantiate a fresh client with the configured
+    /// `base_url`. Cloud providers (Groq, Minimax) require a
+    /// resolved API key; if the key is missing, the provider is
+    /// skipped with a `tracing::warn!` (the user can still add
+    /// the key via the Settings UI).
     pub fn from_config(config: &ConfigService) -> AppResult<Self> {
-        use agentyx_core::llm::OllamaProvider;
+        use agentyx_core::llm::{GroqProvider, MinimaxProvider, OllamaProvider};
         let cfg = config.get();
         let mut providers: HashMap<String, Arc<dyn Provider>> = HashMap::new();
 
@@ -293,11 +295,61 @@ impl ProviderRegistry {
                         }
                     }
                 }
-                "groq" | "minimax" => {
-                    tracing::debug!(
-                        provider = id,
-                        "provider not yet wired in Phase 1; arrives in F01-Phase2"
-                    );
+                "groq" => {
+                    let base = if provider_cfg.base_url.is_empty() {
+                        agentyx_core::llm::GROQ_DEFAULT_BASE_URL
+                    } else {
+                        &provider_cfg.base_url
+                    };
+                    let key = match config.resolve_secrets() {
+                        Ok(secrets) => secrets.get("groq").cloned(),
+                        Err(_) => None,
+                    };
+                    match key {
+                        Some(k) => match GroqProvider::with_base_url(base, k) {
+                            Ok(p) => {
+                                providers.insert(id.clone(), Arc::new(p));
+                                tracing::info!(provider = id, base, "Groq provider registered");
+                            }
+                            Err(e) => {
+                                tracing::warn!(provider = id, error = %e, "failed to construct GroqProvider");
+                            }
+                        },
+                        None => {
+                            tracing::debug!(
+                                provider = id,
+                                "Groq provider skipped: no resolved API key"
+                            );
+                        }
+                    }
+                }
+                "minimax" => {
+                    let base = if provider_cfg.base_url.is_empty() {
+                        agentyx_core::llm::MINIMAX_DEFAULT_BASE_URL
+                    } else {
+                        &provider_cfg.base_url
+                    };
+                    let key = match config.resolve_secrets() {
+                        Ok(secrets) => secrets.get("minimax").cloned(),
+                        Err(_) => None,
+                    };
+                    match key {
+                        Some(k) => match MinimaxProvider::with_base_url(base, k) {
+                            Ok(p) => {
+                                providers.insert(id.clone(), Arc::new(p));
+                                tracing::info!(provider = id, base, "Minimax provider registered");
+                            }
+                            Err(e) => {
+                                tracing::warn!(provider = id, error = %e, "failed to construct MinimaxProvider");
+                            }
+                        },
+                        None => {
+                            tracing::debug!(
+                                provider = id,
+                                "Minimax provider skipped: no resolved API key"
+                            );
+                        }
+                    }
                 }
                 other => {
                     tracing::warn!(provider = other, "unknown provider in config; skipping");

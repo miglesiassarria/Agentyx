@@ -107,6 +107,17 @@ impl Provider for MockProvider {
         }
     }
 
+    async fn list_models(&self) -> Result<Vec<crate::llm::ModelInfo>, AppError> {
+        Ok(vec![crate::llm::ModelInfo {
+            id: "mock-model".into(),
+            name: "Mock Model".into(),
+            context_window: 8192,
+            max_output_tokens: 2048,
+            supports_tools: true,
+            supports_vision: false,
+        }])
+    }
+
     async fn chat(&self, _req: ChatRequest) -> Result<ChatStream, AppError> {
         self.call_count.fetch_add(1, Ordering::SeqCst);
         let seq = {

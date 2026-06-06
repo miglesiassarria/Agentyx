@@ -28,11 +28,15 @@
 #![deny(unsafe_code)]
 #![warn(missing_docs)]
 
+mod groq;
+mod minimax;
 mod mock;
 mod ollama;
 mod provider;
 mod types;
 
+pub use groq::{GroqProvider, DEFAULT_BASE_URL as GROQ_DEFAULT_BASE_URL};
+pub use minimax::{MinimaxProvider, DEFAULT_BASE_URL as MINIMAX_DEFAULT_BASE_URL};
 pub use mock::{MockProvider, MockSequence};
 pub use ollama::{OllamaProvider, DEFAULT_BASE_URL};
 pub use provider::Provider;
