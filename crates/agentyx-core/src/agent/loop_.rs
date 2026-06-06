@@ -25,19 +25,23 @@ use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Utc};
 use serde::Serialize;
-use serde_json::json;
+use serde_json::{json, Value};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 use ulid::Ulid;
 
+use crate::agent::{BatcherConfig, DeltaBatcher};
 use crate::agents::AgentRegistry;
 use crate::config::ConfigService;
 use crate::ids::{AgentId, RunId, SessionId, WorkspaceId};
 use crate::journal::{JournalKind, JournalRepo, NewJournalEntry};
 use crate::llm::{
-    ChatEvent, ChatMessage, ChatRequest, FinishReason, Provider, RequestMetadata, Usage,
+    ChatEvent, ChatMessage, ChatRequest, FinishReason, Provider, RequestMetadata, ToolCall, Usage,
 };
+use crate::permissions::{Decision, UserDecision};
 use crate::session::{MessageRole, SessionService, SessionStatus};
+use crate::tools::{Tool, ToolContext, ToolOutput};
+use crate::workspace::WorkspaceService;
 use crate::{AppError, AppResult};
 
 /// Maximum size of a user message (1 MB), per F01.AC9. Messages
@@ -119,7 +123,7 @@ struct RunInner {
     status: Mutex<RunStatus>,
     last_error: Mutex<Option<AppError>>,
     usage: Mutex<Usage>,
-    abort_flag: AtomicBool,
+    abort_flag: Arc<AtomicBool>,
 }
 
 impl std::fmt::Debug for RunInner {
@@ -165,7 +169,7 @@ impl RunHandle {
                 status: Mutex::new(RunStatus::Running),
                 last_error: Mutex::new(None),
                 usage: Mutex::new(Usage::default()),
-                abort_flag: AtomicBool::new(false),
+                abort_flag: Arc::new(AtomicBool::new(false)),
             }),
         }
     }
@@ -275,6 +279,19 @@ pub struct AgentLoopDeps {
     pub journal: JournalRepo,
     /// Event sink for streaming events to the UI.
     pub bus: Arc<dyn EventSink>,
+    /// Workspace service. Used to look up the workspace's
+    /// `root_path` and `extra_paths` for tool execution and
+    /// permission snapshots.
+    pub workspaces: crate::workspace::WorkspaceService,
+    /// Tool registry. The loop exposes these schemas to the
+    /// LLM and dispatches `ToolUse` events to them.
+    pub tool_registry: Arc<Vec<Arc<dyn crate::tools::Tool>>>,
+    /// Permission gate. Stateless; takes a snapshot per run.
+    pub permission_gate: crate::permissions::PermissionGate,
+    /// Permission registry. Holds the oneshot responders for
+    /// `Ask` decisions; the agent loop registers, the
+    /// `permission_respond` Tauri command resolves.
+    pub permission_registry: crate::permissions::PermissionRegistry,
 }
 
 /// Spawn a new run on the Tokio runtime. Returns a
@@ -441,8 +458,25 @@ struct RunContext {
     max_steps: u32,
 }
 
-/// The async run loop. Loads the conversation history, calls
-/// the provider, streams events, persists the result.
+/// The async run loop. Iterates up to `max_steps` times. Each
+/// step:
+///
+/// 1. Build a `ChatRequest` from the in-memory message history
+///    + the tool schemas.
+/// 2. Call `provider.chat()` and stream events.
+/// 3. Accumulate content via [`DeltaBatcher`] (50ms / 100 chars).
+/// 4. On `ToolUse`, route through [`PermissionGate`]: `Allow`
+///    runs the tool, `Ask` pauses the run for the user's
+///    response, `Deny` emits an error result.
+/// 5. After the stream ends, if there are pending tool calls,
+///    append the `ToolResult` messages to the in-memory
+///    history and continue to the next step.
+/// 6. If there are no pending tool calls, persist the final
+///    assistant message and emit `chat.run.finished.v1`.
+///
+/// The loop is abortable via [`RunHandle::abort`] (sets an
+/// `AtomicBool` that the loop checks at the top of each step and
+/// between events).
 async fn run_loop(ctx: RunContext) {
     let RunContext {
         handle,
@@ -458,7 +492,7 @@ async fn run_loop(ctx: RunContext) {
     let agent_id = handle.inner.agent_id;
     let started = std::time::Instant::now();
 
-    // Build the request.
+    // Build the initial in-memory message history from the DB.
     let history = match deps
         .session
         .list_messages(session_id, crate::session::ListMessagesOpts::default())
@@ -495,10 +529,11 @@ async fn run_loop(ctx: RunContext) {
                 });
             }
             MessageRole::ToolResult => {
-                // Phase 2: round-trip tool_use_id. For now we
-                // surface the content as a user message so the
-                // model has it in context; the agent loop will
-                // later reconstruct the proper ToolResult.
+                // Recovered from a prior run; surface the content
+                // as a user message so the model has it. In
+                // v1.x the journal carries the full tool_use_id
+                // and we reconstruct the proper `ToolResult`
+                // message here.
                 messages.push(ChatMessage::User {
                     content: format!("[tool result]\n{}", m.content),
                 });
@@ -506,196 +541,267 @@ async fn run_loop(ctx: RunContext) {
         }
     }
 
-    let req = ChatRequest {
-        model: model.clone(),
-        messages,
-        tools: Vec::new(),
-        tool_choice: crate::llm::ToolChoice::None,
-        max_output_tokens: None,
-        temperature: None,
-        stream: true,
-        metadata: RequestMetadata {
-            workspace_id,
-            session_id,
-            run_id,
-            agent_id,
-        },
-    };
+    // Tool schemas (filtered by the agent's `tool_access`).
+    let tool_schemas = build_tool_schemas(&deps.tool_registry, &deps.agents, &agent_id);
 
-    // Journal: ProviderEvent (start).
-    let provider_start = std::time::Instant::now();
-    if let Err(e) = deps.journal.append(NewJournalEntry {
-        id: None,
-        session_id,
-        run_id,
-        parent_run_id: None,
-        depth: 0,
-        kind: JournalKind::ProviderEvent,
-        agent_id: Some(agent_id),
-        payload: json!({
-            "kind": "request",
-            "providerId": deps.config.get().default_provider,
-            "model": model,
-        }),
-        duration_ms: None,
-    }) {
-        warn!(error = %e, "failed to journal ProviderEvent");
-    }
+    // Permission snapshot (workspace-root + agent overrides).
+    let perm_snap = build_permission_snapshot(&deps.workspaces, workspace_id, &agent_id);
 
-    let stream_result = provider.chat(req).await;
-    let mut stream = match stream_result {
-        Ok(s) => s,
-        Err(e) => {
-            finish_with_error(&deps, &handle, session_id, run_id, e, started);
-            return;
-        }
-    };
-
-    // Stream events.
-    let mut accumulated_text = String::new();
-    let mut finish_reason: Option<FinishReason> = None;
+    // Total accumulated text across all steps. Persisted once
+    // at the end of the run (F01.AC13 — one INSERT, not per
+    // delta).
+    let mut total_accumulated = String::new();
     let mut last_usage = Usage::default();
-    let mut error: Option<AppError> = None;
-    let mut step: u32 = 0;
-    use futures::StreamExt;
-    loop {
+    let mut final_fr: FinishReason = FinishReason::Stop;
+    let mut final_status = RunStatus::Finished;
+    let mut errored: Option<AppError> = None;
+
+    // Per-step state: how many times we've called the provider.
+    for step_idx in 1..=max_steps {
         if handle.is_aborted() {
             info!(run_id = %run_id, "run aborted");
-            finish_reason = Some(FinishReason::Aborted);
+            final_fr = FinishReason::Aborted;
+            final_status = RunStatus::Aborted;
             break;
         }
-        if step >= max_steps {
-            warn!(run_id = %run_id, step, max_steps, "max_steps reached");
-            finish_reason = Some(FinishReason::Length);
+        if step_idx > 1 && step_idx > max_steps {
+            warn!(run_id = %run_id, step = step_idx, max_steps, "max_steps reached");
+            final_fr = FinishReason::Length;
             break;
         }
-        match stream.next().await {
-            Some(Ok(ChatEvent::MessageStart { message_id, model })) => {
-                debug!(run_id = %run_id, message_id, model, "message_start");
-                deps.bus.emit(
-                    "chat.message_start.v1",
-                    json!({
-                        "runId": run_id.to_string(),
-                        "messageId": message_id,
-                        "model": model,
-                    }),
-                );
+
+        // Build the request for this step.
+        let req = ChatRequest {
+            model: model.clone(),
+            messages: messages.clone(),
+            tools: tool_schemas.clone(),
+            tool_choice: if tool_schemas.is_empty() {
+                crate::llm::ToolChoice::None
+            } else {
+                crate::llm::ToolChoice::Auto
+            },
+            max_output_tokens: None,
+            temperature: None,
+            stream: true,
+            metadata: RequestMetadata {
+                workspace_id,
+                session_id,
+                run_id,
+                agent_id,
+            },
+        };
+
+        // Journal: ProviderEvent (request).
+        if let Err(e) = deps.journal.append(NewJournalEntry {
+            id: None,
+            session_id,
+            run_id,
+            parent_run_id: None,
+            depth: 0,
+            kind: JournalKind::ProviderEvent,
+            agent_id: Some(agent_id),
+            payload: json!({
+                "kind": "request",
+                "providerId": deps.config.get().default_provider,
+                "model": model,
+                "step": step_idx,
+            }),
+            duration_ms: None,
+        }) {
+            warn!(error = %e, "failed to journal ProviderEvent (request)");
+        }
+
+        // Call provider.
+        let stream_result = provider.chat(req).await;
+        let mut stream = match stream_result {
+            Ok(s) => s,
+            Err(e) => {
+                errored = Some(e);
+                break;
             }
-            Some(Ok(ChatEvent::ContentDelta { text })) => {
-                accumulated_text.push_str(&text);
-                deps.bus.emit(
-                    "chat.content.delta.v1",
-                    json!({
-                        "runId": run_id.to_string(),
-                        "sessionId": session_id.to_string(),
-                        "text": text,
-                    }),
-                );
+        };
+
+        // Stream events for this step.
+        let mut step_text = String::new();
+        let mut pending_tool_calls: Vec<ToolCall> = Vec::new();
+        let mut step_fr: FinishReason = FinishReason::Stop;
+        let mut provider_err: Option<AppError> = None;
+        let mut batcher = DeltaBatcher::new(BatcherConfig::default());
+
+        use futures::StreamExt;
+        loop {
+            if handle.is_aborted() {
+                info!(run_id = %run_id, "run aborted mid-step");
+                step_fr = FinishReason::Aborted;
+                break;
             }
-            Some(Ok(ChatEvent::ToolUse { id, name, args })) => {
-                // Phase 2: hand off to the tool registry. For
-                // now, log and continue.
-                warn!(
-                    run_id = %run_id,
-                    tool = %name,
-                    "ToolUse received but tool calls are not yet implemented (F01-Phase2)"
-                );
-                let _ = (id, args);
-            }
-            Some(Ok(ChatEvent::MessageEnd {
-                usage,
-                finish_reason: fr,
-            })) => {
-                last_usage = usage.clone();
-                finish_reason = Some(fr);
-                handle.add_usage(&usage);
-            }
-            Some(Ok(ChatEvent::Error {
-                code,
-                message,
-                retryable,
-            })) => {
-                error = Some(AppError::Provider {
-                    provider_id: deps.config.get().default_provider.clone(),
-                    message: format!("{code}: {message}"),
+            match stream.next().await {
+                Some(Ok(ChatEvent::MessageStart {
+                    message_id,
+                    model: m,
+                })) => {
+                    debug!(run_id = %run_id, message_id, model = m, "message_start");
+                    deps.bus.emit(
+                        "chat.message_start.v1",
+                        json!({
+                            "runId": run_id.to_string(),
+                            "messageId": message_id,
+                            "model": m,
+                        }),
+                    );
+                }
+                Some(Ok(ChatEvent::ContentDelta { text })) => {
+                    step_text.push_str(&text);
+                    batcher.push(&text);
+                    if batcher.should_flush() {
+                        if let Some(buf) = batcher.take() {
+                            deps.bus.emit(
+                                "chat.content.delta.v1",
+                                json!({
+                                    "runId": run_id.to_string(),
+                                    "sessionId": session_id.to_string(),
+                                    "text": buf,
+                                }),
+                            );
+                        }
+                    }
+                }
+                Some(Ok(ChatEvent::ToolUse { id, name, args })) => {
+                    pending_tool_calls.push(ToolCall { id, name, args });
+                }
+                Some(Ok(ChatEvent::MessageEnd {
+                    usage,
+                    finish_reason,
+                })) => {
+                    step_fr = finish_reason;
+                    handle.add_usage(&usage);
+                    last_usage = usage;
+                }
+                Some(Ok(ChatEvent::Error {
+                    code,
+                    message,
                     retryable,
-                });
-                break;
-            }
-            Some(Err(e)) => {
-                error = Some(e);
-                break;
-            }
-            None => {
-                // Stream ended.
-                break;
+                })) => {
+                    provider_err = Some(AppError::Provider {
+                        provider_id: deps.config.get().default_provider.clone(),
+                        message: format!("{code}: {message}"),
+                        retryable,
+                    });
+                    break;
+                }
+                Some(Err(e)) => {
+                    provider_err = Some(e);
+                    break;
+                }
+                None => {
+                    // Stream ended.
+                    break;
+                }
             }
         }
-        step += 1;
+
+        // Flush any remaining deltas.
+        if let Some(buf) = batcher.take() {
+            deps.bus.emit(
+                "chat.content.delta.v1",
+                json!({
+                    "runId": run_id.to_string(),
+                    "sessionId": session_id.to_string(),
+                    "text": buf,
+                }),
+            );
+        }
+
+        // Emit step text as `chat.message_end.v1` so the UI can
+        // close the message bubble.
+        if !step_text.is_empty() {
+            deps.bus.emit(
+                "chat.message.end.v1",
+                json!({
+                    "runId": run_id.to_string(),
+                    "sessionId": session_id.to_string(),
+                    "finishReason": step_fr,
+                    "step": step_idx,
+                }),
+            );
+        }
+
+        if let Some(err) = provider_err {
+            errored = Some(err);
+            break;
+        }
+
+        // Append the step's assistant message to the in-memory
+        // history. We do this even if there are tool calls so
+        // the next step has the full transcript.
+        if !pending_tool_calls.is_empty() {
+            let tool_calls_for_msg = pending_tool_calls.clone();
+            messages.push(ChatMessage::Assistant {
+                content: step_text.clone(),
+                tool_calls: tool_calls_for_msg,
+            });
+        } else {
+            messages.push(ChatMessage::Assistant {
+                content: step_text.clone(),
+                tool_calls: Vec::new(),
+            });
+        }
+        total_accumulated.push_str(&step_text);
+
+        // If no tool calls, this is the natural end of the run.
+        if pending_tool_calls.is_empty() {
+            final_fr = step_fr;
+            break;
+        }
+
+        // Dispatch tool calls. We do them **sequentially** (v0.1
+        // does not support parallel tool calls).
+        for tc in pending_tool_calls.drain(..) {
+            if handle.is_aborted() {
+                break;
+            }
+            let outcome = dispatch_tool_call(&deps, &handle, &perm_snap, &tc).await;
+            // Append a `ToolResult` message to the in-memory
+            // history so the model can see the output.
+            messages.push(ChatMessage::ToolResult {
+                tool_use_id: tc.id.clone(),
+                content: outcome.content,
+                is_error: outcome.is_error,
+            });
+        }
+
+        if handle.is_aborted() {
+            final_fr = FinishReason::Aborted;
+            final_status = RunStatus::Aborted;
+            break;
+        }
+        // Loop continues with the next step.
+        final_fr = step_fr; // last seen
     }
 
-    // Persist assistant message + journal.
-    let aborted = handle.is_aborted();
-    let final_status = if let Some(err) = error {
-        finish_with_error(&deps, &handle, session_id, run_id, err.clone(), started);
+    if let Some(err) = errored {
+        finish_with_error(&deps, &handle, session_id, run_id, err, started);
         return;
-    } else if aborted || matches!(finish_reason, Some(FinishReason::Aborted)) {
-        RunStatus::Aborted
-    } else if accumulated_text.is_empty()
-        && !matches!(
-            finish_reason,
-            Some(FinishReason::Stop | FinishReason::Length)
-        )
-    {
-        // Stream ended without producing text or a finish reason
-        // — treat as error.
-        handle.mark(
-            RunStatus::Errored,
-            Some(AppError::Provider {
-                provider_id: deps.config.get().default_provider.clone(),
-                message: "stream ended without producing a finish reason".into(),
-                retryable: true,
-            }),
-        );
-        let _ = deps
-            .session
-            .finish_run(session_id, SessionStatus::Errored, "stream_incomplete");
-        deps.bus.emit(
-            "chat.run.error.v1",
-            json!({
-                "runId": run_id.to_string(),
-                "sessionId": session_id.to_string(),
-                "code": "stream_incomplete",
-                "message": "stream ended without producing a finish reason",
-            }),
-        );
-        error!(
-            run_id = %run_id,
-            "stream ended without producing a finish reason"
-        );
-        return;
-    } else {
-        RunStatus::Finished
-    };
+    }
 
-    if !accumulated_text.is_empty() {
+    // Persist assistant message.
+    if !total_accumulated.is_empty() {
         if let Err(e) = deps.session.append_message(
             session_id,
             MessageRole::Assistant,
-            &accumulated_text,
+            &total_accumulated,
             Some(run_id),
         ) {
             error!(run_id = %run_id, error = %e, "failed to persist assistant message");
         }
     }
 
-    let finish_reason_str = match finish_reason {
-        Some(FinishReason::Stop) => "stop",
-        Some(FinishReason::Length) => "length",
-        Some(FinishReason::ContentFilter) => "content_filter",
-        Some(FinishReason::Error) => "error",
-        Some(FinishReason::Aborted) => "aborted",
-        None => "unknown",
+    let finish_reason_str = match final_fr {
+        FinishReason::Stop => "stop",
+        FinishReason::Length => "length",
+        FinishReason::ContentFilter => "content_filter",
+        FinishReason::Error => "error",
+        FinishReason::Aborted => "aborted",
     };
     let session_status = match final_status {
         RunStatus::Aborted => SessionStatus::Aborted,
@@ -709,25 +815,7 @@ async fn run_loop(ctx: RunContext) {
         error!(run_id = %run_id, error = %e, "failed to finish_run");
     }
 
-    if let Err(e) = deps.journal.append(NewJournalEntry {
-        id: None,
-        session_id,
-        run_id,
-        parent_run_id: None,
-        depth: 0,
-        kind: JournalKind::ProviderEvent,
-        agent_id: Some(agent_id),
-        payload: json!({
-            "kind": "response",
-            "usage": last_usage,
-            "finishReason": finish_reason_str,
-        }),
-        duration_ms: Some(provider_start.elapsed().as_millis() as u64),
-    }) {
-        warn!(error = %e, "failed to journal ProviderEvent (response)");
-    }
-
-    if !accumulated_text.is_empty() {
+    if !total_accumulated.is_empty() {
         if let Err(e) = deps.journal.append(NewJournalEntry {
             id: None,
             session_id,
@@ -737,7 +825,7 @@ async fn run_loop(ctx: RunContext) {
             kind: JournalKind::AssistantMessage,
             agent_id: Some(agent_id),
             payload: json!({
-                "textSummary": summarize(&accumulated_text, 200),
+                "textSummary": summarize(&total_accumulated, 200),
                 "finishReason": finish_reason_str,
             }),
             duration_ms: None,
@@ -818,6 +906,337 @@ fn finish_with_error(
     );
 }
 
+/// Build the list of `ToolSchema`s the agent exposes to the LLM,
+/// filtered by the agent's `tool_access` (allowlist / denylist).
+fn build_tool_schemas(
+    registry: &[Arc<dyn Tool>],
+    agents: &AgentRegistry,
+    agent_id: &AgentId,
+) -> Vec<crate::llm::ToolSchema> {
+    let Some(agent) = agents.get(agent_id) else {
+        return Vec::new();
+    };
+    let allow: Option<Vec<String>> = match &agent.tool_access {
+        crate::agents::ToolAccess::All => None,
+        crate::agents::ToolAccess::Allowlist(list) => Some(list.clone()),
+        crate::agents::ToolAccess::Denylist(list) => {
+            let denied: std::collections::HashSet<String> = list.iter().cloned().collect();
+            let mut allowed: Vec<String> = Vec::new();
+            for t in registry {
+                if !denied.contains(t.name()) {
+                    allowed.push(t.name().to_string());
+                }
+            }
+            Some(allowed)
+        }
+    };
+    registry
+        .iter()
+        .filter(|t| match &allow {
+            None => true,
+            Some(list) => list.iter().any(|n| n == t.name()),
+        })
+        .map(|t| crate::llm::ToolSchema {
+            name: t.name().to_string(),
+            description: t
+                .schema()
+                .get("description")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+            parameters: t.schema().get("parameters").cloned().unwrap_or(json!({})),
+        })
+        .collect()
+}
+
+/// Build a [`PermissionSnapshot`] for the run. Looks up the
+/// workspace from the registry; if the workspace is missing,
+/// builds a snapshot that denies all path access (the safe
+/// default).
+fn build_permission_snapshot(
+    workspaces: &WorkspaceService,
+    workspace_id: WorkspaceId,
+    _agent_id: &AgentId,
+) -> crate::permissions::PermissionSnapshot {
+    let (root, extras) = match workspaces.get(workspace_id) {
+        Some(w) => (
+            w.root_path,
+            w.extra_paths.into_iter().map(|e| e.path).collect(),
+        ),
+        None => (std::path::PathBuf::from("/__no_workspace__"), Vec::new()),
+    };
+    crate::permissions::PermissionSnapshot {
+        workspace_root: root,
+        extra_paths: extras,
+        approval_mode: crate::permissions::ApprovalMode::Ask,
+        workspace_allow: vec!["read_file".into(), "list_dir".into(), "search".into()],
+        workspace_deny: vec![],
+        workspace_ask: vec![
+            "write_file".into(),
+            "edit_file".into(),
+            "shell".into(),
+            "python_run".into(),
+            "apply_patch".into(),
+        ],
+        deny_paths: vec![],
+        allow_paths: vec![],
+        extra_paths_deny: vec![],
+        always_allow: vec![],
+        always_deny: vec![],
+        agent_allow: vec![],
+        agent_deny: vec![],
+        agent_ask: vec![],
+    }
+}
+
+/// Dispatch a single tool call. Returns the [`ToolOutput`] (with
+/// `is_error: true` if the gate denied or the tool itself
+/// failed). The caller appends a `ToolResult` message to the
+/// in-memory history with the returned content.
+async fn dispatch_tool_call(
+    deps: &AgentLoopDeps,
+    handle: &RunHandle,
+    perm_snap: &crate::permissions::PermissionSnapshot,
+    tc: &ToolCall,
+) -> ToolOutput {
+    let run_id = handle.inner.run_id;
+    let session_id = handle.inner.session_id;
+    let workspace_id = handle.inner.workspace_id;
+
+    // Look up the workspace root + extra paths.
+    let (workspace_root, extra_paths) = match deps.workspaces.get(workspace_id) {
+        Some(w) => (
+            w.root_path.clone(),
+            Arc::new(
+                w.extra_paths
+                    .iter()
+                    .map(|e| e.path.clone())
+                    .collect::<Vec<_>>(),
+            ),
+        ),
+        None => {
+            let deny = ToolOutput::failure("workspace not found for run");
+            emit_tool_result_event(&deps.bus, run_id, session_id, tc, &deny, 0, false);
+            return deny;
+        }
+    };
+
+    // Permission check.
+    let decision = deps.permission_gate.check(perm_snap, &tc.name, &tc.args);
+    let decision_str = decision.code();
+    if let Some(reason) = decision_reason(&decision) {
+        info!(
+            run_id = %run_id,
+            tool = %tc.name,
+            decision = decision_str,
+            reason,
+            "permission check"
+        );
+    }
+
+    // Journal: log the decision regardless of outcome.
+    if let Err(e) = deps.journal.append(NewJournalEntry {
+        id: None,
+        session_id,
+        run_id,
+        parent_run_id: None,
+        depth: 0,
+        kind: JournalKind::ToolCall,
+        agent_id: Some(handle.inner.agent_id),
+        payload: json!({
+            "toolCallId": tc.id,
+            "name": tc.name,
+            "decision": decision_str,
+            "reason": decision_reason(&decision),
+        }),
+        duration_ms: None,
+    }) {
+        warn!(error = %e, "failed to journal ToolCall decision");
+    }
+
+    // Emit the `chat.tool_call.v1` event so the UI can show
+    // "running ...".
+    let args_summary = summarize(&tc.args.to_string(), 120);
+    deps.bus.emit(
+        "chat.tool_call.v1",
+        json!({
+            "runId": run_id.to_string(),
+            "sessionId": session_id.to_string(),
+            "toolCallId": tc.id,
+            "name": tc.name,
+            "args": tc.args,
+            "argsSummary": args_summary,
+        }),
+    );
+
+    let final_decision = match decision {
+        Decision::Allow { persist: _ } => decision,
+        Decision::Deny { reason } => {
+            let msg = format!("denied by permission: {reason}");
+            let out = ToolOutput::failure(msg);
+            emit_tool_result_event(&deps.bus, run_id, session_id, tc, &out, 0, true);
+            return out;
+        }
+        Decision::Ask { reason } => {
+            // Register a pending permission request and wait
+            // for the user.
+            let leaked: &'static str = Box::leak(tc.name.clone().into_boxed_str());
+            let req =
+                crate::permissions::PermissionRequest::new(leaked, tc.args.clone(), reason.clone());
+            let (tx, rx) = tokio::sync::oneshot::channel::<UserDecision>();
+            let req_view = deps.permission_registry.register(req, tx);
+            deps.bus.emit(
+                "permission.requested.v1",
+                json!({
+                    "runId": run_id.to_string(),
+                    "sessionId": session_id.to_string(),
+                    "requestId": req_view.request_id,
+                    "tool": req_view.tool,
+                    "args": req_view.args,
+                    "argsSummary": req_view.args_summary,
+                    "reason": req_view.reason,
+                }),
+            );
+            // Wait for the user (or abort).
+            let resolved = tokio::select! {
+                d = rx => d.ok(),
+                _ = wait_for_abort(&handle.inner.abort_flag) => None,
+            };
+            match resolved {
+                Some(UserDecision::Allow { .. }) => Decision::Allow { persist: false },
+                Some(UserDecision::Deny { .. }) => {
+                    let out = ToolOutput::failure("denied by user");
+                    emit_tool_result_event(&deps.bus, run_id, session_id, tc, &out, 0, true);
+                    return out;
+                }
+                None => {
+                    let out = ToolOutput::failure("aborted while awaiting permission");
+                    emit_tool_result_event(&deps.bus, run_id, session_id, tc, &out, 0, true);
+                    return out;
+                }
+            }
+        }
+    };
+    let _ = final_decision; // already extracted
+
+    // Look up the tool.
+    let Some(tool) = deps.tool_registry.iter().find(|t| t.name() == tc.name) else {
+        let out = ToolOutput::failure(format!("unknown tool: {}", tc.name));
+        emit_tool_result_event(&deps.bus, run_id, session_id, tc, &out, 0, true);
+        return out;
+    };
+
+    // Build the tool context.
+    let ignore_patterns: Arc<Vec<String>> = match deps.workspaces.get(workspace_id) {
+        Some(_w) => Arc::new(Vec::new()), // TODO: read from WorkspaceConfig.ignore
+        None => Arc::new(Vec::new()),
+    };
+    let ctx = ToolContext {
+        workspace_id,
+        workspace_root: workspace_root.clone(),
+        extra_paths: extra_paths.clone(),
+        run_id,
+        session_id,
+        abort_flag: handle.inner.abort_flag.clone(),
+        ignore_patterns,
+    };
+
+    // Run the tool.
+    let tool_start = std::time::Instant::now();
+    let result = tool.run(ctx, tc.args.clone()).await;
+    let duration_ms = tool_start.elapsed().as_millis() as u64;
+
+    let out = match result {
+        Ok(o) => o,
+        Err(e) => ToolOutput::failure(format!("{}: {}", e.code(), e)),
+    };
+    let mut out_with_duration = out;
+    out_with_duration.duration_ms = duration_ms;
+
+    // Journal: persist the full tool output (subject to the
+    // 16 KiB cap in the repo).
+    if let Err(e) = deps.journal.append(NewJournalEntry {
+        id: None,
+        session_id,
+        run_id,
+        parent_run_id: None,
+        depth: 0,
+        kind: JournalKind::ToolResult,
+        agent_id: Some(handle.inner.agent_id),
+        payload: json!({
+            "toolCallId": tc.id,
+            "name": tc.name,
+            "isError": out_with_duration.is_error,
+            "durationMs": duration_ms,
+            "outputSummary": out_with_duration.summary,
+        }),
+        duration_ms: Some(duration_ms),
+    }) {
+        warn!(error = %e, "failed to journal ToolResult");
+    }
+
+    emit_tool_result_event(
+        &deps.bus,
+        run_id,
+        session_id,
+        tc,
+        &out_with_duration,
+        duration_ms,
+        false,
+    );
+
+    out_with_duration
+}
+
+fn emit_tool_result_event(
+    bus: &Arc<dyn EventSink>,
+    run_id: RunId,
+    session_id: SessionId,
+    tc: &ToolCall,
+    out: &ToolOutput,
+    duration_ms: u64,
+    is_denied: bool,
+) {
+    bus.emit(
+        "chat.tool_result.v1",
+        json!({
+            "runId": run_id.to_string(),
+            "sessionId": session_id.to_string(),
+            "toolCallId": tc.id,
+            "name": tc.name,
+            "output": out.content,
+            "outputSummary": out.summary,
+            "isError": out.is_error || is_denied,
+            "durationMs": duration_ms,
+        }),
+    );
+}
+
+fn decision_reason(d: &Decision) -> Option<String> {
+    match d {
+        Decision::Allow { .. } => None,
+        Decision::Ask { reason } => Some(reason.clone()),
+        Decision::Deny { reason } => Some(reason.clone()),
+    }
+}
+
+/// Wait for the abort flag to flip. Returns immediately if it's
+/// already set.
+async fn wait_for_abort(flag: &AtomicBool) {
+    if flag.load(Ordering::SeqCst) {
+        return;
+    }
+    // Simple polling loop with a small backoff. A more
+    // efficient approach would use `tokio::sync::Notify`, but
+    // `AtomicBool` is what `RunHandle` exposes.
+    loop {
+        if flag.load(Ordering::SeqCst) {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+}
+
 /// Truncate a string for logging / journal summaries.
 fn summarize(s: &str, max_chars: usize) -> String {
     let normalized: String = s.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -828,6 +1247,14 @@ fn summarize(s: &str, max_chars: usize) -> String {
         out.push('…');
         out
     }
+}
+
+/// Public re-export of [`summarize`] for sibling modules (tools,
+/// permissions) that want the same normalization without
+/// duplicating it.
+#[must_use]
+pub fn summarize_pub(s: &str, max_chars: usize) -> String {
+    summarize(s, max_chars)
 }
 
 /// Registry of active runs. Used by `app_state` to look up a
@@ -993,6 +1420,11 @@ mod tests {
 
         let agents = AgentRegistry::load_builtins();
         let (bus, _events) = RecordingSink::new();
+        // Empty workspace service (no registered workspace).
+        // Tests that need a workspace should call `workspaces.open()`.
+        let workspaces = crate::workspace::WorkspaceService::new(dir.path()).unwrap();
+
+        let tool_registry = Arc::new(crate::tools::built_in_registry());
         let deps = AgentLoopDeps {
             agents,
             config,
@@ -1000,6 +1432,10 @@ mod tests {
             session,
             journal,
             bus,
+            workspaces,
+            tool_registry,
+            permission_gate: crate::permissions::PermissionGate::new(),
+            permission_registry: crate::permissions::PermissionRegistry::new(),
         };
         (dir, deps)
     }

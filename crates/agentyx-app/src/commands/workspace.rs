@@ -539,6 +539,13 @@ mod tests {
             runs,
             event_bus: Arc::new(EventBus::new()),
             workspace_runtimes: std::sync::Mutex::new(std::collections::HashMap::new()),
+            tool_registry: Arc::new(
+                agentyx_core::tools::built_in_registry()
+                    .into_iter()
+                    .collect(),
+            ),
+            permission_gate: agentyx_core::permissions::PermissionGate::new(),
+            permission_registry: agentyx_core::permissions::PermissionRegistry::new(),
         });
         (home, state)
     }

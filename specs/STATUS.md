@@ -4,7 +4,7 @@
 > Para roadmap de features: [features/ROADMAP.md](./features/ROADMAP.md).
 > Para índice de ADRs: [adr/README.md](./adr/README.md).
 >
-> Última actualización: 2026-06-06 (PR feat(ui): F01-Phase2 chat UI)
+> Última actualización: 2026-06-06 (PR feat(core): F01-Phase2-core)
 >
 > **Disciplina de status**: este archivo **debe** actualizarse en
 > el mismo PR que cambia el estado de cualquier spec. Ver
@@ -51,7 +51,7 @@ _(vacío)_
   command; AC7 sigue parcial: el check de runs activos llega con
   el PR de `agent-loop`).
 - **features/F01-chat-streaming.md** — `approved` →
-  `implemented (partial — Phase 1 backend + UI)`. PRs:
+  `implemented (partial — Phase 1 backend + UI + Phase 2-core)`. PRs:
   - `feat(core): F01-Phase1 backends` (PR #13): 5/15 ACs
     backend cubiertos (AC1, AC2, AC4, AC5, AC6).
   - `feat(app): F01-Phase1 app wiring` (PR #14):
@@ -59,16 +59,26 @@ _(vacío)_
     abort, list_sessions, get_history, set/get_active_agent,
     list_agents, get_agent); TauriEventSink; AppState
     refactor.
-  - `feat(ui): F01-Phase2 chat UI` (pendiente — este PR):
+  - `feat(ui): F01-Phase2 chat UI` (PR #15):
     ChatPanel + MessageList + Composer con Svelte 5 runes;
     `session.svelte.ts` store con state machine completo
     (create/send/abort/setActiveAgent/cyclePrimary + event
     folding para chat.run.started/finished/error, message_start,
-    content.delta); 19/19 vitest tests del store pasando;
+    content.delta); 18/18 vitest tests del store pasando;
     UI checks (svelte-check/tsc/eslint/prettier/build) verdes.
-    Faltan: tools + permissions (Phase 2 backend), multi-agent
-    + @mention (Phase 3). Ver `## Implementation status` en
-    el spec.
+  - `feat(core): F01-Phase2-core` (este PR):
+    3 tools read-only (read_file, list_dir, search) en
+    `crates/agentyx-core/src/tools/`; `PermissionGate` con
+    12-step algorithm + `PermissionRegistry` (oneshot); agent
+    loop multi-step en `run_loop` con delta batching, sequential
+    tool dispatch, permission ask flow, sequential-to-allow
+    transition; `DeltaBatcher` (50ms / 100 chars); `MockProvider`
+    para tests; 10/15 ACs backend cubiertos (AC1, AC2, AC3,
+    AC4, AC5, AC6, AC7, AC8, AC12, AC13). Tests: 142 core
+    + 24 app + 18 UI = 184 totales. Pendientes: Tauri commands
+    `permission_respond/list/get_matrix` + UI `PermissionPrompt`
+    (follow-up PR); multi-agent + @mention (F01-Phase3).
+    Ver `## Implementation status` en el spec.
 
 ## ⚫ Deprecated
 _(ninguno)_

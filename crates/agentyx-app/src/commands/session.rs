@@ -169,6 +169,10 @@ pub async fn send(
         session: session_svc,
         journal: journal_svc,
         bus: sink,
+        workspaces: (*state.workspaces).clone(),
+        tool_registry: state.tool_registry.clone(),
+        permission_gate: state.permission_gate.clone(),
+        permission_registry: state.permission_registry.clone(),
     };
 
     let handle: CoreRunHandle = spawn_run(deps, session_id, content, StartOpts::default())?;

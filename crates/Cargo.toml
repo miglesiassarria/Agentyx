@@ -81,6 +81,13 @@ windows = { version = "0.58", features = [
     "Win32_System_Com",
 ] }
 
+# Filesystem walking (list_dir, search)
+walkdir = "2.5"
+# Glob filtering (search tool)
+globset = "0.4"
+# Regex search
+regex = "1.10"
+
 # Tauri
 tauri = { version = "2.0", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2.0"

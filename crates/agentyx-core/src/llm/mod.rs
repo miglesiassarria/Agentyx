@@ -28,13 +28,15 @@
 #![deny(unsafe_code)]
 #![warn(missing_docs)]
 
+mod mock;
 mod ollama;
 mod provider;
 mod types;
 
+pub use mock::{MockProvider, MockSequence};
 pub use ollama::{OllamaProvider, DEFAULT_BASE_URL};
 pub use provider::Provider;
 pub use types::{
     ChatEvent, ChatMessage, ChatRequest, FinishReason, ModelCapabilities, ModelInfo,
-    RequestMetadata, ToolChoice, ToolSchema, Usage,
+    RequestMetadata, ToolCall, ToolChoice, ToolSchema, Usage,
 };
