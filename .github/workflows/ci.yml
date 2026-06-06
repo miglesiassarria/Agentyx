@@ -10,6 +10,13 @@ env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
   RUSTUP_MAX_RETRIES: 3
+  # GitHub is forcing all actions to Node 24 in June 2026. We
+  # opt in early so we silence the deprecation warnings on the
+  # few actions that still ship on Node 20 (actions/cache@v4,
+  # dtolnay/rust-toolchain). The 1.x setup-bun action was the
+  # worst offender; we've moved to oven-sh/setup-bun@v2 which
+  # already runs on Node 24.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   # -------- Rust --------
@@ -18,7 +25,7 @@ jobs:
     name: rustfmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
@@ -30,7 +37,7 @@ jobs:
     name: clippy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -65,7 +72,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache Rust deps
         uses: actions/cache@v4
@@ -96,7 +103,7 @@ jobs:
     name: cargo deny
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache Rust deps
         uses: actions/cache@v4
@@ -116,7 +123,7 @@ jobs:
     name: cargo audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache Rust deps
         uses: actions/cache@v4
@@ -144,8 +151,8 @@ jobs:
     name: UI install (smoke)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v1
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.1.0
       - run: bun install --frozen-lockfile
@@ -155,8 +162,8 @@ jobs:
     needs: ui-install
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v1
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.1.0
       - run: bun install --frozen-lockfile
@@ -168,8 +175,8 @@ jobs:
     needs: ui-install
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v1
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.1.0
       - run: bun install --frozen-lockfile
@@ -181,8 +188,8 @@ jobs:
     needs: ui-install
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v1
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.1.0
       - run: bun install --frozen-lockfile
@@ -194,8 +201,8 @@ jobs:
     needs: ui-install
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v1
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.1.0
       - run: bun install --frozen-lockfile
@@ -207,8 +214,8 @@ jobs:
     needs: ui-install
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v1
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.1.0
       - run: bun install --frozen-lockfile
@@ -221,7 +228,7 @@ jobs:
     name: Specs consistency
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Validate STATUS.md structure
         run: |
           if ! grep -q "## 🟡 Draft" specs/STATUS.md; then
