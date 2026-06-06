@@ -47,6 +47,9 @@ reqwest = { workspace = true }
 # Filesystem locations (HOME, APPDATA, etc.)
 dirs = "5"
 
+# URL parsing for the dev webview URL
+url = { workspace = true }
+
 # Time
 chrono = { workspace = true }
 

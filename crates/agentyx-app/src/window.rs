@@ -10,7 +10,13 @@ use tauri::{App, WebviewUrl, WebviewWindowBuilder};
 pub fn configure_main_window(app: &mut App) -> tauri::Result<()> {
     let url = if cfg!(dev) {
         // Dev: Vite serves at http://localhost:1420 (Tauri convention).
-        WebviewUrl::External("http://localhost:1420".parse().unwrap())
+        // `url::ParseError` is not in `tauri::Error`'s `From` impl
+        // list, so we map it explicitly to `Error::InvalidUrl`.
+        WebviewUrl::External(
+            "http://localhost:1420"
+                .parse()
+                .map_err(tauri::Error::InvalidUrl)?,
+        )
     } else {
         // Prod: load the bundled index.html.
         WebviewUrl::App("index.html".into())

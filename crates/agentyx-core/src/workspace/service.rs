@@ -47,6 +47,21 @@ struct Inner {
     registry: Mutex<WorkspaceRegistry>,
 }
 
+impl Inner {
+    /// Acquire the registry lock, recovering from a poisoned
+    /// mutex. We choose to recover (rather than panic) because
+    /// the registry is rebuilt from disk on the next service
+    /// restart anyway; a poisoned lock is a soft error, not a
+    /// hard one. Callers that need strict poisoning should use
+    /// `lock_strict` instead.
+    fn lock_registry(&self) -> std::sync::MutexGuard<'_, WorkspaceRegistry> {
+        match self.registry.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+}
+
 impl WorkspaceService {
     /// Open or re-attach a workspace. The service must have been
     /// initialized with a path to `~/.agentyx/` via
@@ -76,24 +91,14 @@ impl WorkspaceService {
     /// Snapshot the current registry (read-only).
     #[must_use]
     pub fn registry(&self) -> WorkspaceRegistry {
-        self.inner
-            .registry
-            .lock()
-            .expect("registry poisoned")
-            .clone()
+        self.inner.lock_registry().clone()
     }
 
     /// List all workspaces, ordered by `last_opened_at DESC`
     /// (most recent first).
     #[must_use]
     pub fn list(&self) -> Vec<Workspace> {
-        let mut workspaces = self
-            .inner
-            .registry
-            .lock()
-            .expect("registry poisoned")
-            .workspaces
-            .clone();
+        let mut workspaces = self.inner.lock_registry().workspaces.clone();
         workspaces.sort_by_key(|w| std::cmp::Reverse(w.last_opened_at));
         workspaces
     }
@@ -101,12 +106,7 @@ impl WorkspaceService {
     /// Look up a workspace by id.
     #[must_use]
     pub fn get(&self, id: WorkspaceId) -> Option<Workspace> {
-        self.inner
-            .registry
-            .lock()
-            .expect("registry poisoned")
-            .get(&id)
-            .cloned()
+        self.inner.lock_registry().get(&id).cloned()
     }
 
     /// Open (or re-open) a workspace at `root_path`.
@@ -151,7 +151,7 @@ impl WorkspaceService {
         // (4) Idempotent re-open (must come before the nested check,
         // because `is_nested_workspace` returns true when the candidate
         // equals an existing root — see AC14 / AC15).
-        let mut registry = self.inner.registry.lock().expect("registry poisoned");
+        let mut registry = self.inner.lock_registry();
         if let Some(existing) = registry.find_by_root(&canonical).cloned() {
             return Ok(existing);
         }
@@ -238,7 +238,7 @@ impl WorkspaceService {
     /// `~/.agentyx/workspaces/<id>/`. It does NOT touch
     /// `~/.agentyx/cache/<workspace-hash>/` (no cache yet).
     pub fn delete(&self, id: WorkspaceId, _force: bool) -> AppResult<()> {
-        let mut registry = self.inner.registry.lock().expect("registry poisoned");
+        let mut registry = self.inner.lock_registry();
 
         if registry.get(&id).is_none() {
             return Err(AppError::NotFound {
@@ -297,7 +297,7 @@ impl WorkspaceService {
             });
         }
 
-        let mut registry = self.inner.registry.lock().expect("registry poisoned");
+        let mut registry = self.inner.lock_registry();
         let now = Utc::now().timestamp_millis();
         let extra = ExtraPath {
             path: canonical.clone(),
@@ -358,7 +358,7 @@ impl WorkspaceService {
     pub fn remove_extra_path(&self, id: WorkspaceId, path: &Path) -> AppResult<()> {
         let canonical = canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
 
-        let mut registry = self.inner.registry.lock().expect("registry poisoned");
+        let mut registry = self.inner.lock_registry();
         let created_at = {
             let ws = registry.get_mut(&id).ok_or_else(|| AppError::NotFound {
                 kind: "workspace".into(),

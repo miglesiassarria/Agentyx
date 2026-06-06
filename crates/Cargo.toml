@@ -127,14 +127,15 @@ dbg_macro = "warn"
 print_stdout = "warn"
 print_stderr = "warn"
 todo = "warn"
-# Note: `unwrap_used`, `expect_used`, `unwrap_in_result` are `allow`
-# (not `deny`) for v0.1 scaffold. The placeholder code uses
-# `.expect("poisoned")` on `Mutex::lock()` and similar patterns that
-# are idiomatic in Rust. Tighten back to `deny` in the next milestone
-# per AGENTS.md §4.1 (Fase D — implementation). Test code already
-# carries explicit `#[allow(...)]` annotations as documentation.
-unwrap_used = "allow"
-expect_used = "allow"
-unwrap_in_result = "allow"
+# AGENTS.md §4.1: no `unwrap()`/`expect()` in production code.
+# Test code opts in locally with
+# `#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]`.
+# Production code uses `?` + `anyhow::Context` or `thiserror` for
+# error propagation. The only idiomatic exception is
+# `Mutex::lock()` poison recovery, handled in `service.rs` via
+# `Inner::lock_registry` (recover via `PoisonError::into_inner`).
+unwrap_used = "deny"
+expect_used = "deny"
+unwrap_in_result = "deny"
 panic = "deny"
 panic_in_result_fn = "deny"

@@ -173,10 +173,8 @@ impl WorkspaceRegistry {
             }
             None => {
                 self.workspaces.push(workspace);
-                // SAFETY: we just pushed, so `last_mut` is guaranteed `Some`.
-                self.workspaces
-                    .last_mut()
-                    .expect("invariant: just pushed a workspace")
+                let last = self.workspaces.len() - 1;
+                &mut self.workspaces[last]
             }
         }
     }
