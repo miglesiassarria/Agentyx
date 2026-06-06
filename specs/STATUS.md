@@ -4,7 +4,7 @@
 > Para roadmap de features: [features/ROADMAP.md](./features/ROADMAP.md).
 > Para índice de ADRs: [adr/README.md](./adr/README.md).
 >
-> Última actualización: 2026-06-06 (Pitch-Driven SDD Lite habilitado)
+> Última actualización: 2026-06-06 (Agent context compactado en specs MVP)
 >
 > **Disciplina de status**: este archivo se actualiza en el mismo PR
 > que cambia el estado real de cualquier pitch/spec o deja el board
@@ -92,6 +92,11 @@ _(vacío)_
 _(ninguno)_
 
 ## Próximas specs a escribir
+
+> Nota de contexto: las specs MVP activas (`F01`, `F02`, `F04`, `F05`,
+> `F-agents-ui`, `agents.md`, `domains/config.md`,
+> `domains/journal.md`) ya tienen `## Agent context` para lectura
+> rápida. Los estados no cambian por esta compactación.
 
 ### Para el MVP (v0.1)
 

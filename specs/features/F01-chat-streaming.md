@@ -11,6 +11,25 @@
 [`F05`](./F05-settings.md) (provider y modelo configurados),
 [`config`](../domains/config.md), [`journal`](../domains/journal.md).
 
+## Agent context
+
+- Esta spec es larga; para cambios normales leer este bloque, `Affected
+  Tauri commands / endpoints / events`, `Acceptance criteria` y
+  `Implementation status` antes de profundizar en UX.
+- Estado real: F01 está parcialmente implementada. Cubiertos:
+  AC1-AC8, AC12, AC13 y AC15. Pendientes principales: active agent UI
+  / Tab (AC9), `@mention` expansion (AC10), 429 handling (AC11) y
+  cambio de `approval_mode` mid-run (AC14).
+- Contratos clave: comandos `session_create`, `session_send`,
+  `session_abort`, `session_list`, `session_get_history`,
+  `session_set_active_agent`, `agents_list`, `agents_get`; eventos
+  `chat.run.*.v1`, `chat.message.*.v1`, `chat.content.delta.v1`,
+  `chat.tool_*.v1`, `agent.changed.v1`, `permission.requested.v1`.
+- Dependencias mínimas: `F02` para workspace activo, `F05`/`config`
+  para provider/model, `journal` para persistencia, `agents` para
+  active agent y subagents.
+- No cargar toda la sección UX salvo que se toquen componentes de chat.
+
 ## User story
 
 Como **usuario**, quiero **enviar un mensaje al agente, ver su

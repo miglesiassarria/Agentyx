@@ -6,6 +6,23 @@
 **Affects**: [`workspace.md`](../domains/workspace.md), [`tools.md`](../domains/tools.md), [`session.md`](../domains/session.md), [`storage.md`](../domains/storage.md), [`permissions.md`](../domains/permissions.md)
 **Depends on**: — (es la feature piloto; valida la cadena Rust → IPC → UI end-to-end)
 
+## Agent context
+
+- Estado real: F02 está implementada salvo AC7 parcial. Backend y UI
+  cubren workspace open/list/delete, file tree lazy, venv pasivo y
+  extra paths; AC7 requiere que delete rechace workspaces con sesiones
+  activas cuando `agent-loop`/runs estén cableados.
+- Contratos clave: `workspace_list`, `workspace_open`,
+  `workspace_delete`, `workspace_get`, `workspace_read_dir`,
+  `workspace_detect_venv`, `workspace_list_extra_paths`,
+  `workspace_add_extra_path`, `workspace_remove_extra_path`;
+  `workspace.updated.v1`.
+- Reglas no negociables: workspace efectivo = `root_path ∪ extra_paths`
+  (ADR-0007); path traversal se bloquea por canonicalización; `.venv`
+  es pasivo en v0.1 y crear venv pertenece a F03.
+- Para cambios normales leer este bloque, `Affected Tauri commands /
+  endpoints / events`, `Acceptance criteria` e `Implementation status`.
+
 > Primera feature vertical de Agentyx. Permite al usuario **abrir
 > una carpeta como workspace**, verla en una sidebar persistente,
 > navegar su árbol de archivos, **añadir 0..N directorios extra**

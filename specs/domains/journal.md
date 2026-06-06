@@ -2,7 +2,7 @@
 
 **Status**: draft
 **Owner**: @miglesias
-**Last update**: 2026-06-05
+**Last update**: 2026-06-06
 **Affects**: `agent-loop`, `tools`, `permissions`, `agents`, `storage`,
 [`F01`](./features/F01-chat-streaming.md), [`F04`](./features/F04-file-diffs.md).
 **Required by**: `agent-loop` (escribe cada acción del loop), `tools`
@@ -10,6 +10,23 @@
 `permission_decision`), `agents` (registra `subagent_lifecycle`), F01
 (muestra journal en UI y persiste `user_message` / `assistant_message`),
 F04 (referencia para diff proposals aplicadas/rechazadas).
+
+## Agent context
+
+- Leer primero este bloque, `Schema`, `Operations`, `Streaming vs
+  journal` y `Acceptance criteria`; el resto es contexto histórico.
+- Dominio bloqueante para F01/F04: journal append-only en SQLite dentro
+  de `state.db`; no hay `journal.jsonl` paralelo.
+- Contratos centrales: `JournalEntry`, `NewJournalEntry`,
+  `JournalKind`, `JournalRepo::append`, `query_by_session`,
+  `query_by_run`, `replay_run`, `archive_older_than` y helpers
+  `log_tool_call`, `log_tool_result`, `log_permission_decision`,
+  `log_subagent_lifecycle`.
+- Reglas no negociables: no update/delete API; payloads grandes se
+  truncan con hash; binarios no se persisten como blobs; escribir
+  journal no debe bloquear el streaming vivo de F01.
+- F04 usa kinds `DiffProposal`, `DiffApplied`, `DiffRejected`; F01 usa
+  el journal para cold start/history, no para render live.
 
 > Log **append-only** en **SQLite puro** (tabla `journal` dentro de
 > `state.db` del workspace). Decisión de stack fijada en sesión de

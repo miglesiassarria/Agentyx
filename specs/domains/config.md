@@ -2,10 +2,28 @@
 
 **Status**: draft
 **Owner**: @miglesias
-**Last update**: 2026-06-05
+**Last update**: 2026-06-06
 **Affects**: `providers`, `permissions`, `workspace`, F05
 (Settings), F01 (carga provider/model por defecto), todos los
 features que necesiten credenciales.
+
+## Agent context
+
+- Leer primero este bloque, `Operations`, `Validation rules`, `Edge
+  cases` y `Acceptance criteria`; el TOML completo solo hace falta si
+  cambian campos.
+- Dominio bloqueante para F05 y F01: carga config global
+  `~/.agentyx/config.toml`, config por workspace y produce
+  `ResolvedConfig` en memoria.
+- Contratos centrales: `GlobalConfig`, `WorkspaceConfig`,
+  `ProviderConfig`, `SecretRef`, `ResolvedConfig`,
+  `Config::load_global`, `load_workspace`, `resolve_secrets`,
+  `update_global`, `update_workspace`.
+- Reglas no negociables: ningún secreto literal en TOML; API keys via
+  `env:VAR` o keychain; validar fail-fast; no loguear secretos;
+  `telemetry_enabled = false` por defecto.
+- F05 escribe config/secrets; F01 solo consume provider/model y
+  approval mode resueltos.
 
 > Modelo de configuración de Agentyx: dos niveles (global en
 > `~/.agentyx/config.toml` y por workspace en

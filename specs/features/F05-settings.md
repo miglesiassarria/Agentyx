@@ -2,13 +2,32 @@
 
 **Status**: draft
 **Owner**: @miglesias
-**Last update**: 2026-06-05
+**Last update**: 2026-06-06
 **Affects**: [`providers`](../domains/providers.md), [`permissions`](../domains/permissions.md),
 [`config`](../domains/config.md), [`workspace`](../domains/workspace.md).
 **Depends on**: [`F02`](./F02-multi-workspace.md) (workspaces existen
 y se listan), [`config`](../domains/config.md) (carga/valida TOML),
 [`providers`](../domains/providers.md) (cliente HTTP para test
 connection).
+
+## Agent context
+
+- Leer primero este bloque, `Affected Tauri commands / endpoints /
+  events` y `Acceptance criteria`; la sección UX solo es necesaria si
+  se cambian componentes de Settings.
+- Objetivo MVP: pantalla `/settings` con tabs Providers, Models,
+  Approval y Workspace para editar config global/workspace sin exponer
+  secretos.
+- Contratos clave: `config_get`, `config_update_global`,
+  `config_update_workspace`, `secrets_set`, `secrets_delete`,
+  `providers_test_connection`, `providers_list_models`,
+  `permissions_get_matrix`, `permissions_update_matrix`; evento
+  `config.changed.v1`.
+- Reglas no negociables: API keys solo via `SecretRef`/keychain/env;
+  nunca persistir ni renderizar el valor real; F05 delega
+  `extra_paths` en F02 y consume `approval_mode` de `permissions`.
+- Dependencias mínimas: `domains/config.md`, `domains/providers.md`,
+  `domains/permissions.md`, `F02`.
 
 ## User story
 

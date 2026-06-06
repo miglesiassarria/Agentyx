@@ -2,11 +2,21 @@
 
 > Vista por features. Para vista global: [specs/README.md](../README.md).
 > Para índice de ADRs: [specs/adr/README.md](../adr/README.md).
-> Última actualización: 2026-06-04
+> Última actualización: 2026-06-06
+
+## Agent context
+
+- Para trabajo MVP, leer primero esta tabla y luego el bloque
+  `## Agent context` de la feature/dominio afectado.
+- Specs compactadas con contexto rápido: F01, F02, F04, F05,
+  F-agents-ui, `agents.md`, `domains/config.md`, `domains/journal.md`.
+- No usar este roadmap como contrato de IPC o ACs; ir al pitch/spec
+  concreto para contratos y tests.
 
 ## Leyenda
 
-- **Status**: `draft` (spec en redacción) | `approved` (lista para implementar) | `in-progress` (código en marcha) | `shipped` (en release).
+- **Status**: preferido `proposed` | `ready` | `shipped`; histórico
+  `draft` | `approved` | `in-progress` | `implemented`.
 - **Phase**: orden aproximado de implementación dentro de la versión (no estricto; depende de la spec).
 - **Depends on**: features cuyo spec debe estar al menos `approved` antes de empezar esta.
 - **Affects**: specs de [dominio](../domains/) que la feature consume.

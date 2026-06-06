@@ -2,7 +2,7 @@
 
 **Status**: draft
 **Owner**: @miglesias
-**Last update**: 2026-06-05
+**Last update**: 2026-06-06
 **Affects**: [`tools`](../domains/tools.md) (`edit_file`, `apply_patch`,
 `write_file`), [`F01`](./F01-chat-streaming.md) (consume los tool
 calls que producen cambios), [`journal`](../domains/journal.md)
@@ -11,6 +11,22 @@ calls que producen cambios), [`journal`](../domains/journal.md)
 tool calls), [`F02`](./F02-multi-workspace.md) (workspaces tienen
 archivos), [`tools.md`](../domains/tools.md) (la forma de los args
 de `edit_file` / `apply_patch` / `write_file`).
+
+## Agent context
+
+- Leer primero este bloque, `Affected Tauri commands / endpoints /
+  events` y `Acceptance criteria`; la UX detallada solo aplica si se
+  tocan `DiffView` o `DiffsSidePanel`.
+- Objetivo MVP: mostrar diffs visuales post-mortem en chat tras
+  `edit_file`, `apply_patch` o `write_file`. En v0.1 son read-only:
+  no approve/reject ni edición inline.
+- Contrato clave: F01 debe enriquecer `chat.tool_call.v1` para tools
+  diffables con `DiffPayload`/metadata suficiente (path, before/after o
+  resumen, line counts, truncation, binary/image markers).
+- Riesgos principales: payloads grandes, archivos binarios, imágenes,
+  persistencia del estado colapsado y sesiones con muchos diffs.
+- Dependencias mínimas: `F01`, `F02`, `domains/tools.md`,
+  `domains/journal.md`, CodeMirror 6 merge.
 
 ## User story
 

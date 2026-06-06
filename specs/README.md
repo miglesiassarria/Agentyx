@@ -16,7 +16,7 @@
 | [glossary.md](./glossary.md) | global | approved | @miglesias | 2026-06-05 |
 | [architecture.md](./architecture.md) | global | approved | @miglesias | 2026-06-05 |
 | [ipc.md](./ipc.md) | global | approved | @miglesias | 2026-06-05 |
-| [agents.md](./agents.md) | domain | **draft** | @miglesias | 2026-06-05 |
+| [agents.md](./agents.md) | domain | **draft** | @miglesias | 2026-06-06 |
 | [domains/](./domains/) | domain | ver STATUS | — | — |
 | [features/](./features/) | feature | ver STATUS | — | — |
 | [adr/](./adr/) | adr | ver [adr/README.md](./adr/README.md) | — | 2026-06-05 |
@@ -26,6 +26,10 @@
 > - [specs/STATUS.md](./STATUS.md) — board kanban por estado
 > - [specs/features/ROADMAP.md](./features/ROADMAP.md) — vista por features con dependencias y fases
 > - [specs/adr/README.md](./adr/README.md) — índice de ADRs
+
+> **Contexto rápido**: las specs MVP activas tienen un bloque
+> `## Agent context`. Léelo antes de cargar secciones largas de UX,
+> flow o edge cases.
 
 ## Cómo navegar
 
