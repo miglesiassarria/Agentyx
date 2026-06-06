@@ -4,7 +4,11 @@
 > Para roadmap de features: [features/ROADMAP.md](./features/ROADMAP.md).
 > Para índice de ADRs: [adr/README.md](./adr/README.md).
 >
-> Última actualización: 2026-06-05
+> Última actualización: 2026-06-06
+>
+> **Disciplina de status**: este archivo **debe** actualizarse en
+> el mismo PR que cambia el estado de cualquier spec. Ver
+> `AGENTS.md` §17 Spec-Driven Development (regla §17.5).
 
 ## 🟡 Draft (en construcción)
 _(vacío)_
@@ -29,7 +33,7 @@ _(vacío)_
 - domains/storage.md
 - domains/pty.md
 - features/ROADMAP.md (revisado en PR 5: v0.1 sin F03; F-agents-ui nuevo; F-extra-paths-* en v0.1.x)
-- features/F02-multi-workspace.md (revisado en PR de F02 — sin venv obligatorio, UI de extra paths)
+- features/F02-multi-workspace.md *(backend 8/18 ACs implementado en PRs #5 y #6; UI 0/18 ACs pendiente — ver § Implementation status en el spec)*
 - features/F05-settings.md (revisado en este PR — Providers/Models/Approval/Workspace tabs)
 - features/F01-chat-streaming.md (revisado en este PR — chat streaming LLM + multi-agent)
 - features/F04-file-diffs.md (revisado en este PR — CodeMirror merge read-only v0.1)
@@ -42,7 +46,8 @@ _(vacío)_
 - **ADR-0008** (nuevo, PR 3): scope de providers v1 (Ollama / Groq / Minimax).
 
 ## ✅ Implemented (código en main, AC cumplidos, tests pasando)
-_(ninguno todavía — Bloque 3 pendiente)_
+_(ninguno todavía — Bloque 3 pendiente. F02 está en `Approved` con
+nota de backend parcial; cuando la UI aterrice se mueve aquí.)_
 
 ## ⚫ Deprecated
 _(ninguno)_
