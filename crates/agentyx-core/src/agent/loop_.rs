@@ -846,6 +846,26 @@ async fn run_loop(ctx: RunContext) {
         }),
     );
 
+    // If the run was aborted, also emit `chat.run.aborted.v1` so
+    // the UI can surface a specific "Stopped" toast (per
+    // `F01.AC4` and the event schema in F01 §Eventos). The
+    // payload is a subset of `chat.run.finished.v1` for symmetry.
+    if matches!(final_status, RunStatus::Aborted) {
+        let reason = match final_fr {
+            FinishReason::Aborted => "user",
+            FinishReason::Length => "max_steps",
+            _ => "aborted",
+        };
+        deps.bus.emit(
+            "chat.run.aborted.v1",
+            json!({
+                "runId": run_id.to_string(),
+                "sessionId": session_id.to_string(),
+                "reason": reason,
+            }),
+        );
+    }
+
     info!(
         run_id = %run_id,
         duration_ms = started.elapsed().as_millis() as u64,

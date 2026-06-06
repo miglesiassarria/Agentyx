@@ -87,6 +87,55 @@ pub struct AppState {
 }
 
 impl AppState {
+    /// Recover from an unclean shutdown. For every workspace,
+    /// find sessions that were `Running` (i.e. had an active run
+    /// when the app died) and mark them `Aborted` with
+    /// `last_run_finish_reason = "app_closed"`. The user sees a
+    /// truncated history next time they open the session.
+    ///
+    /// Called once at startup from [`AppState::initialize`].
+    /// Idempotent.
+    pub fn recover_orphan_runs(&self) -> AppResult<usize> {
+        let mut total = 0usize;
+        for workspace in self.workspaces.list() {
+            let db_path = self
+                .agentyx_home
+                .join("workspaces")
+                .join(workspace.id.to_string())
+                .join("state.db");
+            // Open the DB directly (no `workspace_runtime` cache
+            // involvement — we don't want to keep orphan sessions
+            // in the runtime cache after this).
+            let db = agentyx_core::storage::Db::open(&db_path)?;
+            let session = agentyx_core::session::SessionService::with_db(db, workspace.id);
+            let orphans = session.list(agentyx_core::session::ListOpts {
+                limit: None,
+                status: Some(agentyx_core::session::SessionStatus::Running),
+            })?;
+            for s in orphans {
+                tracing::warn!(
+                    workspace_id = %workspace.id,
+                    session_id = %s.id,
+                    "recovering orphan run: app closed while running"
+                );
+                if let Err(e) = session.finish_run(
+                    s.id,
+                    agentyx_core::session::SessionStatus::Aborted,
+                    "app_closed",
+                ) {
+                    tracing::warn!(
+                        session_id = %s.id,
+                        error = %e,
+                        "failed to mark orphan session as aborted"
+                    );
+                } else {
+                    total += 1;
+                }
+            }
+        }
+        Ok(total)
+    }
+
     /// Build the initial `AppState` at app startup. Creates
     /// `~/.agentyx/` if it doesn't exist; loads the workspace
     /// registry, global config, and built-in agents; wires the

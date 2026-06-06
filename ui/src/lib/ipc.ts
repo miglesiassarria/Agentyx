@@ -24,6 +24,7 @@ import type {
   AtMention,
   ChatContentDeltaPayload,
   ChatMessageStartPayload,
+  ChatRunAbortedPayload,
   ChatRunErrorPayload,
   ChatRunFinishedPayload,
   ChatRunStartedPayload,
@@ -32,6 +33,8 @@ import type {
   FileEntryDto,
   MessageDto,
   PermissionMatrixDto,
+  PermissionRequestDto,
+  PermissionRequestedPayload,
   RunHandleDto,
   RunId,
   SessionId,
@@ -190,9 +193,14 @@ export const permissions = {
     call('get_matrix', { workspace_id: workspaceId }),
   setDefault: (tool: string, decision: 'allow' | 'ask' | 'deny'): Promise<void> =>
     call('set_default', { tool, decision }),
+  list: (): Promise<PermissionRequestDto[]> => call('list'),
   respond: (
     requestId: string,
-    response: { kind: 'allowOnce' | 'allowSession' | 'allowAlways' | 'deny' },
+    response:
+      | { kind: 'allowOnce' }
+      | { kind: 'allowSession' }
+      | { kind: 'allowAlways'; tool: string }
+      | { kind: 'deny' },
   ): Promise<void> => call('respond', { request_id: requestId, response }),
 };
 
@@ -225,6 +233,9 @@ export const events = {
     listen('chat.content.delta.v1', cb),
   chatRunFinished: (cb: (p: ChatRunFinishedPayload) => void) => listen('chat.run.finished.v1', cb),
   chatRunError: (cb: (p: ChatRunErrorPayload) => void) => listen('chat.run.error.v1', cb),
+  chatRunAborted: (cb: (p: ChatRunAbortedPayload) => void) => listen('chat.run.aborted.v1', cb),
+  permissionRequested: (cb: (p: PermissionRequestedPayload) => void) =>
+    listen('permission.requested.v1', cb),
 
   /**
    * Subscribe to all chat events for a specific run. Returns an
@@ -240,6 +251,7 @@ export const events = {
       onContentDelta?: (p: ChatContentDeltaPayload) => void;
       onFinished?: (p: ChatRunFinishedPayload) => void;
       onError?: (p: ChatRunErrorPayload) => void;
+      onAborted?: (p: ChatRunAbortedPayload) => void;
     },
   ): Promise<() => void> {
     const unlistens: UnlistenFn[] = await Promise.all([
@@ -257,6 +269,9 @@ export const events = {
         : Promise.resolve<UnlistenFn>(() => undefined),
       handlers.onError
         ? events.chatRunError(forRun(handlers.onError, runId))
+        : Promise.resolve<UnlistenFn>(() => undefined),
+      handlers.onAborted
+        ? events.chatRunAborted(forRun(handlers.onAborted, runId))
         : Promise.resolve<UnlistenFn>(() => undefined),
     ]);
     return () => unlistens.forEach((u) => u());
