@@ -32,7 +32,7 @@ mod ollama;
 mod provider;
 mod types;
 
-pub use ollama::OllamaProvider;
+pub use ollama::{OllamaProvider, DEFAULT_BASE_URL};
 pub use provider::Provider;
 pub use types::{
     ChatEvent, ChatMessage, ChatRequest, FinishReason, ModelCapabilities, ModelInfo,

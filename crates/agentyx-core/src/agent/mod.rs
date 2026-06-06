@@ -39,6 +39,6 @@
 mod loop_;
 
 pub use loop_::{
-    spawn_run, AgentLoopDeps, EventSink, RunHandle, RunState, RunStatus, StartOpts,
+    spawn_run, AgentLoopDeps, EventSink, RunHandle, RunRegistry, RunState, RunStatus, StartOpts,
     MAX_USER_MSG_BYTES,
 };
