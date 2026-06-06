@@ -50,6 +50,14 @@ _(vacío)_
   (PR de UI: 9 ACs UI + AC3, AC9 backend cubiertos con `list_dir`
   command; AC7 sigue parcial: el check de runs activos llega con
   el PR de `agent-loop`).
+- **features/F01-chat-streaming.md** — `approved` →
+  `implemented (partial — Phase 1 backend)`. PR
+  `feat(core): F01-Phase1 backends` (este PR): 5/15 ACs
+  backend cubiertos (AC1, AC2, AC4, AC5, AC6) — agente puede
+  correr end-to-end con Ollama, 1 primary agent, sin tools /
+  permisos / multi-agent. Faltan: 7 Tauri commands (stubs),
+  UI (Phase 2), tools + permissions (Phase 2), multi-agent +
+  @mention (Phase 3). Ver `## Implementation status` en el spec.
 
 ## ⚫ Deprecated
 _(ninguno)_
