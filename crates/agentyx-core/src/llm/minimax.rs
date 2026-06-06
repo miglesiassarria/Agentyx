@@ -246,10 +246,7 @@ impl Provider for MinimaxProvider {
 fn build_request_body(req: &ChatRequest) -> Value {
     let (system, msgs) = split_system_message(&req.messages);
     let supports_tools = !req.tools.is_empty();
-    let messages: Vec<Value> = msgs
-        .into_iter()
-        .map(anthropic_message)
-        .collect();
+    let messages: Vec<Value> = msgs.into_iter().map(anthropic_message).collect();
     let mut body = json!({
         "model": req.model,
         "max_tokens": req.max_output_tokens.unwrap_or(8_192),
@@ -305,7 +302,10 @@ fn anthropic_message(msg: &ChatMessage) -> Value {
         ChatMessage::User { content } => {
             json!({"role": "user", "content": content})
         }
-        ChatMessage::Assistant { content, tool_calls } => {
+        ChatMessage::Assistant {
+            content,
+            tool_calls,
+        } => {
             if tool_calls.is_empty() {
                 json!({"role": "assistant", "content": content})
             } else {
@@ -322,7 +322,11 @@ fn anthropic_message(msg: &ChatMessage) -> Value {
                 json!({"role": "assistant", "content": blocks})
             }
         }
-        ChatMessage::ToolResult { tool_use_id, content, is_error } => json!({
+        ChatMessage::ToolResult {
+            tool_use_id,
+            content,
+            is_error,
+        } => json!({
             "role": "user",
             "content": [{
                 "type": "tool_result",
@@ -410,7 +414,9 @@ fn parse_sse_event(event_str: &str, state: &mut MinimaxParserState) -> Vec<ChatE
             data = Some(d.trim().to_string());
         }
     }
-    let Some(name) = event_name else { return vec![] };
+    let Some(name) = event_name else {
+        return vec![];
+    };
     let Some(data) = data else { return vec![] };
     let payload: Value = match serde_json::from_str(&data) {
         Ok(v) => v,
@@ -444,14 +450,8 @@ fn parse_sse_event(event_str: &str, state: &mut MinimaxParserState) -> Vec<ChatE
         }
         "content_block_start" => {
             let index = payload.get("index").and_then(Value::as_u64).unwrap_or(0) as u32;
-            let block = payload
-                .get("content_block")
-                .cloned()
-                .unwrap_or(Value::Null);
-            let kind = block
-                .get("type")
-                .and_then(Value::as_str)
-                .unwrap_or("text");
+            let block = payload.get("content_block").cloned().unwrap_or(Value::Null);
+            let kind = block.get("type").and_then(Value::as_str).unwrap_or("text");
             let entry = state.blocks.entry(index).or_default();
             if kind == "tool_use" {
                 entry.kind = BlockKind::ToolUse;
@@ -498,8 +498,8 @@ fn parse_sse_event(event_str: &str, state: &mut MinimaxParserState) -> Vec<ChatE
             let index = payload.get("index").and_then(Value::as_u64).unwrap_or(0) as u32;
             if let Some(entry) = state.blocks.remove(&index) {
                 if entry.kind == BlockKind::ToolUse {
-                    let args: Value = serde_json::from_str(&entry.tool_input)
-                        .unwrap_or(Value::Null);
+                    let args: Value =
+                        serde_json::from_str(&entry.tool_input).unwrap_or(Value::Null);
                     return vec![ChatEvent::ToolUse {
                         id: entry.tool_id.unwrap_or_default(),
                         name: entry.tool_name.unwrap_or_default(),
@@ -521,7 +521,10 @@ fn parse_sse_event(event_str: &str, state: &mut MinimaxParserState) -> Vec<ChatE
                 if let Some(cr) = usage.get("cache_read_input_tokens").and_then(Value::as_u64) {
                     state.usage.cache_read_tokens = Some(cr as u32);
                 }
-                if let Some(cw) = usage.get("cache_creation_input_tokens").and_then(Value::as_u64) {
+                if let Some(cw) = usage
+                    .get("cache_creation_input_tokens")
+                    .and_then(Value::as_u64)
+                {
                     state.usage.cache_write_tokens = Some(cw as u32);
                 }
             }
@@ -543,7 +546,10 @@ fn parse_sse_event(event_str: &str, state: &mut MinimaxParserState) -> Vec<ChatE
         "message_stop" => {
             let finish_reason = state.finish_reason.take().unwrap_or(FinishReason::Stop);
             let usage = std::mem::take(&mut state.usage);
-            vec![ChatEvent::MessageEnd { usage, finish_reason }]
+            vec![ChatEvent::MessageEnd {
+                usage,
+                finish_reason,
+            }]
         }
         "error" | "ping" => vec![],
         _ => vec![],
@@ -654,7 +660,9 @@ mod tests {
         let p = MinimaxProvider::with_base_url(server.uri(), "bad-key").unwrap();
         let err = p.health().await.unwrap_err();
         match err {
-            AppError::Provider { message, retryable, .. } => {
+            AppError::Provider {
+                message, retryable, ..
+            } => {
                 assert!(!retryable);
                 assert!(message.contains("401"));
             }
@@ -715,7 +723,10 @@ mod tests {
         let events = parse_sse_event(sse, &mut state);
         assert_eq!(events.len(), 1);
         match &events[0] {
-            ChatEvent::MessageEnd { usage, finish_reason } => {
+            ChatEvent::MessageEnd {
+                usage,
+                finish_reason,
+            } => {
                 assert_eq!(usage.prompt_tokens, 7);
                 assert_eq!(usage.completion_tokens, 4);
                 assert_eq!(*finish_reason, FinishReason::Stop);
@@ -734,7 +745,8 @@ mod tests {
         let delta = "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"path\\\":\\\"x\\\"}\"}}\n\n";
         let _ = parse_sse_event(delta, &mut state);
         // Finally content_block_stop.
-        let stop = "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n";
+        let stop =
+            "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n";
         let events = parse_sse_event(stop, &mut state);
         assert_eq!(events.len(), 1);
         match &events[0] {
@@ -752,8 +764,12 @@ mod tests {
         let req = chat_request(
             "minimax-m2.7",
             vec![
-                ChatMessage::System { content: "be helpful".into() },
-                ChatMessage::User { content: "hi".into() },
+                ChatMessage::System {
+                    content: "be helpful".into(),
+                },
+                ChatMessage::User {
+                    content: "hi".into(),
+                },
             ],
         );
         let body = build_request_body(&req);

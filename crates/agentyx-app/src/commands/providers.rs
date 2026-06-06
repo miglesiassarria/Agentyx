@@ -136,11 +136,21 @@ fn build_ephemeral_provider(
             Ok(Box::new(OllamaProvider::with_base_url(base_url)?))
         }
         "groq" => {
-            let key = resolve_key(&request.provider_id, &request.provider, request.inline_api_key.as_deref(), state)?;
+            let key = resolve_key(
+                &request.provider_id,
+                &request.provider,
+                request.inline_api_key.as_deref(),
+                state,
+            )?;
             Ok(Box::new(GroqProvider::with_base_url(base_url, key)?))
         }
         "minimax" => {
-            let key = resolve_key(&request.provider_id, &request.provider, request.inline_api_key.as_deref(), state)?;
+            let key = resolve_key(
+                &request.provider_id,
+                &request.provider,
+                request.inline_api_key.as_deref(),
+                state,
+            )?;
             Ok(Box::new(MinimaxProvider::with_base_url(base_url, key)?))
         }
         other => Err(agentyx_core::AppError::InvalidInput {
@@ -169,11 +179,11 @@ fn resolve_key(
     }
     if let Some(secret) = &provider.api_key {
         return match secret {
-            SecretRef::Env(var) => std::env::var(var).map_err(|_| {
-                agentyx_core::AppError::InvalidInput {
+            SecretRef::Env(var) => {
+                std::env::var(var).map_err(|_| agentyx_core::AppError::InvalidInput {
                     message: format!("environment variable {var} is not set"),
-                }
-            }),
+                })
+            }
             SecretRef::Keychain { account } => state
                 .config
                 .resolve_secret(&SecretRef::Keychain {
@@ -212,14 +222,12 @@ mod tests {
     async fn fresh_state() -> (tempfile::TempDir, Arc<AppState>) {
         let home = tempfile::tempdir().unwrap();
         let paths = ServiceConfigPaths::from_agentyx_home(home.path());
-        let keychain: Arc<dyn agentyx_core::config::KeychainAccess> =
-            Arc::new(FakeKeychain::new());
+        let keychain: Arc<dyn agentyx_core::config::KeychainAccess> = Arc::new(FakeKeychain::new());
         let config = Arc::new(
             agentyx_core::config::ConfigService::load_with_keychain(&paths, keychain).unwrap(),
         );
-        let workspaces = Arc::new(
-            agentyx_core::workspace::WorkspaceService::new(home.path()).unwrap(),
-        );
+        let workspaces =
+            Arc::new(agentyx_core::workspace::WorkspaceService::new(home.path()).unwrap());
         let agents = Arc::new(AgentRegistry::load_builtins());
         let providers = Arc::new(crate::state::ProviderRegistry::from_config(&config).unwrap());
         let tool_registry: Arc<Vec<Arc<dyn Tool>>> =
@@ -268,7 +276,9 @@ mod tests {
             },
             inline_api_key: Some("gsk_test_key_42".into()),
         };
-        let result = providers_test_connection_inner(&state, request).await.unwrap();
+        let result = providers_test_connection_inner(&state, request)
+            .await
+            .unwrap();
         assert!(result.ok, "expected ok=true, got: {result:?}");
         assert!(result.latency_ms.is_some());
         assert!(result.error.is_none());
@@ -297,7 +307,9 @@ mod tests {
             },
             inline_api_key: Some("gsk_bad_key".into()),
         };
-        let result = providers_test_connection_inner(&state, request).await.unwrap();
+        let result = providers_test_connection_inner(&state, request)
+            .await
+            .unwrap();
         assert!(!result.ok);
         assert_eq!(result.error_code.as_deref(), Some("provider"));
         assert!(result.error.is_some());
@@ -320,7 +332,9 @@ mod tests {
             },
             inline_api_key: None,
         };
-        let result = providers_test_connection_inner(&state, request).await.unwrap();
+        let result = providers_test_connection_inner(&state, request)
+            .await
+            .unwrap();
         assert!(!result.ok);
         assert_eq!(result.error_code.as_deref(), Some("provider"));
     }

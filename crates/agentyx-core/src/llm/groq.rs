@@ -50,7 +50,12 @@ const MODELS: &[(&str, &str, u32, u32)] = &[
         131_072,
         32_768,
     ),
-    ("llama-3.1-8b-instant", "Llama 3.1 8B Instant", 131_072, 8_192),
+    (
+        "llama-3.1-8b-instant",
+        "Llama 3.1 8B Instant",
+        131_072,
+        8_192,
+    ),
     ("mixtral-8x7b-32768", "Mixtral 8x7B 32K", 32_768, 4_096),
 ];
 
@@ -75,7 +80,10 @@ impl GroqProvider {
     }
 
     /// Build a Groq provider with a custom base URL.
-    pub fn with_base_url(base_url: impl Into<String>, api_key: impl Into<String>) -> AppResult<Self> {
+    pub fn with_base_url(
+        base_url: impl Into<String>,
+        api_key: impl Into<String>,
+    ) -> AppResult<Self> {
         let client = Client::builder()
             .timeout(DEFAULT_TIMEOUT)
             .build()
@@ -256,7 +264,10 @@ fn openai_message(msg: &ChatMessage) -> Value {
     match msg {
         ChatMessage::System { content } => json!({"role": "system", "content": content}),
         ChatMessage::User { content } => json!({"role": "user", "content": content}),
-        ChatMessage::Assistant { content, tool_calls } => {
+        ChatMessage::Assistant {
+            content,
+            tool_calls,
+        } => {
             if tool_calls.is_empty() {
                 json!({"role": "assistant", "content": content})
             } else {
@@ -276,7 +287,11 @@ fn openai_message(msg: &ChatMessage) -> Value {
                 json!({"role": "assistant", "content": content, "tool_calls": tcs})
             }
         }
-        ChatMessage::ToolResult { tool_use_id, content, is_error } => json!({
+        ChatMessage::ToolResult {
+            tool_use_id,
+            content,
+            is_error,
+        } => json!({
             "role": "tool",
             "tool_call_id": tool_use_id,
             "content": content,
@@ -427,7 +442,11 @@ fn parse_openai_chunk(payload: &str, model: &str, started: &mut bool) -> Vec<Cha
                 "content_filter" => FinishReason::ContentFilter,
                 _ => FinishReason::Stop,
             };
-            let usage = chunk.usage.take().map(OpenAiUsage::into_usage).unwrap_or_default();
+            let usage = chunk
+                .usage
+                .take()
+                .map(OpenAiUsage::into_usage)
+                .unwrap_or_default();
             out.push(ChatEvent::MessageEnd {
                 usage,
                 finish_reason,
@@ -584,7 +603,9 @@ mod tests {
         let p = GroqProvider::with_base_url(server.uri(), "bad-key").unwrap();
         let err = p.health().await.unwrap_err();
         match err {
-            AppError::Provider { message, retryable, .. } => {
+            AppError::Provider {
+                message, retryable, ..
+            } => {
                 assert!(!retryable);
                 assert!(message.contains("401"));
             }
@@ -612,12 +633,16 @@ mod tests {
         let p = GroqProvider::with_base_url(server.uri(), "fake").unwrap();
         let req = chat_request(
             "llama-3.1-8b-instant",
-            vec![ChatMessage::User { content: "hello".into() }],
+            vec![ChatMessage::User {
+                content: "hello".into(),
+            }],
         );
         let stream = p.chat(req).await.unwrap();
         let events: Vec<ChatEvent> = stream.map(|r| r.unwrap()).collect().await;
 
-        assert!(matches!(&events[0], ChatEvent::MessageStart { message_id, .. } if message_id == "chat-1"));
+        assert!(
+            matches!(&events[0], ChatEvent::MessageStart { message_id, .. } if message_id == "chat-1")
+        );
         assert!(matches!(&events[1], ChatEvent::ContentDelta { text } if text == "Hi"));
         assert!(matches!(&events[2], ChatEvent::ContentDelta { text } if text == " there"));
         assert!(matches!(
@@ -642,7 +667,9 @@ mod tests {
         // Discard the success return type (it returns a stream
         // on Ok) by using `match` on the result.
         match p.chat(req).await {
-            Err(AppError::Provider { message, retryable, .. }) => {
+            Err(AppError::Provider {
+                message, retryable, ..
+            }) => {
                 assert!(!retryable);
                 assert!(message.contains("401"));
             }
@@ -669,7 +696,10 @@ mod tests {
         assert_eq!(events.len(), 2);
         assert!(matches!(&events[0], ChatEvent::MessageStart { .. }));
         match &events[1] {
-            ChatEvent::MessageEnd { usage, finish_reason } => {
+            ChatEvent::MessageEnd {
+                usage,
+                finish_reason,
+            } => {
                 assert_eq!(usage.prompt_tokens, 1);
                 assert_eq!(usage.completion_tokens, 2);
                 assert_eq!(*finish_reason, FinishReason::Stop);
@@ -683,7 +713,9 @@ mod tests {
         let mut started = false;
         let events = parse_openai_chunk("not json", "test", &mut started);
         assert_eq!(events.len(), 1);
-        assert!(matches!(&events[0], ChatEvent::Error { code, .. } if code == "chunk_decode_failed"));
+        assert!(
+            matches!(&events[0], ChatEvent::Error { code, .. } if code == "chunk_decode_failed")
+        );
     }
 
     #[test]
