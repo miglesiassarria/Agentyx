@@ -4,19 +4,8 @@
 /// never calls `window.__TAURI__` directly; if you find yourself
 /// reaching for the global, add a function here instead.
 ///
-/// See `../../../specs/ipc.md` for the full contract (event names,
-/// error shapes, snake_case ↔ camelCase conventions).
-///
-/// **Conventions** (must stay in sync with the Rust side):
-/// - Tauri command **names** are the Rust function names, snake_case
-///   (e.g. `create_session`, `list_sessions`, `add_extra_path`).
-/// - Tauri command **parameter keys** are snake_case (Tauri 2 default;
-///   the Rust commands do not opt into `rename_all = "camelCase"`).
-/// - DTO **field names** (return values) are camelCase — the Rust
-///   DTOs use `#[serde(rename_all = "camelCase")]`.
-
-import { invoke as tauriInvoke } from '@tauri-apps/api/core';
-import { listen as tauriListen, type UnlistenFn } from '@tauri-apps/api/event';
+/// In browser mode (no Tauri), calls are routed to the embedded
+/// HTTP server via fetch + SSE. Detection is automatic.
 
 import type {
   AgentId,
@@ -52,33 +41,231 @@ import type {
   WorkspaceDto,
 } from './ipc-types';
 
-/**
- * Wrap a Tauri command call. Surfaces AppError from Rust as a
- * typed JS Error. Use this everywhere instead of `invoke` directly
- * so error handling is consistent.
- */
-async function call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
-  try {
-    return await tauriInvoke<T>(command, args);
-  } catch (e) {
-    // Tauri serializes our AppError as `{ code, message, context? }`.
-    // Normalize to Error for ergonomic `try/catch` in components.
-    const err = e as { code?: string; message?: string; context?: unknown };
-    const message = err.message ?? String(e);
-    const code = err.code ?? 'unknown';
-    const error = new Error(`${code}: ${message}`);
-    (error as Error & { code: string; context?: unknown }).code = code;
-    (error as Error & { code: string; context?: unknown }).context = err.context;
+type UnlistenFn = () => void;
+
+// ============================================================
+// Environment detection
+// ============================================================
+
+const isBrowser = typeof window !== 'undefined' && !('__TAURI__' in window);
+
+// ============================================================
+// Tauri mode (desktop)
+// ============================================================
+
+let tauriInvoke: ((cmd: string, args?: Record<string, unknown>) => Promise<unknown>) | null = null;
+let tauriListen:
+  | ((event: string, handler: (e: { payload: unknown }) => void) => Promise<() => void>)
+  | null = null;
+
+if (!isBrowser) {
+  const core = await import('@tauri-apps/api/core');
+  const event = await import('@tauri-apps/api/event');
+  tauriInvoke = core.invoke;
+  tauriListen = (ev: string, handler: (e: { payload: unknown }) => void) =>
+    event.listen(ev, handler);
+}
+
+// ============================================================
+// Browser mode (HTTP + SSE)
+// ============================================================
+
+function httpBaseUrl(): string {
+  // In browser mode, the API is served from the same origin.
+  return '';
+}
+
+interface HttpError {
+  code: string;
+  message: string;
+  context?: unknown;
+}
+
+async function httpCall<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const opts: RequestInit = {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+  };
+  if (body !== undefined) {
+    opts.body = JSON.stringify(body);
+  }
+  const res = await fetch(`${httpBaseUrl()}${path}`, opts);
+  if (!res.ok) {
+    const err: HttpError = await res.json().catch(() => ({
+      code: 'http_error',
+      message: `HTTP ${res.status}`,
+    }));
+    const error = new Error(`${err.code}: ${err.message}`);
+    (error as Error & { code: string }).code = err.code;
     throw error;
+  }
+  if (res.status === 204) return undefined as T;
+  return res.json();
+}
+
+// SSE connection singleton for browser mode.
+let sseConnection: EventSource | null = null;
+const sseListeners = new Map<string, Set<(payload: unknown) => void>>();
+
+function ensureSse(): EventSource {
+  if (sseConnection) return sseConnection;
+  sseConnection = new EventSource(`${httpBaseUrl()}/api/v1/events`);
+  sseConnection.onmessage = () => {
+    // Default "message" events are dispatched to all listeners with no event name.
+  };
+  sseConnection.addEventListener('ping', () => {}); // heartbeat, ignore
+  // Dynamic events are registered via addEventListener below.
+  return sseConnection;
+}
+
+function listenSse<T>(eventName: string, handler: (payload: T) => void): () => void {
+  const sse = ensureSse();
+  let handlers = sseListeners.get(eventName);
+  if (!handlers) {
+    handlers = new Set();
+    sseListeners.set(eventName, handlers);
+    sse.addEventListener(eventName, ((e: MessageEvent) => {
+      const payload = JSON.parse(e.data) as unknown;
+      for (const h of sseListeners.get(eventName) ?? []) {
+        h(payload);
+      }
+    }) as EventListener);
+  }
+  handlers.add(handler as (payload: unknown) => void);
+  return () => {
+    handlers!.delete(handler as (payload: unknown) => void);
+    if (handlers!.size === 0) {
+      sseListeners.delete(eventName);
+    }
+  };
+}
+
+// ============================================================
+// Unified call() and listen()
+// ============================================================
+
+async function call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  if (!isBrowser && tauriInvoke) {
+    try {
+      return (await tauriInvoke(command, args)) as T;
+    } catch (e) {
+      const err = e as { code?: string; message?: string; context?: unknown };
+      const message = err.message ?? String(e);
+      const code = err.code ?? 'unknown';
+      const error = new Error(`${code}: ${message}`);
+      (error as Error & { code: string; context?: unknown }).code = code;
+      (error as Error & { code: string; context?: unknown }).context = err.context;
+      throw error;
+    }
+  }
+  // Browser mode: route to HTTP.
+  return httpCallBrowser<T>(command, args);
+}
+
+async function httpCallBrowser<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  const a = args ?? {};
+  switch (command) {
+    // Session
+    case 'create_session':
+      return httpCall<T>('POST', `/api/v1/workspaces/${a.workspace_id}/sessions`, {
+        agentId: a.agent_id,
+        title: a.title,
+      });
+    case 'send':
+      return httpCall<T>('POST', `/api/v1/sessions/${a.session_id}/messages`, {
+        content: a.content,
+        mentions: a.mentions ?? [],
+      });
+    case 'abort':
+      return httpCall<T>('POST', `/api/v1/sessions/${a.session_id}/abort`);
+    case 'list_sessions':
+      return httpCall<T>(
+        'GET',
+        `/api/v1/workspaces/${a.workspace_id}/sessions${a.limit ? `?limit=${a.limit}` : ''}`,
+      );
+    case 'get_history':
+      return httpCall<T>(
+        'GET',
+        `/api/v1/sessions/${a.session_id}/history${a.limit ? `?limit=${a.limit}` : ''}`,
+      );
+    case 'set_active_agent':
+      return httpCall<T>('POST', `/api/v1/sessions/${a.session_id}/active-agent`, {
+        agentId: a.agent_id,
+      });
+    case 'get_active_agent':
+      return httpCall<T>('GET', `/api/v1/sessions/${a.session_id}/active-agent`);
+    // Workspace
+    case 'list_workspaces':
+      return httpCall<T>('GET', '/api/v1/workspaces');
+    case 'open':
+      return httpCall<T>('POST', '/api/v1/workspaces', { rootPath: a.root_path, name: a.name });
+    case 'get_workspace':
+      return httpCall<T>('GET', `/api/v1/workspaces/${a.workspace_id}`);
+    case 'delete_workspace':
+      return httpCall<T>(
+        'DELETE',
+        `/api/v1/workspaces/${a.workspace_id}?force=${a.force ?? false}`,
+      );
+    case 'detect_workspace_venv':
+      return httpCall<T>('GET', `/api/v1/workspaces/${a.workspace_id}/venv`);
+    case 'add_extra_path':
+      return httpCall<T>('POST', `/api/v1/workspaces/${a.workspace_id}/extra-paths`, {
+        path: a.path,
+        label: a.label,
+      });
+    case 'remove_extra_path':
+      return httpCall<T>(
+        'DELETE',
+        `/api/v1/workspaces/${a.workspace_id}/extra-paths/delete?path=${encodeURIComponent(a.path as string)}`,
+      );
+    case 'list_extra_paths':
+      return httpCall<T>('GET', `/api/v1/workspaces/${a.workspace_id}/extra-paths`);
+    case 'effective_paths':
+      return httpCall<T>('GET', `/api/v1/workspaces/${a.workspace_id}/effective-paths`);
+    case 'list_dir':
+      return httpCall<T>('POST', `/api/v1/workspaces/${a.workspace_id}/list-dir`, { path: a.path });
+    // Agents
+    case 'list_agents':
+      return httpCall<T>('GET', '/api/v1/agents');
+    case 'get_agent':
+      return httpCall<T>('GET', `/api/v1/agents/${a.id}`);
+    // Config
+    case 'config_get_global':
+      return httpCall<T>('GET', '/api/v1/config/global');
+    case 'config_update_global':
+      return httpCall<T>('PATCH', '/api/v1/config/global', a.patch);
+    // Providers
+    case 'providers_test_connection':
+      return httpCall<T>('POST', '/api/v1/providers/test-connection', a.request);
+    // Secrets
+    case 'set_secret':
+      return httpCall<T>('POST', `/api/v1/secrets/${a.provider_id}`, { value: a.value });
+    case 'delete_secret':
+      return httpCall<T>('DELETE', `/api/v1/secrets/${a.provider_id}`);
+    case 'list_providers':
+      return httpCall<T>('GET', '/api/v1/secrets/providers');
+    // Permissions
+    case 'get_matrix':
+      return httpCall<T>(
+        'GET',
+        `/api/v1/permissions/matrix${a.workspace_id ? `?workspace=${a.workspace_id}` : ''}`,
+      );
+    case 'set_default':
+      return httpCall<T>('POST', '/api/v1/permissions/default', {
+        tool: a.tool,
+        decision: a.decision,
+      });
+    default:
+      throw new Error(`Unknown command in browser mode: ${command}`);
   }
 }
 
-/**
- * Subscribe to a Tauri event. Returns an unlisten function.
- * Auto-typed with the payload shape so the UI gets a typed arg.
- */
-async function listen<T>(event: string, handler: (payload: T) => void): Promise<UnlistenFn> {
-  return tauriListen<T>(event, (e) => handler(e.payload));
+async function listen<T>(event: string, handler: (payload: T) => void): Promise<() => void> {
+  if (!isBrowser && tauriListen) {
+    return tauriListen(event, (e: { payload: unknown }) => handler(e.payload as T));
+  }
+  // Browser mode: route to SSE.
+  return listenSse<T>(event, handler);
 }
 
 // === Session commands (F01) ===

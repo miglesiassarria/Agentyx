@@ -148,6 +148,8 @@ pub async fn config_update_global(
     let new_cfg = state.config.update_with_patch(&patch)?;
     let payload = build_config_changed_payload_global(new_cfg.clone());
     state.event_bus.emit(&app, "config.changed.v1", payload);
+    // Refresh providers so newly added ones are available immediately.
+    let _ = state.refresh_providers();
     Ok(new_cfg)
 }
 

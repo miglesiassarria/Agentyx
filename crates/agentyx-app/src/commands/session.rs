@@ -79,6 +79,168 @@ pub struct MessageDto {
 }
 
 // ============================================================
+// Inner functions (testable; no Tauri deps)
+// ============================================================
+
+/// Create a new session in a workspace. Returns a `SessionSummaryDto`
+/// directly. Used by both the Tauri command and the HTTP
+/// `POST /api/v1/workspaces/:id/sessions` handler.
+#[allow(clippy::unused_async)]
+pub(crate) async fn create_session_impl(
+    state: Arc<AppState>,
+    workspace_id: WorkspaceId,
+    agent_id: Option<AgentId>,
+    title: Option<String>,
+) -> AppResult<SessionSummaryDto> {
+    let summary = tokio::task::spawn_blocking(move || -> AppResult<SessionSummaryDto> {
+        let runtime = state.workspace_runtime(workspace_id)?;
+        let session = runtime.session.create(&state.agents, agent_id)?;
+        Ok::<_, agentyx_core::AppError>(to_summary(&session, title))
+    })
+    .await
+    .map_err(|e| agentyx_core::AppError::Internal {
+        message: format!("join error: {e}"),
+    })??;
+    Ok(summary)
+}
+
+/// List sessions in a workspace, ordered by `updated_at DESC`.
+#[allow(clippy::unused_async)]
+pub(crate) async fn list_sessions_impl(
+    state: Arc<AppState>,
+    workspace_id: WorkspaceId,
+    limit: Option<u32>,
+) -> AppResult<Vec<SessionSummaryDto>> {
+    let list = tokio::task::spawn_blocking(move || -> AppResult<Vec<SessionSummaryDto>> {
+        let runtime = state.workspace_runtime(workspace_id)?;
+        let sessions = runtime.session.list(SessionListOpts {
+            limit,
+            status: None,
+        })?;
+        Ok(sessions.iter().map(|s| to_summary(s, None)).collect())
+    })
+    .await
+    .map_err(|e| agentyx_core::AppError::Internal {
+        message: format!("join error: {e}"),
+    })??;
+    Ok(list)
+}
+
+/// Load the persisted history of a session.
+#[allow(clippy::unused_async)]
+pub(crate) async fn get_history_impl(
+    state: Arc<AppState>,
+    session_id: SessionId,
+    limit: Option<u32>,
+) -> AppResult<Vec<MessageDto>> {
+    let list = tokio::task::spawn_blocking(move || -> AppResult<Vec<MessageDto>> {
+        let (session_svc, _workspace_id) = locate_session(&state, session_id)?;
+        let messages = session_svc.list_messages(
+            session_id,
+            ListMessagesOpts {
+                limit,
+                after_seq: None,
+            },
+        )?;
+        Ok(messages
+            .iter()
+            .map(|m| MessageDto {
+                id: m.id.to_string(),
+                session_id: m.session_id,
+                run_id: m.run_id,
+                role: m.role.as_str().to_string(),
+                content: m.content.clone(),
+                seq: m.seq,
+                created_at: m.created_at.to_rfc3339(),
+            })
+            .collect())
+    })
+    .await
+    .map_err(|e| agentyx_core::AppError::Internal {
+        message: format!("join error: {e}"),
+    })??;
+    Ok(list)
+}
+
+/// Abort all running handles for a session. Idempotent.
+#[allow(clippy::unused_async)]
+pub(crate) async fn abort_impl(state: Arc<AppState>, session_id: SessionId) -> AppResult<()> {
+    tokio::task::spawn_blocking(move || -> AppResult<()> {
+        for (_, handle) in state.runs.iter_for_session(session_id) {
+            if handle.is_running() {
+                handle.abort();
+            }
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| agentyx_core::AppError::Internal {
+        message: format!("join error: {e}"),
+    })??;
+    Ok(())
+}
+
+/// Get the currently active agent of a session.
+#[allow(clippy::unused_async)]
+pub(crate) async fn get_active_agent_impl(
+    state: Arc<AppState>,
+    session_id: SessionId,
+) -> AppResult<AgentId> {
+    let id = tokio::task::spawn_blocking(move || -> AppResult<AgentId> {
+        let (session_svc, _ws) = locate_session(&state, session_id)?;
+        session_svc.get_active_agent(session_id)
+    })
+    .await
+    .map_err(|e| agentyx_core::AppError::Internal {
+        message: format!("join error: {e}"),
+    })??;
+    Ok(id)
+}
+
+/// Change the active agent of a session. Blocked mid-run with `Conflict`.
+/// Emits `agent.changed.v1` on success so other UI components can react.
+#[allow(clippy::unused_async)]
+pub(crate) async fn set_active_agent_impl(
+    state: Arc<AppState>,
+    session_id: SessionId,
+    agent_id: AgentId,
+) -> AppResult<()> {
+    let event_bus = state.event_bus.clone();
+
+    let old_agent = tokio::task::spawn_blocking({
+        let state = state.clone();
+        move || -> AppResult<AgentId> {
+            let (session_svc, _ws) = locate_session(&state, session_id)?;
+            let old = session_svc.get_active_agent(session_id)?;
+            session_svc.set_active_agent(session_id, &state.agents, agent_id)?;
+            Ok(old)
+        }
+    })
+    .await
+    .map_err(|e| agentyx_core::AppError::Internal {
+        message: format!("join error: {e}"),
+    })??;
+
+    // Emit agent.changed.v1 for cross-component reactivity.
+    #[derive(serde::Serialize)]
+    struct AgentChangedPayload {
+        session_id: SessionId,
+        from_agent_id: AgentId,
+        to_agent_id: AgentId,
+    }
+    let _ = event_bus.publish_typed(
+        "agent.changed.v1",
+        AgentChangedPayload {
+            session_id,
+            from_agent_id: old_agent,
+            to_agent_id: agent_id,
+        },
+    );
+
+    Ok(())
+}
+
+// ============================================================
 // Commands
 // ============================================================
 
@@ -95,18 +257,7 @@ pub async fn create_session(
     agent_id: Option<AgentId>,
     title: Option<String>,
 ) -> AppResult<SessionSummaryDto> {
-    let state = state.inner().clone();
-    // Run sync DB work on a blocking thread (rusqlite is sync).
-    let summary = tokio::task::spawn_blocking(move || {
-        let runtime = state.workspace_runtime(workspace_id)?;
-        let session = runtime.session.create(&state.agents, agent_id)?;
-        Ok::<_, agentyx_core::AppError>(to_summary(&session, title))
-    })
-    .await
-    .map_err(|e| agentyx_core::AppError::Internal {
-        message: format!("join error: {e}"),
-    })??;
-    Ok(summary)
+    create_session_impl(state.inner().clone(), workspace_id, agent_id, title).await
 }
 
 /// Send a message to a session, starting a new run.
@@ -189,25 +340,7 @@ pub async fn send(
 /// Abort the currently active run of a session, if any. Idempotent.
 #[tauri::command]
 pub async fn abort(state: State<'_, Arc<AppState>>, session_id: SessionId) -> AppResult<()> {
-    let state = state.inner().clone();
-    tokio::task::spawn_blocking(move || -> AppResult<()> {
-        // We don't track session -> run mapping explicitly; the
-        // app can keep a UI-side pointer via `chat.run.started.v1`
-        // events. For v0.1 we abort all running handles that
-        // belong to the session. This is O(runs) but runs are
-        // typically <10 active.
-        for (_, handle) in state.runs.iter_for_session(session_id) {
-            if handle.is_running() {
-                handle.abort();
-            }
-        }
-        Ok(())
-    })
-    .await
-    .map_err(|e| agentyx_core::AppError::Internal {
-        message: format!("join error: {e}"),
-    })??;
-    Ok(())
+    abort_impl(state.inner().clone(), session_id).await
 }
 
 /// List sessions in a workspace, ordered by `updated_at DESC`.
@@ -217,20 +350,7 @@ pub async fn list_sessions(
     workspace_id: WorkspaceId,
     limit: Option<u32>,
 ) -> AppResult<Vec<SessionSummaryDto>> {
-    let state = state.inner().clone();
-    let list = tokio::task::spawn_blocking(move || -> AppResult<Vec<SessionSummaryDto>> {
-        let runtime = state.workspace_runtime(workspace_id)?;
-        let sessions = runtime.session.list(SessionListOpts {
-            limit,
-            status: None,
-        })?;
-        Ok(sessions.iter().map(|s| to_summary(s, None)).collect())
-    })
-    .await
-    .map_err(|e| agentyx_core::AppError::Internal {
-        message: format!("join error: {e}"),
-    })??;
-    Ok(list)
+    list_sessions_impl(state.inner().clone(), workspace_id, limit).await
 }
 
 /// Load the persisted history of a session (cold start, sidebar, etc.).
@@ -240,36 +360,7 @@ pub async fn get_history(
     session_id: SessionId,
     limit: Option<u32>,
 ) -> AppResult<Vec<MessageDto>> {
-    let state = state.inner().clone();
-    let list = tokio::task::spawn_blocking(move || -> AppResult<Vec<MessageDto>> {
-        // Locate the session's workspace and its runtime.
-        let (session_svc, workspace_id) = locate_session(&state, session_id)?;
-        let _ = workspace_id;
-        let messages = session_svc.list_messages(
-            session_id,
-            ListMessagesOpts {
-                limit,
-                after_seq: None,
-            },
-        )?;
-        Ok(messages
-            .iter()
-            .map(|m| MessageDto {
-                id: m.id.to_string(),
-                session_id: m.session_id,
-                run_id: m.run_id,
-                role: m.role.as_str().to_string(),
-                content: m.content.clone(),
-                seq: m.seq,
-                created_at: m.created_at.to_rfc3339(),
-            })
-            .collect())
-    })
-    .await
-    .map_err(|e| agentyx_core::AppError::Internal {
-        message: format!("join error: {e}"),
-    })??;
-    Ok(list)
+    get_history_impl(state.inner().clone(), session_id, limit).await
 }
 
 /// Change the active agent of a session. Blocked mid-run with `Conflict`.
@@ -279,16 +370,7 @@ pub async fn set_active_agent(
     session_id: SessionId,
     agent_id: AgentId,
 ) -> AppResult<()> {
-    let state = state.inner().clone();
-    tokio::task::spawn_blocking(move || -> AppResult<()> {
-        let (session_svc, _ws) = locate_session(&state, session_id)?;
-        session_svc.set_active_agent(session_id, &state.agents, agent_id)
-    })
-    .await
-    .map_err(|e| agentyx_core::AppError::Internal {
-        message: format!("join error: {e}"),
-    })??;
-    Ok(())
+    set_active_agent_impl(state.inner().clone(), session_id, agent_id).await
 }
 
 /// Get the currently active agent of a session.
@@ -297,16 +379,7 @@ pub async fn get_active_agent(
     state: State<'_, Arc<AppState>>,
     session_id: SessionId,
 ) -> AppResult<AgentId> {
-    let state = state.inner().clone();
-    let id = tokio::task::spawn_blocking(move || -> AppResult<AgentId> {
-        let (session_svc, _ws) = locate_session(&state, session_id)?;
-        session_svc.get_active_agent(session_id)
-    })
-    .await
-    .map_err(|e| agentyx_core::AppError::Internal {
-        message: format!("join error: {e}"),
-    })??;
-    Ok(id)
+    get_active_agent_impl(state.inner().clone(), session_id).await
 }
 
 // ============================================================

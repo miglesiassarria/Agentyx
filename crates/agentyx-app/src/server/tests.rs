@@ -236,3 +236,214 @@ async fn f06_ac3_lan_with_require_token_generates_token() {
 
     let _ = stop(server).await;
 }
+
+// ============================================================
+// PR4: REST endpoints — workspaces + sessions
+// ============================================================
+
+/// Start a loopback server with the given `AppState` already
+/// holding a workspace. Returns the bound `SocketAddr` so each
+/// test can build its URLs.
+async fn start_with_workspace() -> (Arc<crate::state::AppState>, SocketAddr) {
+    use agentyx_core::workspace::OpenOptions;
+    let app_state = make_app_state();
+    let dir = whitelisted_tempdir();
+    let _ws = app_state
+        .workspaces
+        .open(
+            dir.path(),
+            OpenOptions {
+                name: Some("web-test".into()),
+            },
+        )
+        .expect("open workspace");
+
+    // Attach the server to the AppState so HTTP handlers can
+    // find it via `app_state.server()`.
+    let server = build_state(app_state.clone());
+    app_state.attach_server(server.clone());
+
+    let config = ServerConfig {
+        enabled: true,
+        bind_host: "127.0.0.1".to_string(),
+        port: 0,
+        lan_enabled: false,
+        require_token: false,
+        ..ServerConfig::default()
+    };
+    let info = start(server.clone(), config).await.expect("start");
+    let addr: SocketAddr = info.bind_addr.parse().expect("parse");
+    (app_state, addr)
+}
+
+fn whitelisted_tempdir() -> tempfile::TempDir {
+    let home = dirs::home_dir().expect("home dir must be set in tests");
+    tempfile::Builder::new()
+        .prefix("agentyx-")
+        .tempdir_in(&home)
+        .expect("create whitelisted tempdir")
+}
+
+#[tokio::test]
+async fn f06_http_list_workspaces_returns_empty_then_one() {
+    let app_state = make_app_state();
+    let server = build_state(app_state.clone());
+    app_state.attach_server(server.clone());
+    let config = ServerConfig::default();
+    let info = start(server.clone(), config).await.expect("start");
+    let addr: SocketAddr = info.bind_addr.parse().expect("parse");
+
+    let url = format!("http://{addr}/api/v1/workspaces");
+    let resp = reqwest::get(&url).await.expect("GET workspaces");
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: serde_json::Value = resp.json().await.expect("JSON");
+    assert!(body.is_array());
+    assert_eq!(body.as_array().unwrap().len(), 0);
+
+    // Add one workspace via the impl, then list again.
+    use agentyx_core::workspace::OpenOptions;
+    let dir = whitelisted_tempdir();
+    let _ = app_state
+        .workspaces
+        .open(
+            dir.path(),
+            OpenOptions {
+                name: Some("w".into()),
+            },
+        )
+        .expect("open");
+
+    let resp = reqwest::get(&url).await.expect("GET workspaces");
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: serde_json::Value = resp.json().await.expect("JSON");
+    assert_eq!(body.as_array().unwrap().len(), 1);
+
+    let _ = stop(server).await;
+}
+
+#[tokio::test]
+async fn f06_http_open_workspace_creates_and_lists() {
+    let (app_state, addr) = start_with_workspace().await;
+    let server = app_state.server().expect("server");
+
+    let dir = whitelisted_tempdir();
+    let body = serde_json::json!({
+        "rootPath": dir.path(),
+        "name": "from-http",
+    });
+    let client = reqwest::Client::new();
+    let url = format!("http://{addr}/api/v1/workspaces");
+    let resp = client.post(&url).json(&body).send().await.expect("POST");
+    let status = resp.status();
+    let text = resp.text().await.expect("text");
+    assert_eq!(status, StatusCode::OK, "POST status: body={text}");
+    let body: serde_json::Value = serde_json::from_str(&text).expect("JSON");
+    assert_eq!(body["name"], "from-http");
+
+    let _ = stop(server).await;
+}
+
+#[tokio::test]
+async fn f06_http_get_workspace_returns_dto() {
+    let (app_state, addr) = start_with_workspace().await;
+    let server = app_state.server().expect("server");
+    let url = format!("http://{addr}/api/v1/workspaces");
+    let resp = reqwest::get(&url).await.expect("GET");
+    let list: Vec<serde_json::Value> = resp.json().await.expect("list");
+    let id = list[0]["id"].as_str().expect("id");
+
+    let url = format!("http://{addr}/api/v1/workspaces/{id}");
+    let resp = reqwest::get(&url).await.expect("GET");
+    assert_eq!(resp.status(), StatusCode::OK);
+    let dto: serde_json::Value = resp.json().await.expect("JSON");
+    assert_eq!(dto["id"], id);
+
+    let _ = stop(server).await;
+}
+
+#[tokio::test]
+async fn f06_http_get_workspace_unknown_is_404() {
+    let (_app, addr) = start_with_workspace().await;
+    let url = format!("http://{addr}/api/v1/workspaces/{}", ulid::Ulid::new());
+    let resp = reqwest::get(&url).await.expect("GET");
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn f06_http_list_sessions_empty_for_new_workspace() {
+    let (_app, addr) = start_with_workspace().await;
+    let workspaces_url = format!("http://{addr}/api/v1/workspaces");
+    let resp = reqwest::get(&workspaces_url).await.expect("GET");
+    let list: Vec<serde_json::Value> = resp.json().await.expect("list");
+    let id = list[0]["id"].as_str().expect("id");
+
+    let url = format!("http://{addr}/api/v1/workspaces/{id}/sessions");
+    let resp = reqwest::get(&url).await.expect("GET sessions");
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: serde_json::Value = resp.json().await.expect("JSON");
+    assert!(body.is_array());
+    assert_eq!(body.as_array().unwrap().len(), 0);
+}
+
+#[tokio::test]
+async fn f06_http_create_and_get_session() {
+    let (_app, addr) = start_with_workspace().await;
+    let workspaces_url = format!("http://{addr}/api/v1/workspaces");
+    let resp = reqwest::get(&workspaces_url).await.expect("GET");
+    let list: Vec<serde_json::Value> = resp.json().await.expect("list");
+    let ws_id = list[0]["id"].as_str().expect("id");
+
+    // Create a session.
+    let url = format!("http://{addr}/api/v1/workspaces/{ws_id}/sessions");
+    let body = serde_json::json!({ "title": "http-test" });
+    let client = reqwest::Client::new();
+    let resp = client.post(&url).json(&body).send().await.expect("POST");
+    assert_eq!(resp.status(), StatusCode::OK);
+    let session: serde_json::Value = resp.json().await.expect("JSON");
+    let session_id = session["id"].as_str().expect("session id");
+    assert_eq!(session["title"], "http-test");
+
+    // Get history (empty).
+    let url = format!("http://{addr}/api/v1/sessions/{session_id}/history");
+    let resp = reqwest::get(&url).await.expect("GET history");
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: serde_json::Value = resp.json().await.expect("JSON");
+    assert!(body.is_array());
+    assert_eq!(body.as_array().unwrap().len(), 0);
+}
+
+#[tokio::test]
+async fn f06_http_agents_list_returns_three_visibles() {
+    let (_app, addr) = start_with_workspace().await;
+    let url = format!("http://{addr}/api/v1/agents");
+    let resp = reqwest::get(&url).await.expect("GET");
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: Vec<serde_json::Value> = resp.json().await.expect("JSON");
+    // 3 visible (build, plan, general); hidden agents are excluded.
+    assert_eq!(body.len(), 3);
+    let modes: Vec<&str> = body.iter().map(|a| a["mode"].as_str().unwrap()).collect();
+    assert!(modes.contains(&"primary"));
+    assert!(modes.contains(&"subagent"));
+}
+
+#[tokio::test]
+async fn f06_http_health_remains_unauth_even_with_require_token() {
+    let app_state = make_app_state();
+    let server = build_state(app_state.clone());
+    app_state.attach_server(server.clone());
+    let config = ServerConfig {
+        enabled: true,
+        bind_host: "127.0.0.1".to_string(),
+        port: 0,
+        lan_enabled: false,
+        require_token: true,
+        ..ServerConfig::default()
+    };
+    server.set_token(Some("secret-token".into()));
+    let info = start(server.clone(), config).await.expect("start");
+    let addr: SocketAddr = info.bind_addr.parse().expect("parse");
+    let url = format!("http://{addr}/api/v1/health");
+    let resp = reqwest::get(&url).await.expect("GET health");
+    assert_eq!(resp.status(), StatusCode::OK);
+    let _ = stop(server).await;
+}

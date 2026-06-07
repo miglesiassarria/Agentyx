@@ -332,7 +332,7 @@ pub async fn set_default(
 }
 
 /// Default per-tool decision for the static v0.1 tool catalog.
-fn default_decision_for(tool: &str) -> DecisionDto {
+pub(crate) fn default_decision_for(tool: &str) -> DecisionDto {
     match tool {
         "read_file" | "list_dir" | "search" => DecisionDto::Allow,
         "write_file" | "edit_file" | "shell" | "python_run" | "apply_patch" => DecisionDto::Ask,
@@ -344,7 +344,7 @@ fn default_decision_for(tool: &str) -> DecisionDto {
 /// with `crates/agentyx-core/src/tools/builtin/mod.rs`; we
 /// hardcode the list here to avoid pulling the registry (and
 /// the tool-side deps) into a Tauri command.
-fn static_tool_names() -> &'static [&'static str] {
+pub(crate) fn static_tool_names() -> &'static [&'static str] {
     &[
         "read_file",
         "list_dir",

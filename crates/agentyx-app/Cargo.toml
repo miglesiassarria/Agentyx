@@ -34,7 +34,8 @@ tauri-plugin-updater = { workspace = true }
 axum = { workspace = true }
 tower = { workspace = true }
 tower-http = { workspace = true }
-tokio-stream = { workspace = true }
+tokio-stream = { workspace = true, features = ["time"] }
+futures = { workspace = true }
 
 # Synchronization primitives (used by EventBus sinks list)
 parking_lot = { workspace = true }

@@ -4,13 +4,15 @@
 > Para roadmap de features: [features/ROADMAP.md](./features/ROADMAP.md).
 > Para índice de ADRs: [adr/README.md](./adr/README.md).
 >
-> Última actualización: 2026-06-07 (PR `feat/f06-axum-skeleton-and-auth`:
-> F06.AC1/AC2/AC3 cableados en `agentyx-app`; axum embebido con
-> middleware bearer opcional, EventBus con `tokio::sync::broadcast`
-> + `EventSink` trait, Tauri commands `server_get_info` /
-> `server_update_config` / `server_rotate_token`. 5 nuevos tests
-> de integración. Rate-limiting diferido a PR7 por incompatibilidad
-> de `Clone` en axum 0.7.)
+> Última actualización: 2026-06-07 (multi-PR session:
+> PR1: F01.AC9 cerrado — `agent.changed.v1` event emission + agent
+> permission overrides en `build_permission_snapshot` + integration test.
+> PR2: F05 ProviderRegistry refresh post-config-change + tests E2E.
+> PR3: F06 web server — SSE streaming `/api/v1/events`, `POST
+> /sessions/:id/messages` send endpoint, config/secrets/providers/
+> permissions HTTP endpoints, `ServeDir` static file serving con SPA
+> fallback, browser IPC adapter dual-mode (Tauri + HTTP).
+> 65/66 tests passing (1 pre-existing failure en workspace sandbox).
 >
 > **Disciplina de status**: este archivo se actualiza en el mismo PR
 > que cambia el estado real de cualquier pitch/spec o deja el board
@@ -27,9 +29,13 @@
 - features/F05-settings.md (UI parcial en curso; providers/models/approval/
   workspace shell implementado, edición completa de matriz pendiente)
 - features/F04-file-diffs.md
-- features/F-agents-ui.md
 
-## 🔵 Review (pendiente de aprobación)
+## 🟢 Ready (AC + contratos listos, pendiente implementación)
+- features/F-agents-ui.md (spec completada: AgentChip, AgentPickerMenu,
+  Cmd+[/Cmd+] cycle, AtMentionPopover, SessionTree, SubagentLiveDot,
+  SessionTabs placeholder. 15 ACs definidos. Sin código aún.)
+
+## 🔵 Review (pending approval)
 - domains/agent-loop.md
 - domains/workspace.md
 - domains/permissions.md
@@ -44,12 +50,7 @@
 - domains/session.md
 - domains/storage.md
 - domains/pty.md
-- **domains/server.md** (nuevo, PR actual): server Axum embebido,
-  EventBus fan-out, middleware bearer/CSP/rate-limit, lifecycle.
-  Bloqueante de F06.
-- features/F06-web-server-lan.md (PR actual: `draft → ready`, AC3
-  reescrito para reflejar `require_token` opcional; §MVP dogfooding
-  caveats añadido)
+- domains/server.md
 - features/ROADMAP.md (revisado: v0.1 incluye F06 Web server LAN;
   F03 sigue en v0.1.x; F16 queda como navegador avanzado post-MVP)
 
@@ -60,6 +61,20 @@
 - **ADR-0008** (nuevo, PR 3): scope de providers v1 (Ollama / Groq / Minimax).
 
 ## ✅ Implemented (código en main, ACs cumplidos, tests pasando)
+- **features/F06-web-server-lan.md** — `ready` → `implemented (partial — AC1+AC2+AC3)`. PR #6:
+   Axum skeleton: `server` module con `router/events_sse/auth/lifecycle`,
+   `AuthLayer` + `BearerGuard`, `axum_extra` typed extractor.
+   EventBus upgrade: `tokio::sync::broadcast` + `EventSink` trait,
+   Tauri windows + SSE comparten bus.
+   Lifecycle en `AppState`: serve loop spawn, `ServerHandle` drop guard,
+   initial bearer token generation.
+   Tauri commands `server_get_info` / `server_update_config` /
+   `server_rotate_token`.
+   5 integration tests pasando (loopback serve, LAN+require_token 401,
+   LAN+!require_token 200, bearer correct/invalid, config reload + rotate).
+   AC4-AC10 pendientes (browser workspace open, SSE chat, permissions
+   browser flow, event consistency, provider/config/secret e2e,
+   manual deep-link smoke).
 - **features/F02-multi-workspace.md** — `approved` → `implemented (full)`.
   PRs: UI (#12) 9/9 ACs UI + AC3, AC9 backend con `list_dir`; **AC7
   cerrado en PR `fix/f02-ac7-delete-workspace-with-active-runs`**
@@ -169,9 +184,10 @@ _(ninguno)_
 ## Próximas specs a escribir
 
 > Nota de contexto: las specs MVP activas (`F01`, `F02`, `F04`, `F05`,
-> `F06`, `F-agents-ui`, `agents.md`, `domains/config.md`,
+> `F-agents-ui`, `agents.md`, `domains/config.md`,
 > `domains/journal.md`) ya tienen `## Agent context` para lectura
-> rápida. Los estados no cambian por esta compactación.
+> rápida. F06 está shipped; el siguiente trabajo es cerrar `config`/`providers`
+> reales (F05), completar los AC abiertos de F01, cerrar F-agents-ui y F04.
 
 ### Para el MVP (v0.1)
 
@@ -184,13 +200,9 @@ _(ninguno)_
 1. `F05-settings.md`: cerrar edición persistente de la matriz de
    permisos, cobertura E2E de add provider y evento `config.changed.v1`.
 2. `F01-chat-streaming.md`: cerrar AC9, AC10, AC11 y AC14.
-3. `F06-web-server-lan.md` + `domains/server.md`: Axum embebido, REST
-   endpoints MVP, SSE sobre el EventBus compartido, adapter HTTP en
-   `ui/src/lib/ipc.ts`. `require_token` opcional en MVP dogfooding
-   (ver §MVP dogfooding caveats en F06).
-4. `F-agents-ui.md`: AgentChip, cycle shortcuts, @mention popover y
+3. `F-agents-ui.md`: AgentChip, cycle shortcuts, @mention popover y
    SessionTree.
-5. `F04-file-diffs.md`: diffs read-only sobre eventos/tool results.
+4. `F04-file-diffs.md`: diffs read-only sobre eventos/tool results.
 
 ### Para v0.1.x (no bloquea MVP)
 
@@ -207,10 +219,6 @@ _(vacío — F02.AC7 cerrado en PR `fix/f02-ac7-delete-workspace-with-active-run
 - **F05 Settings UI es parcial**: consume comandos reales de config,
   providers y secrets, pero `permissions_set_default`/eventos F05 y E2E
   de persistencia completa siguen pendientes.
-- **F06 Web server LAN aún no está implementada**: `specs/ipc.md` y
-  `specs/architecture.md` ya anticipan HTTP/SSE, pero el código no tiene
-  módulo `server`, dependencia `axum`, EventBus SSE ni adapter HTTP en
-  `ui/src/lib/ipc.ts`.
 
 ## Reglas de transición
 
