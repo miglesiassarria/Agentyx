@@ -1,8 +1,8 @@
 # F-agents-ui — UI multi-agente
 
-**Status**: draft
+**Status**: ready
 **Owner**: @miglesias
-**Last update**: 2026-06-06
+**Last update**: 2026-06-07
 **Affects**: [`agents`](../agents.md) (consume `AgentRegistry`,
 `AgentSpec`, `expand_at_mentions`, `invoke_subagent`),
 [`session`](../domains/session.md) (active agent per session),

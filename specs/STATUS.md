@@ -29,7 +29,11 @@
 - features/F05-settings.md (UI parcial en curso; providers/models/approval/
   workspace shell implementado, edición completa de matriz pendiente)
 - features/F04-file-diffs.md
-- features/F-agents-ui.md
+
+## 🟢 Ready (AC + contratos listos, pendiente implementación)
+- features/F-agents-ui.md (spec completada: AgentChip, AgentPickerMenu,
+  Cmd+[/Cmd+] cycle, AtMentionPopover, SessionTree, SubagentLiveDot,
+  SessionTabs placeholder. 15 ACs definidos. Sin código aún.)
 
 ## 🔵 Review (pending approval)
 - domains/agent-loop.md
