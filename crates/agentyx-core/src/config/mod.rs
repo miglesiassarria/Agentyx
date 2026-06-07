@@ -37,7 +37,7 @@ mod service;
 pub use keychain::{FakeKeychain, KeychainAccess, OsKeychain};
 pub use schema::{
     ApprovalMode, EffectiveConfig, GlobalConfig, GlobalConfigPatch, ProviderConfig, ProviderId,
-    ResolvedConfig, SecretRef, Theme, UiConfig, UpdateChannel, WorkspaceConfig,
+    ResolvedConfig, SecretRef, Theme, ToolDecision, UiConfig, UpdateChannel, WorkspaceConfig,
     WorkspaceConfigPatch, WorkspaceSettings,
 };
 pub use service::{ConfigService, ResolvedConfigSnapshot, ServiceConfigPaths};

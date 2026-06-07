@@ -4,8 +4,9 @@
 > Para roadmap de features: [features/ROADMAP.md](./features/ROADMAP.md).
 > Para índice de ADRs: [adr/README.md](./adr/README.md).
 >
-> Última actualización: 2026-06-07 (sync PR3: F05 Settings UI parcial;
-> backend config/secrets/providers ya cableado y UI consume comandos reales)
+> Última actualización: 2026-06-07 (sync PR `feat/f05-permission-matrix-and-config-event`:
+> F05.AC9 + F05.AC15 cerrados; matriz de permisos editable + evento
+> `config.changed.v1` emitido y consumido por la UI)
 >
 > **Disciplina de status**: este archivo se actualiza en el mismo PR
 > que cambia el estado real de cualquier pitch/spec o deja el board
@@ -115,6 +116,35 @@
   Pendientes para `ready` → `implemented`: edición persistente de
   matriz de permisos (AC9), cobertura E2E de add provider/persistencia
   completa (AC2, AC10, AC11) y eventos `config.changed.v1` (AC15).
+  - **PR `feat/f05-permission-matrix-and-config-event`**:
+    F05.AC9 + F05.AC15 cerrados.
+    - `GlobalConfig.default_tool_decisions: HashMap<String, ToolDecision>`
+      (omitido del TOML cuando está vacío para compat con installs
+      existentes).
+    - `ConfigService::set_default_tool_decision` +
+      `clear_default_tool_decision`.
+    - `permissions.get_matrix` consulta `default_tool_decisions` antes
+      de caer al default estático del catálogo.
+    - Nuevo Tauri command `permissions_set_default(tool, decision)`.
+    - `config_update_global` y `config_update_workspace` emiten
+      `config.changed.v1` con payload `{ kind, global?, workspaceId?,
+      workspace? }` (builders puros testeados en
+      `commands/config.rs::tests::f05_ac15_*`).
+    - UI: `SettingsView` reemplaza la tabla read-only por radios
+      editables; `events.configChanged` refresca estado cross-tab.
+    - Tests añadidos: `f05_ac9_set_default_tool_decision_persists_and_reloads`
+      (core), `f05_ac9_set_default_*` (variantes),
+      `f05_ac9_set_default_persists_to_disk` (app),
+      `f05_ac9_get_matrix_uses_persisted_default`,
+      `f05_ac9_get_matrix_falls_back_to_static_default`,
+      `f05_ac9_approval_mode_deny_overrides_persisted_default`,
+      `f05_ac15_global_changed_payload_shape`,
+      `f05_ac15_workspace_changed_payload_shape`,
+      `f05_ac15_payloads_are_distinct_by_kind` (más los de round-trip
+      de TOML y parseo de `ToolDecision`).
+    - UI tests: `f05_ac9_permission_matrix_edits_persist helper returns
+      stable order` y `f05_ac9_static_default_decision_matches_known_tools`
+      en `helpers.test.ts`.
 
 ## ⚫ Deprecated
 _(ninguno)_

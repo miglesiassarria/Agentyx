@@ -409,7 +409,7 @@ PATCH  /api/v1/permissions/default (body: { tool, decision }) → {}
   claro (verificado en `config.md` AC6, pero F05 re-verifica que
   la UI lo muestra con un toast). **Test**:
   `f05_ac8_missing_env_at_runtime_surfaces_to_ui`.
-- [ ] **F05.AC9**: la matriz de permisos en `ApprovalTab` lista
+- [x] **F05.AC9**: la matriz de permisos en `ApprovalTab` lista
   todas las tools de [`tools.md`](../domains/tools.md) y permite
   cambiar el default de `ask` a `allow` y viceversa. Los cambios
   persisten en `GlobalConfig` y se aplican al siguiente run.
@@ -439,7 +439,7 @@ PATCH  /api/v1/permissions/default (body: { tool, decision }) → {}
   muestra un warning visible ("You're switching to a less
   stable channel") y requiere confirmación antes de guardar.
   **Test**: `f05_ac14_update_channel_dev_requires_confirmation`.
-- [ ] **F05.AC15**: emitir `config.changed.v1` con `kind: "global"`
+- [x] **F05.AC15**: emitir `config.changed.v1` con `kind: "global"`
   tras un `config_update_global` exitoso; los listeners (otro
   tab, otra ventana) refrescan su estado. **Test**:
   `f05_ac15_config_changed_event_emitted_and_received`.
@@ -478,6 +478,25 @@ PATCH  /api/v1/permissions/default (body: { tool, decision }) → {}
 - Tests UI actuales cubren helpers/seguridad de presencia de secrets y
   confirmación de update channel (`helpers.test.ts`); no se añade
   `@testing-library/svelte` en esta PR.
+
+- `feat(f05-permission-matrix-and-config-event)` cierra F05.AC9 +
+  F05.AC15. Cambios:
+  - `GlobalConfig` añade `default_tool_decisions: HashMap<String, ToolDecision>`
+    (persistido a `config.toml`; omitido del TOML cuando está vacío para
+    no romper la compat con archivos existentes).
+  - `ConfigService::set_default_tool_decision(tool, decision)` y
+    `clear_default_tool_decision(tool)`.
+  - `permissions.get_matrix` ahora consulta `default_tool_decisions` antes
+    de caer al default estático del catálogo de tools.
+  - Nuevo Tauri command `permissions_set_default(tool, decision)`.
+  - `config_update_global` y `config_update_workspace` emiten
+    `config.changed.v1` con el DTO resultante. La UI lo escucha vía
+    `events.configChanged` y refresca `globalConfig` + `permissionMatrix`.
+  - `SettingsView` reemplaza la tabla read-only por radios editables;
+    un cambio llama `setToolDecision` y refresca la matriz local.
+  - Helpers `sortedToolIds` y `staticDefaultDecision` en
+    `ui/src/lib/components/settings/helpers.ts`, con tests derivados
+    de AC9.
 
 ## Telemetry / logs
 

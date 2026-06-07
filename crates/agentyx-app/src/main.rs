@@ -110,6 +110,7 @@ fn main() -> anyhow::Result<()> {
             commands::permissions::respond,
             commands::permissions::list,
             commands::permissions::get_matrix,
+            commands::permissions::set_default,
         ])
         .run(tauri::generate_context!())
         .context("running Tauri app")?;
