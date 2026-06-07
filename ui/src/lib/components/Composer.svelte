@@ -1,13 +1,22 @@
 <script lang="ts">
   import { sessionStore } from '$lib/stores/session.svelte';
+  import AtMentionPopover from './agents/AtMentionPopover.svelte';
 
   let content = $state<string>('');
   let textareaEl: HTMLTextAreaElement | null = $state(null);
   let submitting = $state<boolean>(false);
+  let mentionOpen = $state<boolean>(false);
+  let mentionQuery = $state<string>('');
+  let mentionStart = $state<number>(-1);
+  let popoverRef: AtMentionPopover | null = $state(null);
 
   const MAX_USER_MSG_BYTES = 1024 * 1024;
 
   function onKeydown(e: KeyboardEvent): void {
+    // AtMention popover takes priority when open.
+    if (mentionOpen && popoverRef !== null && popoverRef.handleKeydown(e)) {
+      return;
+    }
     // Enter submits; Shift+Enter inserts a newline.
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
@@ -19,6 +28,52 @@
       e.preventDefault();
       sessionStore.cyclePrimary();
     }
+  }
+
+  function onInput(e: Event): void {
+    const ta = e.target as HTMLTextAreaElement;
+    content = ta.value;
+    // Detect `@` trigger.
+    const cursor = ta.selectionStart ?? content.length;
+    const before = content.slice(0, cursor);
+    const atIdx = before.lastIndexOf('@');
+    if (atIdx < 0) {
+      mentionOpen = false;
+      return;
+    }
+    // Only open if @ is at start or preceded by whitespace.
+    const prev = atIdx === 0 ? ' ' : before[atIdx - 1];
+    if (!(prev === ' ' || prev === '\n' || prev === '\t')) {
+      mentionOpen = false;
+      return;
+    }
+    const fragment = before.slice(atIdx + 1);
+    // Close if a whitespace appears in the fragment.
+    if (/\s/.test(fragment)) {
+      mentionOpen = false;
+      return;
+    }
+    mentionStart = atIdx;
+    mentionQuery = fragment;
+    mentionOpen = true;
+  }
+
+  function selectMention(agentId: string): void {
+    if (mentionStart < 0) return;
+    const before = content.slice(0, mentionStart);
+    const after = content.slice(mentionStart + 1 + mentionQuery.length);
+    content = `${before}@${agentId} ${after}`;
+    mentionOpen = false;
+    mentionStart = -1;
+    mentionQuery = '';
+    // Restore focus.
+    queueMicrotask(() => textareaEl?.focus());
+  }
+
+  function closeMention(): void {
+    mentionOpen = false;
+    mentionStart = -1;
+    mentionQuery = '';
   }
 
   async function submit(): Promise<void> {
@@ -88,15 +143,27 @@
       void submit();
     }}
   >
-    <textarea
-      bind:this={textareaEl}
-      bind:value={content}
-      onkeydown={onKeydown}
-      placeholder="Type a message… (Enter to send, Shift+Enter for newline, Tab to switch agent)"
-      rows="1"
-      disabled={sessionStore.composerDisabled && !submitting}
-      aria-label="Message"
-    ></textarea>
+    <div class="textarea-wrap">
+      {#if mentionOpen}
+        <AtMentionPopover
+          bind:this={popoverRef}
+          subagents={sessionStore.subagents}
+          query={mentionQuery}
+          onSelect={selectMention}
+          onClose={closeMention}
+        />
+      {/if}
+      <textarea
+        bind:this={textareaEl}
+        bind:value={content}
+        onkeydown={onKeydown}
+        oninput={onInput}
+        placeholder="Type a message… (Enter to send, Shift+Enter for newline, Tab to switch agent, @ to mention a subagent)"
+        rows="1"
+        disabled={sessionStore.composerDisabled && !submitting}
+        aria-label="Message"
+      ></textarea>
+    </div>
 
     {#if sessionStore.composerDisabled}
       <button type="button" class="stop" onclick={onStop} aria-label="Stop the current run">
@@ -157,6 +224,12 @@
     display: flex;
     gap: var(--space-2);
     align-items: flex-end;
+  }
+
+  .textarea-wrap {
+    flex: 1;
+    position: relative;
+    display: flex;
   }
 
   textarea {
