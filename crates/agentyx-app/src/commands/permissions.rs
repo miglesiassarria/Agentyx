@@ -497,6 +497,7 @@ mod tests {
             tool_registry,
             permission_gate: PermissionGate::new(),
             permission_registry: PermissionRegistry::new(),
+            server: Arc::new(std::sync::OnceLock::new()),
         });
         (home, state)
     }

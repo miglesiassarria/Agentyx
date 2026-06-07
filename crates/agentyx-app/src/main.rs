@@ -28,6 +28,7 @@ mod commands;
 mod deep_link;
 mod events;
 mod menu;
+mod server;
 mod sink;
 mod state;
 mod updater;
@@ -63,6 +64,14 @@ fn main() -> anyhow::Result<()> {
 
     let state = Arc::new(app_state);
 
+    // F06: attach the embedded HTTP server state. We do this
+    // **before** the Tauri setup hook so the `server_*` Tauri
+    // commands can reach the server. The actual listener is
+    // started inside the setup hook (after the Tauri runtime is
+    // up and we have an `AppHandle` for the TauriSink).
+    let server_state = server::lifecycle::build_state(state.clone());
+    state.attach_server(server_state.clone());
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
@@ -76,6 +85,32 @@ fn main() -> anyhow::Result<()> {
             let _ = menu::build_menu(app.handle());
             deep_link::register(app);
             events::register_event_handlers(app, state.clone());
+
+            // F06: register the TauriSink so events fan out to
+            // the Tauri webview (and to the broadcast channel
+            // for SSE clients in follow-up PRs).
+            state
+                .event_bus
+                .add_sink(std::sync::Arc::new(events::TauriSink::new(
+                    app.handle().clone(),
+                )));
+
+            // F06: start the embedded HTTP server with the
+            // default config (loopback, no auth, random port).
+            // Errors are logged but non-fatal — the desktop app
+            // still works even if the server fails to bind.
+            let server_config = server::ServerConfig::default();
+            let server_state_for_setup = state
+                .server()
+                .ok_or_else(|| anyhow::anyhow!("server state not attached"))?;
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) =
+                    server::lifecycle::start(server_state_for_setup, server_config).await
+                {
+                    tracing::warn!(error = %e, "embedded HTTP server failed to start");
+                }
+            });
+
             updater::check_on_startup(app)?;
             Ok(())
         })
@@ -111,6 +146,9 @@ fn main() -> anyhow::Result<()> {
             commands::permissions::list,
             commands::permissions::get_matrix,
             commands::permissions::set_default,
+            commands::server::server_get_info,
+            commands::server::server_update_config,
+            commands::server::server_rotate_token,
         ])
         .run(tauri::generate_context!())
         .context("running Tauri app")?;

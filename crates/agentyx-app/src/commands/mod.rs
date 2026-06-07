@@ -25,6 +25,7 @@ pub mod config;
 pub mod permissions;
 pub mod providers;
 pub mod secrets;
+pub mod server;
 pub mod session;
 pub mod workspace;
 

@@ -52,6 +52,9 @@ portable-pty = "0.8"
 notify = "6.1"
 notify-debouncer-mini = "0.4"
 
+# Synchronization primitives (EventBus sink list, config cache).
+parking_lot = "0.12"
+
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = [
@@ -99,6 +102,12 @@ tauri-plugin-updater = { version = "2", default-features = false, features = ["r
 
 # Tauri build deps
 tauri-build = { version = "2.0", features = [] }
+
+# HTTP server (F06)
+axum = { version = "0.7", features = ["macros"] }
+tower = { version = "0.5", features = ["limit", "timeout"] }
+tower-http = { version = "0.5", features = ["cors", "set-header", "trace"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
 
 # Internal crates
 agentyx-core = { path = "agentyx-core", version = "0.1.0" }

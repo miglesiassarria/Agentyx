@@ -4,11 +4,13 @@
 > Para roadmap de features: [features/ROADMAP.md](./features/ROADMAP.md).
 > Para índice de ADRs: [adr/README.md](./adr/README.md).
 >
-> Última actualización: 2026-06-07 (PR `fix/f02-ac7-delete-workspace-with-active-runs`:
-> F02.AC7 cerrado; F02 promoted a `implemented (full)` — 18/18 ACs
-> backend cubiertos. BUG-01 (categoría B) resuelto. `RunHandle::is_aborted`
-> y `RunHandle::new` se hicieron `pub` para que los tests de
-> `agentyx-app` puedan fabricar runs sintéticos.)
+> Última actualización: 2026-06-07 (PR `feat/f06-axum-skeleton-and-auth`:
+> F06.AC1/AC2/AC3 cableados en `agentyx-app`; axum embebido con
+> middleware bearer opcional, EventBus con `tokio::sync::broadcast`
+> + `EventSink` trait, Tauri commands `server_get_info` /
+> `server_update_config` / `server_rotate_token`. 5 nuevos tests
+> de integración. Rate-limiting diferido a PR7 por incompatibilidad
+> de `Clone` en axum 0.7.)
 >
 > **Disciplina de status**: este archivo se actualiza en el mismo PR
 > que cambia el estado real de cualquier pitch/spec o deja el board
