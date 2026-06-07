@@ -23,7 +23,7 @@ the next MVP blocks.
 | F02 multi-workspace | ✅ implemented, with AC7 still tracked as partial |
 | F01 chat streaming | 🚧 implemented partial: sessions, events, read-only tools, permissions, chat UI |
 | F05 settings | 🚧 draft; backend/config/secrets/permission matrix partly implemented, UI/E2E still pending |
-| F06 web server LAN | 🚧 draft; moved into v0.1 MVP, not implemented |
+| F06 web server LAN | ✅ shipped: Axum skeleton + EventBus SSE + bearer middleware (AC1-AC3) |
 | F04 file diffs | 🚧 draft; not implemented |
 | F-agents-ui | 🚧 draft; agent model exists, dedicated UI still pending |
 | CI (fmt, clippy, test, audit, deny, typecheck, vitest) | ✅ GitHub Actions |
