@@ -49,6 +49,7 @@ fn app_state(server: &Arc<ServerState>) -> Arc<crate::state::AppState> {
 // ===== Workspaces =====
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct ListWorkspacesQuery {
     pub limit: Option<u32>,
 }
@@ -299,9 +300,7 @@ pub async fn set_active_agent(
 
 // ===== Agents =====
 
-pub async fn list_agents(
-    State(server): State<Arc<ServerState>>,
-) -> impl IntoResponse {
+pub async fn list_agents(State(server): State<Arc<ServerState>>) -> impl IntoResponse {
     let app = app_state(&server);
     let agents = app.agents.list();
     #[derive(Serialize)]
@@ -360,6 +359,7 @@ pub async fn get_agent(
 pub struct SendMessageRequest {
     pub content: String,
     #[serde(default)]
+    #[allow(dead_code)]
     pub mentions: Vec<crate::commands::AtMention>,
 }
 
@@ -441,9 +441,7 @@ pub async fn send_message(
 
 // ===== Config (F06 AC9) =====
 
-pub async fn get_config_global(
-    State(server): State<Arc<ServerState>>,
-) -> impl IntoResponse {
+pub async fn get_config_global(State(server): State<Arc<ServerState>>) -> impl IntoResponse {
     let app = app_state(&server);
     let dto = app.config.get();
     Json(dto).into_response()
@@ -467,9 +465,11 @@ pub async fn update_config_global(
     Json(req): Json<UpdateConfigGlobalRequest>,
 ) -> impl IntoResponse {
     let app = app_state(&server);
-    let mut patch = agentyx_core::config::GlobalConfigPatch::default();
-    patch.default_provider = req.default_provider;
-    patch.default_model = req.default_model;
+    let mut patch = agentyx_core::config::GlobalConfigPatch {
+        default_provider: req.default_provider,
+        default_model: req.default_model,
+        ..Default::default()
+    };
     if let Some(mode_str) = req.approval_mode {
         if let Ok(mode) = serde_json::from_value::<agentyx_core::config::ApprovalMode>(
             serde_json::Value::String(mode_str),
@@ -482,7 +482,8 @@ pub async fn update_config_global(
     }
     match app.config.update_with_patch(&patch) {
         Ok(new_cfg) => {
-            let payload = crate::commands::config::build_config_changed_payload_global(new_cfg.clone());
+            let payload =
+                crate::commands::config::build_config_changed_payload_global(new_cfg.clone());
             let _ = app.event_bus.publish_typed("config.changed.v1", payload);
             // Refresh providers so newly added ones are available immediately.
             let _ = app.refresh_providers();
@@ -505,7 +506,9 @@ pub async fn test_provider_connection(
             match provider.health().await {
                 Ok(_) => {
                     let latency_ms = start.elapsed().as_millis() as u64;
-                    let models = provider.list_models().await
+                    let models = provider
+                        .list_models()
+                        .await
                         .map(|list| list.into_iter().map(|m| m.id).collect())
                         .unwrap_or_default();
                     crate::commands::providers::TestConnectionResult {
@@ -528,24 +531,20 @@ pub async fn test_provider_connection(
                 }
             }
         }
-        Err(e) => {
-            crate::commands::providers::TestConnectionResult {
-                ok: false,
-                latency_ms: None,
-                models: vec![],
-                error: Some(e.to_string()),
-                error_code: Some(e.code().to_string()),
-            }
-        }
+        Err(e) => crate::commands::providers::TestConnectionResult {
+            ok: false,
+            latency_ms: None,
+            models: vec![],
+            error: Some(e.to_string()),
+            error_code: Some(e.code().to_string()),
+        },
     };
     Json(result).into_response()
 }
 
 // ===== Secrets (F06 AC9) =====
 
-pub async fn list_secret_providers(
-    State(server): State<Arc<ServerState>>,
-) -> impl IntoResponse {
+pub async fn list_secret_providers(State(server): State<Arc<ServerState>>) -> impl IntoResponse {
     let app = app_state(&server);
     match app.config.list_keychain_providers() {
         Ok(ids) => Json(ids).into_response(),
@@ -584,18 +583,19 @@ pub async fn delete_secret(
 
 // ===== Permissions (F06 AC9) =====
 
-pub async fn get_permission_matrix(
-    State(server): State<Arc<ServerState>>,
-) -> impl IntoResponse {
+pub async fn get_permission_matrix(State(server): State<Arc<ServerState>>) -> impl IntoResponse {
     let app = app_state(&server);
     // Synthesize matrix from static catalog + persisted overrides.
+    use crate::commands::permissions::{
+        default_decision_for, static_tool_names, DecisionDto, PermissionMatrixDto,
+    };
     use std::collections::HashMap;
-    use crate::commands::permissions::{DecisionDto, PermissionMatrixDto, default_decision_for, static_tool_names};
 
     let cfg = app.config.get();
     let mut global: HashMap<String, DecisionDto> = HashMap::new();
     for tool in static_tool_names() {
-        let d = cfg.default_tool_decisions
+        let d = cfg
+            .default_tool_decisions
             .get(*tool)
             .copied()
             .map(DecisionDto::from)
@@ -603,14 +603,25 @@ pub async fn get_permission_matrix(
         global.insert((*tool).to_string(), d);
     }
     if matches!(cfg.approval_mode, agentyx_core::config::ApprovalMode::Deny) {
-        for v in global.values_mut() { *v = DecisionDto::Deny; }
+        for v in global.values_mut() {
+            *v = DecisionDto::Deny;
+        }
     }
     if matches!(cfg.approval_mode, agentyx_core::config::ApprovalMode::Allow) {
-        for v in global.values_mut() { if *v == DecisionDto::Ask { *v = DecisionDto::Allow; } }
+        for v in global.values_mut() {
+            if *v == DecisionDto::Ask {
+                *v = DecisionDto::Allow;
+            }
+        }
     }
 
     let effective = global.clone();
-    Json(PermissionMatrixDto { global, workspace: None, effective }).into_response()
+    Json(PermissionMatrixDto {
+        global,
+        workspace: None,
+        effective,
+    })
+    .into_response()
 }
 
 #[derive(Debug, Deserialize)]
@@ -625,7 +636,10 @@ pub async fn set_default_permission(
     Json(req): Json<SetDefaultPermissionRequest>,
 ) -> impl IntoResponse {
     let app = app_state(&server);
-    match app.config.set_default_tool_decision(&req.tool, req.decision) {
+    match app
+        .config
+        .set_default_tool_decision(&req.tool, req.decision)
+    {
         Ok(_new_cfg) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => app_error_to_response(e),
     }
@@ -652,9 +666,9 @@ pub async fn sse_events(
         })
     });
 
-    let heartbeat = tokio_stream::wrappers::IntervalStream::new(
-        tokio::time::interval(std::time::Duration::from_secs(15)),
-    )
+    let heartbeat = tokio_stream::wrappers::IntervalStream::new(tokio::time::interval(
+        std::time::Duration::from_secs(15),
+    ))
     .map(|_| Ok::<_, Infallible>(Event::default().comment("heartbeat")));
 
     let merged = tokio_stream::StreamExt::merge(stream, heartbeat);

@@ -164,10 +164,7 @@ pub(crate) async fn get_history_impl(
 
 /// Abort all running handles for a session. Idempotent.
 #[allow(clippy::unused_async)]
-pub(crate) async fn abort_impl(
-    state: Arc<AppState>,
-    session_id: SessionId,
-) -> AppResult<()> {
+pub(crate) async fn abort_impl(state: Arc<AppState>, session_id: SessionId) -> AppResult<()> {
     tokio::task::spawn_blocking(move || -> AppResult<()> {
         for (_, handle) in state.runs.iter_for_session(session_id) {
             if handle.is_running() {

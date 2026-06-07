@@ -30,7 +30,10 @@ pub fn build_router(state: Arc<ServerState>) -> Router {
     let protected_api = Router::new()
         .route("/server/info", get(server_info))
         // Workspaces
-        .route("/workspaces", get(handlers::list_workspaces).post(handlers::open_workspace))
+        .route(
+            "/workspaces",
+            get(handlers::list_workspaces).post(handlers::open_workspace),
+        )
         .route(
             "/workspaces/:id",
             get(handlers::get_workspace).delete(handlers::delete_workspace),
@@ -60,23 +63,32 @@ pub fn build_router(state: Arc<ServerState>) -> Router {
             "/sessions/:id/active-agent",
             get(handlers::get_active_agent).post(handlers::set_active_agent),
         )
-        .route(
-            "/sessions/:id/messages",
-            post(handlers::send_message),
-        )
+        .route("/sessions/:id/messages", post(handlers::send_message))
         // Agents
         .route("/agents", get(handlers::list_agents))
         .route("/agents/:id", get(handlers::get_agent))
         // Config (F06 AC9)
-        .route("/config/global", get(handlers::get_config_global).patch(handlers::update_config_global))
+        .route(
+            "/config/global",
+            get(handlers::get_config_global).patch(handlers::update_config_global),
+        )
         // Providers (F06 AC9)
-        .route("/providers/test-connection", post(handlers::test_provider_connection))
+        .route(
+            "/providers/test-connection",
+            post(handlers::test_provider_connection),
+        )
         // Secrets (F06 AC9)
         .route("/secrets/providers", get(handlers::list_secret_providers))
-        .route("/secrets/:provider_id", post(handlers::set_secret).delete(handlers::delete_secret))
+        .route(
+            "/secrets/:provider_id",
+            post(handlers::set_secret).delete(handlers::delete_secret),
+        )
         // Permissions (F06 AC9)
         .route("/permissions/matrix", get(handlers::get_permission_matrix))
-        .route("/permissions/default", post(handlers::set_default_permission))
+        .route(
+            "/permissions/default",
+            post(handlers::set_default_permission),
+        )
         // SSE streaming (F06 AC6/AC8)
         .route("/events", get(handlers::sse_events))
         .route_layer(axum::middleware::from_fn_with_state(
