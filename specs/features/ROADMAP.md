@@ -94,7 +94,8 @@
 - [x] Cerrar y reabrir la app → workspaces, sesiones y extra paths
   intactos.
 - [ ] Arrancar servidor HTTP embebido y servir la misma UI en loopback.
-- [ ] Habilitar bind LAN `0.0.0.0:<port>` con bearer token obligatorio.
+- [ ] Habilitar bind LAN `0.0.0.0:<port>` con `[server].lan_enabled`.
+- [ ] Activar `[server].require_token = true` y verificar 401 sin bearer.
 - [ ] Abrir la UI desde navegador LAN y listar workspaces vía HTTP.
 - [ ] En navegador LAN, enviar un mensaje y recibir streaming vía SSE.
 

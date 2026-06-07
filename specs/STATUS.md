@@ -4,9 +4,10 @@
 > Para roadmap de features: [features/ROADMAP.md](./features/ROADMAP.md).
 > Para índice de ADRs: [adr/README.md](./adr/README.md).
 >
-> Última actualización: 2026-06-07 (replan MVP: F06 Web server LAN
-> pasa de v0.2/v0.3 a bloqueante de v0.1; navegador LAN con REST + SSE
-> queda especificado en `features/F06-web-server-lan.md`)
+> Última actualización: 2026-06-07 (PR `docs/f06-ready-and-server-domain`:
+> F06 promovido `draft → ready` con ajuste de AC3 (auth opcional en
+> MVP dogfooding) y creación de `domains/server.md` como dominio
+> bloqueante para F06)
 >
 > **Disciplina de status**: este archivo se actualiza en el mismo PR
 > que cambia el estado real de cualquier pitch/spec o deja el board
@@ -22,9 +23,6 @@
 - domains/journal.md
 - features/F05-settings.md (UI parcial en curso; providers/models/approval/
   workspace shell implementado, edición completa de matriz pendiente)
-- features/F06-web-server-lan.md (nuevo bloque MVP; Axum embebido,
-  UI por navegador LAN, REST + SSE, auth bearer obligatoria en
-  `0.0.0.0`)
 - features/F04-file-diffs.md
 - features/F-agents-ui.md
 
@@ -38,10 +36,17 @@
 - project.md (revisado en PR 1)
 - glossary.md (revisado en PR 1)
 - architecture.md (revisado en PR 1)
-- ipc.md (revisado en PR 2)
+- ipc.md (revisado en PR actual: §4.1 auth configurable con
+  `require_token`, default `false` en MVP dogfooding)
 - domains/session.md
 - domains/storage.md
 - domains/pty.md
+- **domains/server.md** (nuevo, PR actual): server Axum embebido,
+  EventBus fan-out, middleware bearer/CSP/rate-limit, lifecycle.
+  Bloqueante de F06.
+- features/F06-web-server-lan.md (PR actual: `draft → ready`, AC3
+  reescrito para reflejar `require_token` opcional; §MVP dogfooding
+  caveats añadido)
 - features/ROADMAP.md (revisado: v0.1 incluye F06 Web server LAN;
   F03 sigue en v0.1.x; F16 queda como navegador avanzado post-MVP)
 
@@ -171,9 +176,10 @@ _(ninguno)_
 1. `F05-settings.md`: cerrar edición persistente de la matriz de
    permisos, cobertura E2E de add provider y evento `config.changed.v1`.
 2. `F01-chat-streaming.md`: cerrar AC9, AC10, AC11 y AC14.
-3. `F06-web-server-lan.md`: Axum embebido, REST endpoints MVP,
-   SSE sobre el EventBus compartido, adapter HTTP en `ui/src/lib/ipc.ts`,
-   bind LAN `0.0.0.0` con bearer token obligatorio.
+3. `F06-web-server-lan.md` + `domains/server.md`: Axum embebido, REST
+   endpoints MVP, SSE sobre el EventBus compartido, adapter HTTP en
+   `ui/src/lib/ipc.ts`. `require_token` opcional en MVP dogfooding
+   (ver §MVP dogfooding caveats en F06).
 4. `F-agents-ui.md`: AgentChip, cycle shortcuts, @mention popover y
    SessionTree.
 5. `F04-file-diffs.md`: diffs read-only sobre eventos/tool results.
