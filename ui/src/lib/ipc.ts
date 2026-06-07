@@ -312,6 +312,5 @@ export const events = {
   // config.changed.v1 (F05.AC15) — fired after a successful
   // `config_update_global` or `config_update_workspace`. Multi-tab
   // and multi-window UIs use this to refresh their state.
-  configChanged: (cb: (p: ConfigChangedPayload) => void) =>
-    listen('config.changed.v1', cb),
+  configChanged: (cb: (p: ConfigChangedPayload) => void) => listen('config.changed.v1', cb),
 };

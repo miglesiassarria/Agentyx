@@ -109,11 +109,13 @@
     void loadSettings();
     // F05.AC15 — subscribe to `config.changed.v1` so an external
     // writer (other tab, CLI, etc.) propagates into the panel.
-    void events.configChanged((payload) => {
-      void onConfigChanged(payload);
-    }).then((unlisten) => {
-      unlistenConfigChanged = unlisten;
-    });
+    void events
+      .configChanged((payload) => {
+        void onConfigChanged(payload);
+      })
+      .then((unlisten) => {
+        unlistenConfigChanged = unlisten;
+      });
   });
 
   onDestroy(() => {
@@ -568,8 +570,9 @@
       <article class="card">
         <h3>Tool matrix</h3>
         <p class="muted">
-          Each tool has a default decision (allow / ask / deny). Changes persist
-          to <code>GlobalConfig</code> and apply to new runs.
+          Each tool has a default decision (allow / ask / deny). Changes persist to <code
+            >GlobalConfig</code
+          > and apply to new runs.
         </p>
         <table>
           <thead>
