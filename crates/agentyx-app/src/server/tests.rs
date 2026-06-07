@@ -250,7 +250,12 @@ async fn start_with_workspace() -> (Arc<crate::state::AppState>, SocketAddr) {
     let dir = whitelisted_tempdir();
     let _ws = app_state
         .workspaces
-        .open(dir.path(), OpenOptions { name: Some("web-test".into()) })
+        .open(
+            dir.path(),
+            OpenOptions {
+                name: Some("web-test".into()),
+            },
+        )
         .expect("open workspace");
 
     // Attach the server to the AppState so HTTP handlers can
@@ -300,7 +305,12 @@ async fn f06_http_list_workspaces_returns_empty_then_one() {
     let dir = whitelisted_tempdir();
     let _ = app_state
         .workspaces
-        .open(dir.path(), OpenOptions { name: Some("w".into()) })
+        .open(
+            dir.path(),
+            OpenOptions {
+                name: Some("w".into()),
+            },
+        )
         .expect("open");
 
     let resp = reqwest::get(&url).await.expect("GET workspaces");
@@ -316,10 +326,9 @@ async fn f06_http_open_workspace_creates_and_lists() {
     let (app_state, addr) = start_with_workspace().await;
     let server = app_state.server().expect("server");
 
-    let dir = std::env::temp_dir().join(format!("agentyx-http-{}", ulid::Ulid::new()));
-    std::fs::create_dir_all(&dir).expect("create dir");
+    let dir = whitelisted_tempdir();
     let body = serde_json::json!({
-        "rootPath": dir,
+        "rootPath": dir.path(),
         "name": "from-http",
     });
     let client = reqwest::Client::new();
@@ -355,8 +364,7 @@ async fn f06_http_get_workspace_returns_dto() {
 #[tokio::test]
 async fn f06_http_get_workspace_unknown_is_404() {
     let (_app, addr) = start_with_workspace().await;
-    let url = format!("http://{addr}/api/v1/workspaces/{}",
-        ulid::Ulid::new());
+    let url = format!("http://{addr}/api/v1/workspaces/{}", ulid::Ulid::new());
     let resp = reqwest::get(&url).await.expect("GET");
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
@@ -413,10 +421,7 @@ async fn f06_http_agents_list_returns_three_visibles() {
     let body: Vec<serde_json::Value> = resp.json().await.expect("JSON");
     // 3 visible (build, plan, general); hidden agents are excluded.
     assert_eq!(body.len(), 3);
-    let modes: Vec<&str> = body
-        .iter()
-        .map(|a| a["mode"].as_str().unwrap())
-        .collect();
+    let modes: Vec<&str> = body.iter().map(|a| a["mode"].as_str().unwrap()).collect();
     assert!(modes.contains(&"primary"));
     assert!(modes.contains(&"subagent"));
 }
@@ -442,4 +447,3 @@ async fn f06_http_health_remains_unauth_even_with_require_token() {
     assert_eq!(resp.status(), StatusCode::OK);
     let _ = stop(server).await;
 }
-
