@@ -27,7 +27,8 @@ function cycle(direction: 'prev' | 'next'): void {
   const current = sessionStore.activeAgent?.id ?? ids[0];
   if (current === undefined) return;
   const idx = ids.indexOf(current);
-  const nextIdx = direction === 'next' ? (idx + 1) % ids.length : (idx - 1 + ids.length) % ids.length;
+  const nextIdx =
+    direction === 'next' ? (idx + 1) % ids.length : (idx - 1 + ids.length) % ids.length;
   const nextId = ids[nextIdx];
   if (nextId === undefined) return;
   void sessionStore.setActiveAgent(nextId);
