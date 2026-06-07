@@ -15,6 +15,27 @@ _(vacío)_
 
 ## 🔵 Review (pendiente de aprobación)
 _(vacío)_
+- agents.md
+- domains/providers.md
+- domains/journal.md
+- features/F05-settings.md (UI parcial en curso; providers/models/approval/
+  workspace shell implementado, edición completa de matriz pendiente)
+
+## 🟢 Ready (AC + contratos listos, pendiente implementación)
+- features/F-agents-ui.md (spec completada: AgentChip, AgentPickerMenu,
+  Cmd+[/Cmd+] cycle, AtMentionPopover, SessionTree, SubagentLiveDot,
+  SessionTabs placeholder. 15 ACs definidos. Sin código aún.)
+- features/F04-file-diffs.md (spec completada: DiffView con
+  CodeMirror 6 Merge, DiffsSidePanel, truncation/binary/image
+  detection, collapse state en localStorage. 12 ACs definidos.
+  Depende de F01.AC8 (chat.tool_call.v1 enriquecido). Sin código
+  aún.)
+
+## 🔵 Review (pending approval)
+- domains/agent-loop.md
+- domains/workspace.md
+- domains/permissions.md
+- domains/tools.md
 
 ## 🟢 Approved (listo para implementar)
 - project.md (revisado en PR 1)
