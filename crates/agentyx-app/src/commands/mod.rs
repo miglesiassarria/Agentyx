@@ -22,6 +22,7 @@
 
 pub mod agents;
 pub mod config;
+pub mod diff;
 pub mod permissions;
 pub mod providers;
 pub mod secrets;

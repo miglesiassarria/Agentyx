@@ -48,6 +48,7 @@
 pub mod agent;
 pub mod agents;
 pub mod config;
+pub mod diff;
 pub mod error;
 pub mod ids;
 pub mod journal;

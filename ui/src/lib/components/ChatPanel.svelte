@@ -5,7 +5,14 @@
   import type { WorkspaceId } from '$lib/ipc-types';
 
   import Composer from './Composer.svelte';
+  import DiffsSidePanel from './diff/DiffsSidePanel.svelte';
   import MessageList from './MessageList.svelte';
+  import AgentChip from './agents/AgentChip.svelte';
+  import { installTabCycle } from '$lib/stores/tab-cycle.svelte';
+
+  onMount(() => {
+    installTabCycle();
+  });
 
   interface Props {
     workspaceId: WorkspaceId;
@@ -27,19 +34,22 @@
 <section class="chat" aria-label="Chat">
   <header class="header">
     <div class="title-block">
-      <span
-        class="agent-chip"
-        class:agent-build={sessionStore.activeAgent?.id === 'build'}
-        class:agent-plan={sessionStore.activeAgent?.id === 'plan'}
-        class:agent-general={sessionStore.activeAgent?.id === 'general'}
-        title={sessionStore.activeAgent?.description ?? 'Active agent'}
-      >
-        <span class="agent-id">@{sessionStore.activeAgent?.id ?? 'build'}</span>
-      </span>
+      <AgentChip />
       <h2 class="title">{sessionStore.activeSession?.title ?? 'New session'}</h2>
     </div>
 
     <div class="actions">
+      <DiffsSidePanel
+        sessionId={sessionStore.activeSession?.id ?? ''}
+        onJump={(id) => {
+          // Scroll to the diff in MessageList. The store keeps
+          // a list of recent tool calls; we dispatch a custom
+          // event so the list can highlight it.
+          window.dispatchEvent(
+            new CustomEvent('agentyx:jump-to-diff', { detail: { toolCallId: id } }),
+          );
+        }}
+      />
       <span class="status" data-status={sessionStore.runStatus}>
         {sessionStore.runStatus}
       </span>
@@ -75,32 +85,6 @@
     align-items: center;
     gap: var(--space-3);
     min-width: 0;
-  }
-
-  .agent-chip {
-    display: inline-flex;
-    align-items: center;
-    padding: var(--space-1) var(--space-3);
-    border-radius: var(--radius-full);
-    font-size: var(--font-size-xs);
-    font-weight: 600;
-    color: var(--color-bg);
-    background: var(--color-fg-muted);
-    letter-spacing: 0.02em;
-  }
-
-  .agent-chip.agent-build {
-    background: var(--color-agent-build);
-  }
-  .agent-chip.agent-plan {
-    background: var(--color-agent-plan);
-  }
-  .agent-chip.agent-general {
-    background: var(--color-agent-general);
-  }
-
-  .agent-id {
-    font-family: var(--font-mono);
   }
 
   .title {

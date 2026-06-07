@@ -89,6 +89,9 @@ pub fn build_router(state: Arc<ServerState>) -> Router {
             "/permissions/default",
             post(handlers::set_default_permission),
         )
+        // Diffs (F04)
+        .route("/sessions/:id/diffs", get(handlers::list_session_diffs))
+        .route("/diffs/:tool_call_id", get(handlers::get_diff_full))
         // SSE streaming (F06 AC6/AC8)
         .route("/events", get(handlers::sse_events))
         .route_layer(axum::middleware::from_fn_with_state(

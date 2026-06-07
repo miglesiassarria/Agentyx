@@ -447,3 +447,95 @@ async fn f06_http_health_remains_unauth_even_with_require_token() {
     assert_eq!(resp.status(), StatusCode::OK);
     let _ = stop(server).await;
 }
+
+/// F06.AC10: deep-link / SPA fallback returns the app shell
+/// (index.html) for non-API routes, and JSON for API routes.
+///
+/// Uses a temporary `ui/dist/` populated with a minimal
+/// `index.html` so the test does not depend on the actual
+/// production build output. The test resolves the workspace
+/// root via `CARGO_MANIFEST_DIR` (set by Cargo at compile time)
+/// and only writes a temp `index.html` if the production one
+/// is missing — that way the cleanup is safe in both cases.
+#[tokio::test]
+async fn f06_spa_fallback_returns_index_for_unknown_routes() {
+    // `CARGO_MANIFEST_DIR` is `<repo>/crates/agentyx-app`; the
+    // workspace root is two levels up. We resolve to the
+    // canonical `ui/dist` path that `static_files::ui_dist_path`
+    // looks up at runtime.
+    let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let workspace_root = manifest_dir.parent().and_then(|p| p.parent());
+    let dist = workspace_root
+        .map(|r| r.join("ui").join("dist"))
+        .unwrap_or_else(|| std::path::PathBuf::from("ui/dist"));
+
+    let had_index = dist.join("index.html").exists();
+    if !had_index {
+        std::fs::create_dir_all(&dist).expect("create dist");
+        std::fs::write(
+            dist.join("index.html"),
+            "<!doctype html><title>Agentyx Test Shell</title>",
+        )
+        .expect("write index");
+    }
+
+    let app_state = make_app_state();
+    let server = build_state(app_state.clone());
+    app_state.attach_server(server.clone());
+    let config = ServerConfig {
+        enabled: true,
+        bind_host: "127.0.0.1".to_string(),
+        port: 0,
+        lan_enabled: false,
+        require_token: false,
+        ..ServerConfig::default()
+    };
+    let info = start(server.clone(), config).await.expect("start");
+    let addr: SocketAddr = info.bind_addr.parse().expect("parse");
+    let base = format!("http://{addr}");
+
+    // 1. Unknown path → SPA fallback returns index.html with 200
+    let client = reqwest::Client::new();
+    let resp = client
+        .get(format!("{base}/some/deep/link"))
+        .send()
+        .await
+        .expect("GET deep link");
+    let status = resp.status();
+    let text = resp.text().await.expect("text");
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "deep link should return 200 OK (SPA fallback); body={text}"
+    );
+    assert!(
+        text.contains("Agentyx") || text.contains("agentyx"),
+        "deep link should serve the app shell; got: {text}"
+    );
+
+    // 2. /api/v1/agents returns JSON (not the SPA shell)
+    let resp = client
+        .get(format!("{base}/api/v1/agents"))
+        .send()
+        .await
+        .expect("GET agents");
+    assert_eq!(resp.status(), StatusCode::OK);
+    let ct = resp
+        .headers()
+        .get("content-type")
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    assert!(ct.contains("json"), "API routes must return JSON; got {ct}");
+
+    let _ = stop(server).await;
+
+    // Cleanup: only remove artifacts we created. If we had to
+    // create the dist, we leave it in place if removing the
+    // index would leave other files behind (e.g. the real
+    // build's `assets/` dir). To be safe, we just remove the
+    // file we created and never touch the directory itself.
+    if !had_index {
+        let _ = std::fs::remove_file(dist.join("index.html"));
+    }
+}

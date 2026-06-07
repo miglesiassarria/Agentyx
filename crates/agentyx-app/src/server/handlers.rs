@@ -678,3 +678,52 @@ pub async fn sse_events(
             .text("ping"),
     )
 }
+
+// ===== Diffs (F04) =====
+
+/// `GET /api/v1/sessions/:id/diffs` — list diffs for a session.
+pub async fn list_session_diffs(
+    State(server): State<Arc<ServerState>>,
+    Path(session_id): Path<agentyx_core::ids::SessionId>,
+) -> impl IntoResponse {
+    let app = app_state(&server);
+    let runtime = match app
+        .workspaces
+        .list()
+        .first()
+        .map(|w| app.workspace_runtime(w.id))
+    {
+        Some(Ok(rt)) => rt,
+        Some(Err(e)) => return app_error_to_response(e),
+        None => {
+            return app_error_to_response(agentyx_core::AppError::NotFound {
+                kind: "workspace".into(),
+                id: "active".into(),
+            });
+        }
+    };
+    let journal = runtime.journal.clone();
+    match tokio::task::spawn_blocking(move || {
+        crate::commands::diff::diff_list_pending_impl(&journal, session_id)
+    })
+    .await
+    {
+        Ok(Ok(dtos)) => Json(dtos).into_response(),
+        Ok(Err(e)) => app_error_to_response(e),
+        Err(e) => app_error_to_response(agentyx_core::AppError::Internal {
+            message: format!("join error: {e}"),
+        }),
+    }
+}
+
+/// `GET /api/v1/diffs/:tool_call_id` — fetch the full diff
+/// payload for a tool call. v0.1 returns 404 (deferred to v0.2).
+pub async fn get_diff_full(
+    State(_server): State<Arc<ServerState>>,
+    Path(tool_call_id): Path<ulid::Ulid>,
+) -> impl IntoResponse {
+    app_error_to_response(agentyx_core::AppError::NotFound {
+        kind: "diff".into(),
+        id: tool_call_id.to_string(),
+    })
+}

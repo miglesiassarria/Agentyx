@@ -321,3 +321,31 @@ export interface PermissionRequestDto {
   reason: string;
   createdAt: string;
 }
+
+// === F04 — file diffs ===
+
+/** Kind of tool that produced a diff. Maps 1:1 to the tool name. */
+export type DiffKind = 'edit_file' | 'apply_patch' | 'write_file';
+
+/** Diff payload attached to `chat.tool_call.v1` events. */
+export interface DiffPayload {
+  kind: DiffKind;
+  before: string | null;
+  after: string;
+  beforeTruncated: boolean;
+  afterTruncated: boolean;
+  isBinary: boolean;
+  mime: string | null;
+  additions: number;
+  deletions: number;
+}
+
+/** Summary row from `diff_list_pending`. */
+export interface DiffSummaryDto {
+  toolCallId: string;
+  path: string;
+  kind: DiffKind;
+  additions: number;
+  deletions: number;
+  createdAt: number;
+}
