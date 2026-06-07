@@ -12,9 +12,8 @@
 /// See `../../../specs/features/F02-multi-workspace.md` for the
 /// end-to-end flow. See `lib/ipc.ts` for the IPC primitives.
 
-import { open as openDialog } from '@tauri-apps/plugin-dialog';
-
-import { events, workspace as workspaceIpc } from '$lib/ipc';
+import { events, isBrowserMode, workspace as workspaceIpc } from '$lib/ipc';
+import { pathPromptStore } from '$lib/stores/path-prompt.svelte';
 import type { ExtraPathDto, FileEntryDto, VenvSpec, WorkspaceDto } from '$lib/ipc-types';
 
 interface TreeNode {
@@ -117,17 +116,18 @@ class WorkspaceStore {
     }
   }
 
-  async openViaDialog(): Promise<WorkspaceDto | null> {
+  /**
+   * Open a workspace by absolute path. Programmatic — does not
+   * show any UI. Components that already have a path (e.g. the
+   * browser path prompt submitted a value) should call this
+   * directly. To open with a dialog (Tauri) or a prompt
+   * (browser), use `openViaDialog`.
+   */
+  async openViaPath(rootPath: string, name?: string): Promise<WorkspaceDto> {
     this.mutating = true;
     this.lastError = null;
     try {
-      const selected = await openDialog({
-        directory: true,
-        multiple: false,
-        title: 'Open workspace',
-      });
-      if (typeof selected !== 'string') return null;
-      const ws = await workspaceIpc.open(selected);
+      const ws = await workspaceIpc.open(rootPath, name);
       await this.loadList();
       this.selectedId = ws.id;
       await this.refreshSelectionData();
@@ -138,6 +138,21 @@ class WorkspaceStore {
     } finally {
       this.mutating = false;
     }
+  }
+
+  /**
+   * Open a workspace through the OS-native file dialog (Tauri) or
+   * an in-app absolute-path prompt (browser). Resolves to the new
+   * workspace, or `null` if the user cancelled.
+   *
+   * Browser mode (F06.AC4/AC5): there is no native dialog, so the
+   * user types an absolute path into `PathPromptDialog`. The
+   * typed value is then passed to `openViaPath`.
+   */
+  async openViaDialog(): Promise<WorkspaceDto | null> {
+    const picked = await pickWorkspaceRoot();
+    if (picked === null) return null;
+    return this.openViaPath(picked.path, picked.name);
   }
 
   async select(id: string | null): Promise<void> {
@@ -194,21 +209,22 @@ class WorkspaceStore {
     }
   }
 
-  async addExtraPathViaDialog(): Promise<ExtraPathDto | null> {
+  /**
+   * Add an extra path to the selected workspace by absolute path.
+   * Programmatic — does not show any UI. See `addExtraPathViaDialog`
+   * for the dialog-based flow.
+   */
+  async addExtraPathViaPath(path: string, label?: string | null): Promise<ExtraPathDto> {
     const id = this.selectedId;
-    if (id === null) return null;
+    if (id === null) {
+      const err = new Error('no workspace selected');
+      (err as Error & { code: string }).code = 'no_workspace_selected';
+      throw err;
+    }
     this.mutating = true;
     this.lastError = null;
     try {
-      const picked = await openDialog({
-        directory: true,
-        multiple: false,
-        title: 'Add directory to workspace',
-      });
-      if (typeof picked !== 'string') return null;
-      const extra = await workspaceIpc.addExtraPath(id, picked, null);
-      // Optimistic local merge (the event listener would also do it
-      // via `refreshExtrasFor`); merging here keeps the UI snappy.
+      const extra = await workspaceIpc.addExtraPath(id, path, label ?? null);
       this.list = this.list.map((w) =>
         w.id === id ? { ...w, extraPaths: [...w.extraPaths, extra] } : w,
       );
@@ -219,6 +235,19 @@ class WorkspaceStore {
     } finally {
       this.mutating = false;
     }
+  }
+
+  /**
+   * Add an extra path through the OS-native file dialog (Tauri) or
+   * an in-app absolute-path prompt (browser). Resolves to the new
+   * extra path, or `null` if the user cancelled.
+   */
+  async addExtraPathViaDialog(): Promise<ExtraPathDto | null> {
+    const id = this.selectedId;
+    if (id === null) return null;
+    const picked = await pickExtraDirectory();
+    if (picked === null) return null;
+    return this.addExtraPathViaPath(picked.path, picked.label);
   }
 
   async removeExtraPath(path: string): Promise<void> {
@@ -350,6 +379,48 @@ function entriesToNodes(entries: FileEntryDto[]): TreeNode[] {
 function toMessage(e: unknown): string {
   if (e instanceof Error) return e.message;
   return String(e);
+}
+
+interface PickedDirectory {
+  path: string;
+  label?: string | null;
+  name?: string;
+}
+
+async function pickWorkspaceRoot(): Promise<PickedDirectory | null> {
+  if (isBrowserMode()) {
+    const result = await pathPromptStore.requestWorkspaceOpen();
+    if (result === null) return null;
+    const picked: PickedDirectory = { path: result.path };
+    if (result.label !== null) picked.label = result.label;
+    return picked;
+  }
+  const { open } = await import('@tauri-apps/plugin-dialog');
+  const selected = await open({
+    directory: true,
+    multiple: false,
+    title: 'Open workspace',
+  });
+  if (typeof selected !== 'string') return null;
+  return { path: selected };
+}
+
+async function pickExtraDirectory(): Promise<PickedDirectory | null> {
+  if (isBrowserMode()) {
+    const result = await pathPromptStore.requestExtraPath();
+    if (result === null) return null;
+    const picked: PickedDirectory = { path: result.path };
+    if (result.label !== null) picked.label = result.label;
+    return picked;
+  }
+  const { open } = await import('@tauri-apps/plugin-dialog');
+  const picked = await open({
+    directory: true,
+    multiple: false,
+    title: 'Add directory to workspace',
+  });
+  if (typeof picked !== 'string') return null;
+  return { path: picked };
 }
 
 export const workspaceStore = new WorkspaceStore();

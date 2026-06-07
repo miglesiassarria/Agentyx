@@ -160,9 +160,16 @@ pub async fn respond(
     request_id: PermissionRequestId,
     response: PermissionResponse,
 ) -> AppResult<()> {
-    let state = state.inner().clone();
-    // Snapshot the registry off the state first; we then drop the
-    // state guard before the await to keep `Send` clean.
+    respond_impl(state.inner().clone(), request_id, response).await
+}
+
+/// Inner for `respond` — shared with the HTTP `POST
+/// /api/v1/permissions/requests/:id/respond` handler.
+pub(crate) async fn respond_impl(
+    state: Arc<AppState>,
+    request_id: PermissionRequestId,
+    response: PermissionResponse,
+) -> AppResult<()> {
     let decision = response.into_user_decision();
     let reg = state.permission_registry.clone();
     let request_id_str = request_id.to_string();
@@ -177,7 +184,12 @@ pub async fn respond(
 /// to recover the queue after a workspace switch or page reload.
 #[tauri::command]
 pub async fn list(state: State<'_, Arc<AppState>>) -> AppResult<Vec<PermissionRequestDto>> {
-    let state = state.inner().clone();
+    list_impl(state.inner().clone()).await
+}
+
+/// Inner for `list` — shared with the HTTP `GET
+/// /api/v1/permissions/requests` handler.
+pub(crate) async fn list_impl(state: Arc<AppState>) -> AppResult<Vec<PermissionRequestDto>> {
     let requests = state.permission_registry.list();
     let out: Vec<PermissionRequestDto> = requests
         .into_iter()

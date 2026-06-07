@@ -72,6 +72,10 @@ pub fn build_router(state: Arc<ServerState>) -> Router {
             "/config/global",
             get(handlers::get_config_global).patch(handlers::update_config_global),
         )
+        .route(
+            "/config/workspaces/:id",
+            get(handlers::get_workspace_config).patch(handlers::update_workspace_config),
+        )
         // Providers (F06 AC9)
         .route(
             "/providers/test-connection",
@@ -83,11 +87,19 @@ pub fn build_router(state: Arc<ServerState>) -> Router {
             "/secrets/:provider_id",
             post(handlers::set_secret).delete(handlers::delete_secret),
         )
-        // Permissions (F06 AC9)
+        // Permissions (F06 AC7 + AC9)
         .route("/permissions/matrix", get(handlers::get_permission_matrix))
         .route(
             "/permissions/default",
             post(handlers::set_default_permission),
+        )
+        .route(
+            "/permissions/requests",
+            get(handlers::list_permission_requests),
+        )
+        .route(
+            "/permissions/requests/:id/respond",
+            post(handlers::respond_permission_request),
         )
         // Diffs (F04)
         .route("/sessions/:id/diffs", get(handlers::list_session_diffs))

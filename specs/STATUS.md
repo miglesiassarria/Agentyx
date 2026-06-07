@@ -5,13 +5,14 @@
 > Para índice de ADRs: [adr/README.md](./adr/README.md).
 >
 > Última actualización: 2026-06-07 (orden de MVP tras auditoría local):
-> `cargo test --workspace` pasa (274 tests), `npm run typecheck`,
-> `npm test` y `npm run build` pasan. F06 tiene infraestructura web
-> usable (Axum + ServeDir + REST parcial + SSE + adapter HTTP), pero
-> sigue bloqueado para MVP web por gaps de UX/browser y endpoints HTTP
-> faltantes: path manual para abrir workspace/extra paths, config
-> workspace HTTP, `permissions.list/respond` HTTP. F04/F-agents-ui
-> tienen UI parcial, pero no cierran comportamiento completo.
+> `cargo test --workspace` pasa (276 tests: 71 app + 205 core), vitest
+> pasa (44 tests), `npx tsc --noEmit` pasa. F06 sigue parcial pero
+> F06.AC4/AC5 cerrados con `PathPromptDialog` +
+> `pathPromptStore` y tests HTTP `f06_ac4_*` / `f06_ac5_*`; el bundle
+> del browser ya no carga el plugin de diálogo de Tauri. Siguen
+> abiertos para MVP web: HTTP `config/workspaces/:id` GET/PATCH,
+> HTTP `permissions.requests` GET/POST, smoke LAN E2E. F04 y
+> F-agents-ui siguen parciales (no cierran comportamiento completo).
 >
 > **Disciplina de status**: este archivo se actualiza en el mismo PR
 > que cambia el estado real de cualquier pitch/spec o deja el board
@@ -76,10 +77,42 @@
    `BroadcastEventSink`, browser IPC adapter dual-mode.
    F06.AC10 (#TBD): SPA fallback ahora retorna 200 (no 404) en deep-links;
    integración test verifica app shell + API JSON.
-   Pendiente para `implemented (full)`: browser-safe manual path open/add
-   extra path, `GET/PATCH /config/workspaces/:id`, `GET
-   /permissions/requests`, `POST /permissions/requests/:id/respond`, y
-   smoke LAN completo.
+   F06.AC4/AC5 (PR `feat/f06-browser-workspace-paths`):
+   `PathPromptDialog.svelte` + `path-prompt.svelte.ts` +
+   `PathPromptHost.svelte` (montado en `app.svelte`); el workspace
+   store ahora enruta por `isBrowserMode()` y carga el plugin de
+   diálogo Tauri solo en desktop mode. Tests:
+   `f06_ac4_http_open_workspace_via_typed_path` y
+   `f06_ac5_http_add_extra_path_via_typed_path` (Rust HTTP) +
+   `ac5_browser_open_via_typed_path`,
+   `ac5_browser_add_extra_via_typed_path`,
+   `openViaDialog_returns_null_and_does_not_call_IPC_when_the_user_cancels`
+   en `workspace.svelte.test.ts`.
+   F06.AC7 + F06.AC9 workspace-config (PR
+   `feat/f06-http-config-permissions-gap`): handlers HTTP
+   `get_workspace_config`, `update_workspace_config`,
+   `list_permission_requests`, `respond_permission_request`;
+   `config_get_workspace_impl`/`config_update_workspace_impl`/
+   `list_impl`/`respond_impl` extraídos de los Tauri commands;
+   el adapter HTTP de `ui/src/lib/ipc.ts` ahora enruta
+   `config_get_workspace`, `config_update_workspace`,
+   `permissions.list` y `permissions.respond` por HTTP. Tests:
+   `f06_ac7_http_permission_request_list_and_respond` y
+   `f06_ac9_http_workspace_config_get_and_patch` (Rust HTTP).
+   F06.AC6 + F06.AC8 (PR `feat/f06-web-smoke`): tests
+   `f06_ac6_chat_send_publishes_events_to_sse` (inyecta un
+   `MockProvider` bajo `ollama` via el nuevo
+   `ProviderRegistry::register`, suscribe un cliente SSE, y
+   verifica que `chat.run.started.v1`,
+   `chat.content.delta.v1`, y `chat.run.finished.v1` llegan al
+   SSE con el contenido del mock) y
+   `f06_ac8_sse_delivers_published_event` (parity del bus).
+   `scripts/web-smoke.sh` automatiza la verificación curl-able
+   (health, workspaces, config GET/PATCH, permissions,
+   SPA fallback).
+   Pendiente para `implemented (full)`: smoke manual en
+   navegador real (PathPromptDialog UX, SSE en el tab, LAN
+   desde otro dispositivo) más allá de `scripts/web-smoke.sh`.
 - **features/F02-multi-workspace.md** — `approved` → `implemented (full)`.
   PRs: UI (#12) 9/9 ACs UI + AC3, AC9 backend con `list_dir`; **AC7
   cerrado en PR `fix/f02-ac7-delete-workspace-with-active-runs`**
@@ -193,26 +226,28 @@ _(ninguno)_
 
 ### P0 — cerrar MVP web funcional
 
-1. **F06-browser-workspace-paths**: en browser mode, reemplazar los
-   diálogos OS por inputs de path absoluto para:
-   - abrir workspace (`workspace.open(rootPath)`);
-   - añadir extra path (`workspace.addExtraPath(workspaceId, path)`).
-   Mantener `@tauri-apps/plugin-dialog` solo en desktop mode.
-   Tests esperados: UI/store tests para browser path flow y smoke manual
-   `http://127.0.0.1:<port>` abre workspace.
-2. **F06-http-config-permissions-gap**: completar router + handlers +
-   `ui/src/lib/ipc.ts` browser adapter para:
-   - `GET /api/v1/config/workspaces/:id`;
-   - `PATCH /api/v1/config/workspaces/:id`;
-   - `GET /api/v1/permissions/requests`;
-   - `POST /api/v1/permissions/requests/:id/respond`.
-   Tests esperados: Rust HTTP tests y Vitest del adapter.
-3. **F06/F05 web smoke**: verificar en navegador LAN:
-   - listar/abrir workspace;
-   - configurar/testear Ollama local;
-   - mandar mensaje y recibir `chat.content.delta.v1` por SSE;
-   - recibir y responder un `permission.requested.v1`;
-   - refresh/deep-link conserva app shell.
+1. **F06-browser-workspace-paths**: ✅ cerrado en PR
+   `feat/f06-browser-workspace-paths`. `PathPromptDialog` +
+   `pathPromptStore` cubren `openViaDialog` y `addExtraPathViaDialog`
+   en browser mode; tests HTTP `f06_ac4_*` y `f06_ac5_*` + UI store
+   tests `ac5_browser_*` pasan.
+2. **F06-http-config-permissions-gap**: ✅ cerrado en PR
+   `feat/f06-http-config-permissions-gap`. Router + handlers +
+   `ui/src/lib/ipc.ts` browser adapter para
+   `GET /api/v1/config/workspaces/:id`,
+   `PATCH /api/v1/config/workspaces/:id`,
+   `GET /api/v1/permissions/requests`, y
+   `POST /api/v1/permissions/requests/:id/respond` están
+   cableados. Tests `f06_ac7_*` y `f06_ac9_*` pasan; el PATCH
+   valida el id contra `WorkspaceService` y rechaza con 404.
+3. **F06/F05 web smoke**: ✅ parcialmente automatizado.
+   - `scripts/web-smoke.sh` arranca el binario en un AGENTYX_HOME
+     temporal y verifica con curl: health, workspaces (list +
+     open), config GET/PATCH, permission matrix, permission
+     requests, SPA fallback. Pendiente: smoke con un browser
+     real (PathPromptDialog UX, SSE en el tab, LAN desde otro
+     dispositivo). Tests Rust `f06_ac6_*` y `f06_ac8_*` ya
+     verifican la parte SSE end-to-end con `MockProvider`.
 
 ### P1 — cerrar MVP desktop/read-only
 

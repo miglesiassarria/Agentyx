@@ -130,6 +130,11 @@ impl ResolvedConfigDto {
 /// Get the global config (without secrets).
 #[tauri::command]
 pub async fn config_get_global(state: State<'_, Arc<AppState>>) -> AppResult<GlobalConfigDto> {
+    config_get_global_impl(state.inner().clone()).await
+}
+
+/// Inner for `config_get_global` — shared with HTTP handlers.
+pub(crate) async fn config_get_global_impl(state: Arc<AppState>) -> AppResult<GlobalConfigDto> {
     Ok(state.config.get())
 }
 
@@ -145,9 +150,22 @@ pub async fn config_update_global(
     state: State<'_, Arc<AppState>>,
     patch: GlobalConfigPatch,
 ) -> AppResult<GlobalConfigDto> {
-    let new_cfg = state.config.update_with_patch(&patch)?;
+    let state = state.inner().clone();
+    let new_cfg = config_update_global_impl(state.clone(), patch).await?;
     let payload = build_config_changed_payload_global(new_cfg.clone());
     state.event_bus.emit(&app, "config.changed.v1", payload);
+    Ok(new_cfg)
+}
+
+/// Inner for `config_update_global` — shared with HTTP handlers.
+/// Does **not** emit the `config.changed.v1` event; the caller
+/// decides whether to use `AppHandle::emit` (Tauri windows) or
+/// `EventBus::publish_typed` (SSE clients).
+pub(crate) async fn config_update_global_impl(
+    state: Arc<AppState>,
+    patch: GlobalConfigPatch,
+) -> AppResult<GlobalConfigDto> {
+    let new_cfg = state.config.update_with_patch(&patch)?;
     // Refresh providers so newly added ones are available immediately.
     let _ = state.refresh_providers();
     Ok(new_cfg)
@@ -159,6 +177,14 @@ pub async fn config_update_global(
 #[tauri::command]
 pub async fn config_get_workspace(
     state: State<'_, Arc<AppState>>,
+    workspace_id: WorkspaceId,
+) -> AppResult<ResolvedConfigDto> {
+    config_get_workspace_impl(state.inner().clone(), workspace_id).await
+}
+
+/// Inner for `config_get_workspace` — shared with HTTP handlers.
+pub(crate) async fn config_get_workspace_impl(
+    state: Arc<AppState>,
     workspace_id: WorkspaceId,
 ) -> AppResult<ResolvedConfigDto> {
     let snap = state.config.resolve_snapshot(workspace_id)?;
@@ -178,10 +204,23 @@ pub async fn config_update_workspace(
     workspace_id: WorkspaceId,
     patch: WorkspaceConfigPatch,
 ) -> AppResult<WorkspaceConfigDto> {
-    let new_cfg = state.config.update_workspace(workspace_id, &patch)?;
+    let state = state.inner().clone();
+    let new_cfg = config_update_workspace_impl(state.clone(), workspace_id, patch).await?;
     let payload = build_config_changed_payload_workspace(workspace_id, new_cfg.clone());
     state.event_bus.emit(&app, "config.changed.v1", payload);
     Ok(new_cfg)
+}
+
+/// Inner for `config_update_workspace` — shared with HTTP handlers.
+/// Does **not** emit the `config.changed.v1` event; the caller
+/// decides whether to use `AppHandle::emit` (Tauri windows) or
+/// `EventBus::publish_typed` (SSE clients).
+pub(crate) async fn config_update_workspace_impl(
+    state: Arc<AppState>,
+    workspace_id: WorkspaceId,
+    patch: WorkspaceConfigPatch,
+) -> AppResult<WorkspaceConfigDto> {
+    state.config.update_workspace(workspace_id, &patch)
 }
 
 #[cfg(test)]

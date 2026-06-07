@@ -49,6 +49,13 @@ type UnlistenFn = () => void;
 
 const isBrowser = typeof window !== 'undefined' && !('__TAURI__' in window);
 
+/**
+ * True when the UI is running inside a browser (no Tauri runtime).
+ * Components and stores use this to swap OS dialogs for in-app
+ * path inputs (see F06.AC4/AC5 and `stores/path-prompt.svelte.ts`).
+ */
+export const isBrowserMode = (): boolean => isBrowser;
+
 // ============================================================
 // Tauri mode (desktop)
 // ============================================================
@@ -234,6 +241,10 @@ async function httpCallBrowser<T>(command: string, args?: Record<string, unknown
       return httpCall<T>('GET', '/api/v1/config/global');
     case 'config_update_global':
       return httpCall<T>('PATCH', '/api/v1/config/global', a.patch);
+    case 'config_get_workspace':
+      return httpCall<T>('GET', `/api/v1/config/workspaces/${a.workspace_id}`);
+    case 'config_update_workspace':
+      return httpCall<T>('PATCH', `/api/v1/config/workspaces/${a.workspace_id}`, a.patch);
     // Providers
     case 'providers_test_connection':
       return httpCall<T>('POST', '/api/v1/providers/test-connection', a.request);
@@ -255,6 +266,21 @@ async function httpCallBrowser<T>(command: string, args?: Record<string, unknown
         tool: a.tool,
         decision: a.decision,
       });
+    case 'list': {
+      // permission requests list — the `permissions.list` API in
+      // `permissions` namespace. Disambiguate from session.list by
+      // checking the path: we only have this case in the permission
+      // namespace.
+      return httpCall<T>('GET', '/api/v1/permissions/requests');
+    }
+    case 'respond': {
+      // permission request respond — the `permissions.respond` API.
+      return httpCall<T>(
+        'POST',
+        `/api/v1/permissions/requests/${a.request_id}/respond`,
+        a.response,
+      );
+    }
     // Diffs (F04)
     case 'diff_list_pending':
       return httpCall<T>('GET', `/api/v1/sessions/${a.session_id}/diffs`);
