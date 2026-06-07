@@ -260,6 +260,10 @@ agentyx/
 - Comentarios solo donde aporten contexto (no qué hace, sino por qué).
 - Mensajes de commit: conventional commits (`feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`).
 - PRs: una preocupación por PR. Diff pequeño y revisable.
+- PRs abiertas por un agente: si el CI pasa completo y no hay bloqueo
+  humano explícito, el mismo agente debe cerrar el ciclo fusionando la
+  PR (`gh pr merge`) y verificando que `main` queda actualizado. No
+  dejar PRs verdes abiertas salvo que el usuario pida revisión humana.
 - Ramas: `feat/<scope>`, `fix/<scope>`, `chore/<scope>`.
 
 ---
@@ -563,6 +567,10 @@ pub trait Provider: Send + Sync {
          de una spec/pitch o el board queda objetivamente obsoleto.
       3. Sección `## Spec status changes` del cuerpo del PR con
          cada pitch/spec tocado, o `N/A` con motivo.
+- [ ] **PR lifecycle**: si el CI del PR está en verde y no hay bloqueo
+      humano explícito, el agente que abrió la PR debe fusionarla y
+      confirmar después que el estado del proyecto refleja el resultado
+      real post-merge.
 
 ---
 
