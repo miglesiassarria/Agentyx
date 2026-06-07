@@ -255,6 +255,11 @@ async function httpCallBrowser<T>(command: string, args?: Record<string, unknown
         tool: a.tool,
         decision: a.decision,
       });
+    // Diffs (F04)
+    case 'diff_list_pending':
+      return httpCall<T>('GET', `/api/v1/sessions/${a.session_id}/diffs`);
+    case 'diff_get_full':
+      return httpCall<T>('GET', `/api/v1/diffs/${a.tool_call_id}`);
     default:
       throw new Error(`Unknown command in browser mode: ${command}`);
   }
@@ -500,4 +505,15 @@ export const events = {
   // `config_update_global` or `config_update_workspace`. Multi-tab
   // and multi-window UIs use this to refresh their state.
   configChanged: (cb: (p: ConfigChangedPayload) => void) => listen('config.changed.v1', cb),
+};
+
+// === Diffs (F04) ===
+
+import type { DiffSummaryDto, DiffPayload } from './ipc-types';
+
+export const diffs = {
+  listPending: (sessionId: SessionId): Promise<DiffSummaryDto[]> =>
+    call('diff_list_pending', { session_id: sessionId }),
+  getFull: (toolCallId: string): Promise<DiffPayload> =>
+    call('diff_get_full', { tool_call_id: toolCallId }),
 };

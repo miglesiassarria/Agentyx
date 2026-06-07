@@ -5,6 +5,7 @@
   import type { WorkspaceId } from '$lib/ipc-types';
 
   import Composer from './Composer.svelte';
+  import DiffsSidePanel from './diff/DiffsSidePanel.svelte';
   import MessageList from './MessageList.svelte';
 
   interface Props {
@@ -40,6 +41,17 @@
     </div>
 
     <div class="actions">
+      <DiffsSidePanel
+        sessionId={sessionStore.activeSession?.id ?? ''}
+        onJump={(id) => {
+          // Scroll to the diff in MessageList. The store keeps
+          // a list of recent tool calls; we dispatch a custom
+          // event so the list can highlight it.
+          window.dispatchEvent(
+            new CustomEvent('agentyx:jump-to-diff', { detail: { toolCallId: id } }),
+          );
+        }}
+      />
       <span class="status" data-status={sessionStore.runStatus}>
         {sessionStore.runStatus}
       </span>

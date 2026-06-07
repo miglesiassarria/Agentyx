@@ -40,6 +40,9 @@
     "vitest": "^2.1.0"
   },
   "dependencies": {
+    "@codemirror/merge": "^6.0.0",
+    "@codemirror/state": "^6.5.0",
+    "@codemirror/view": "^6.36.0",
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-deep-link": "^2.0.0",
     "@tauri-apps/plugin-dialog": "^2.0.0",
