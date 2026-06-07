@@ -4,9 +4,8 @@
 > Para roadmap de features: [features/ROADMAP.md](./features/ROADMAP.md).
 > Para índice de ADRs: [adr/README.md](./adr/README.md).
 >
-> Última actualización: 2026-06-06 (sync post-PR1: F05 backend wiring
-> de config + secrets; `domains/config.md` promoted a `ready` con 13/18
-> ACs backend cubiertos)
+> Última actualización: 2026-06-07 (sync PR3: F05 Settings UI parcial;
+> backend config/secrets/providers ya cableado y UI consume comandos reales)
 >
 > **Disciplina de status**: este archivo se actualiza en el mismo PR
 > que cambia el estado real de cualquier pitch/spec o deja el board
@@ -20,8 +19,8 @@
 - agents.md
 - domains/providers.md
 - domains/journal.md
-- features/F05-settings.md (UI pendiente; backend promovido a `ready`
-  en este PR)
+- features/F05-settings.md (UI parcial en curso; providers/models/approval/
+  workspace shell implementado, edición completa de matriz pendiente)
 - features/F04-file-diffs.md
 - features/F-agents-ui.md
 
@@ -113,9 +112,9 @@
       `f05_ac6_workspace_override_isolated_from_global`,
       `f05_ac11_settings_persist_across_app_restart`,
       `f05_ac12_resolved_snapshot_never_includes_secrets`.
-  Pendientes para `ready` → `implemented` (cubierto por PR3
-  F05 UI + PR2 providers): AC3 (invalid key test connection),
-  AC9 (permission matrix), AC10 (test & add con UI).
+  Pendientes para `ready` → `implemented`: edición persistente de
+  matriz de permisos (AC9), cobertura E2E de add provider/persistencia
+  completa (AC2, AC10, AC11) y eventos `config.changed.v1` (AC15).
 
 ## ⚫ Deprecated
 _(ninguno)_
@@ -134,8 +133,8 @@ _(ninguno)_
 > providers/secrets (F05), completar los AC abiertos de F01, y después
 > implementar F-agents-ui y F04.
 
-1. `F05-settings.md` + `domains/config.md`: reemplazar placeholders
-   de `config`, `providers` y `secrets` por comandos reales.
+1. `F05-settings.md`: cerrar edición persistente de la matriz de
+   permisos, cobertura E2E de add provider y evento `config.changed.v1`.
 2. `F01-chat-streaming.md`: cerrar AC9, AC10, AC11 y AC14.
 3. `F-agents-ui.md`: AgentChip, cycle shortcuts, @mention popover y
    SessionTree.
@@ -154,8 +153,9 @@ _(ninguno)_
 - **`agents.md` sigue en `draft`** aunque parte del modelo built-in ya
   existe en core; F-agents-ui debe decidir si promueve la spec o la
   mantiene como dominio en diseño.
-- **F05 tiene comandos placeholder** en `agentyx-app` para config,
-  providers y secrets; es el bloqueo más directo para dogfooding.
+- **F05 Settings UI es parcial**: consume comandos reales de config,
+  providers y secrets, pero `permissions_set_default`/eventos F05 y E2E
+  de persistencia completa siguen pendientes.
 
 ## Reglas de transición
 

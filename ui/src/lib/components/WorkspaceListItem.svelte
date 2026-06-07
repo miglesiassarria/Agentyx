@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { WorkspaceDto } from '$lib/ipc-types';
+  import { uiStore } from '$lib/stores/ui.svelte';
   import { workspaceStore } from '$lib/stores/workspace.svelte';
 
   import ConfirmDialog from './ConfirmDialog.svelte';
@@ -15,6 +16,7 @@
   let confirmingDelete = $state(false);
 
   function handleSelect(): void {
+    uiStore.showWorkspace();
     void workspaceStore.select(workspace.id);
   }
 

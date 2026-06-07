@@ -16,6 +16,10 @@ export type RunId = string;
 export type WorkspaceId = string;
 export type ToolId = string;
 export type MessageId = string;
+export type ProviderId = string;
+export type ApprovalMode = 'ask' | 'allow' | 'deny';
+export type UpdateChannel = 'stable' | 'beta' | 'dev';
+export type Theme = 'auto' | 'light' | 'dark';
 
 /** A single directory entry returned by `workspace.list_dir`. */
 export interface FileEntryDto {
@@ -115,6 +119,95 @@ export interface TestConnectionResult {
   models: string[];
   error?: string;
   errorCode?: string;
+}
+
+export interface SecretRefEnv {
+  env: string;
+}
+
+export interface SecretRefKeychain {
+  keychain: {
+    account: string;
+  };
+}
+
+export type SecretRef = SecretRefEnv | SecretRefKeychain;
+
+export interface ProviderConfigDto {
+  baseUrl: string;
+  enabled: boolean;
+  apiKey?: SecretRef;
+  models?: string[];
+}
+
+export interface UiConfigDto {
+  theme: Theme;
+  fontSize: number;
+  showTokenCount: boolean;
+  showTimestamps: boolean;
+}
+
+export interface GlobalConfigDto {
+  version: number;
+  approvalMode: ApprovalMode;
+  defaultProvider: ProviderId;
+  defaultModel: string;
+  providers: Record<ProviderId, ProviderConfigDto>;
+  ui: UiConfigDto;
+  telemetryEnabled: boolean;
+  checkUpdates: boolean;
+  updateChannel: UpdateChannel;
+}
+
+export interface WorkspaceSettingsDto {
+  ignorePatterns: string[];
+  journalMaxRows?: number;
+}
+
+export interface WorkspaceConfigDto {
+  version: number;
+  defaultProvider?: ProviderId | null;
+  defaultModel?: string | null;
+  approvalMode?: ApprovalMode | null;
+  workspace: WorkspaceSettingsDto;
+}
+
+export interface EffectiveConfigDto {
+  approvalMode: ApprovalMode;
+  defaultProvider: ProviderId;
+  defaultModel: string;
+  workspaceSettings: WorkspaceSettingsDto;
+}
+
+export interface ResolvedConfigDto {
+  global: GlobalConfigDto;
+  workspace?: WorkspaceConfigDto | null;
+  effective: EffectiveConfigDto;
+  keychainProviderIds: ProviderId[];
+}
+
+export interface GlobalConfigPatchDto {
+  approvalMode?: ApprovalMode;
+  defaultProvider?: ProviderId;
+  defaultModel?: string;
+  providers?: Record<ProviderId, ProviderConfigDto>;
+  ui?: UiConfigDto;
+  telemetryEnabled?: boolean;
+  checkUpdates?: boolean;
+  updateChannel?: UpdateChannel;
+}
+
+export interface WorkspaceConfigPatchDto {
+  approvalMode?: ApprovalMode | null;
+  defaultProvider?: ProviderId | null;
+  defaultModel?: string | null;
+  workspace?: WorkspaceSettingsDto;
+}
+
+export interface TestConnectionRequest {
+  providerId: ProviderId;
+  provider: ProviderConfigDto;
+  inlineApiKey?: string;
 }
 
 /** Permission matrix for a tool × decision. */
