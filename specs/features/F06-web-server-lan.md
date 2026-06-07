@@ -18,18 +18,18 @@
   `POST /sessions/:id/messages`, global config/provider/secrets/
   permissions matrix endpoints, diff skeleton endpoints, and a dual
   Tauri/HTTP `ui/src/lib/ipc.ts` adapter.
-- Do **not** treat F06 as full yet. MVP blockers still open:
-  stronger SSE integration tests (F06.AC6), Tauri↔SSE event
-  parity test (F06.AC8), and a real LAN smoke. F06.AC4, AC5,
-  AC7, and the workspace-config half of F06.AC9 are now closed
-  via `PathPromptDialog` + `pathPromptStore` + the new
-  HTTP `permissions/requests` and `config/workspaces/:id`
-  endpoints.
+- Do **not** treat F06 as full yet. All automatable ACs are covered,
+  including chat→SSE (F06.AC6), event bus SSE parity (F06.AC8),
+  browser path prompts (F06.AC4/AC5), HTTP permission requests
+  (F06.AC7), workspace config HTTP (F06.AC9) and SPA fallback
+  (F06.AC10). The remaining gap is real manual LAN smoke in a browser:
+  PathPromptDialog UX, SSE in a tab, and access from a second device.
 - Implement one embedded Axum server in `agentyx-app`, started with
   the desktop process. It serves the same Svelte build and exposes
   REST + SSE under `/api/v1`.
-- Required MVP bind: configurable `0.0.0.0:<port>` for LAN. If bind
-  is not loopback, bearer auth is mandatory.
+- Required MVP bind: configurable `0.0.0.0:<port>` for LAN. Bearer auth
+  is enforced when `server.require_token = true`; `false` is an MVP
+  dogfooding concession that emits a startup warning.
 - UI must keep one public API in `ui/src/lib/ipc.ts`: Tauri uses
   `invoke/listen`, browser uses `fetch/EventSource`.
 - Browser mode cannot use OS file dialogs. Workspace open and extra
@@ -66,7 +66,7 @@ entry.
   - `/api/v1/*` JSON endpoints that call the same app services as
     the Tauri commands.
   - `/api/v1/events` SSE endpoint backed by the shared event bus.
-  - Bearer auth middleware for non-loopback bind.
+  - Bearer auth middleware for non-loopback bind when enabled.
 - Refactor `EventBus` so every event is published to:
   - Tauri windows via `AppHandle::emit`.
   - A broadcast channel consumed by SSE clients.
@@ -87,8 +87,9 @@ entry.
   - `server.bind_host: string` default `"127.0.0.1"`.
   - `server.port: u16 | null` default `null` (random free port).
   - `server.lan_enabled: bool` default `false`.
+  - `server.require_token: bool` default `false` in v0.1 dogfooding.
   - `server.token_ref: SecretRef | null` required when
-    `bind_host != "127.0.0.1" && bind_host != "::1"`.
+    `server.require_token = true`.
 - **Server commands**:
   - `server_get_info() -> ServerInfoDto`.
   - `server_update_config(patch: ServerConfigPatch) -> ServerInfoDto`.
@@ -134,7 +135,7 @@ entry.
 - **Errors**:
   - HTTP errors use the existing `{ code, message, context? }` shape.
   - `401 unauthorized` for missing/invalid bearer token.
-  - `403 forbidden` for LAN bind without configured token.
+  - `403 forbidden` for `require_token = true` without configured token.
 
 ## Acceptance Criteria
 

@@ -6,12 +6,11 @@
 >
 > Última actualización: 2026-06-07 (orden de MVP tras auditoría local):
 > `cargo test --workspace` pasa (276 tests: 71 app + 205 core), vitest
-> pasa (44 tests), `npx tsc --noEmit` pasa. F06 sigue parcial pero
-> F06.AC4/AC5 cerrados con `PathPromptDialog` +
-> `pathPromptStore` y tests HTTP `f06_ac4_*` / `f06_ac5_*`; el bundle
-> del browser ya no carga el plugin de diálogo de Tauri. Siguen
-> abiertos para MVP web: HTTP `config/workspaces/:id` GET/PATCH,
-> HTTP `permissions.requests` GET/POST, smoke LAN E2E. F04 y
+> pasa (44 tests), `npx tsc --noEmit` pasa. F06 tiene todos sus ACs
+> automatizables cerrados: browser path prompts, HTTP config workspace,
+> HTTP permission requests, chat→SSE, event bus SSE y SPA fallback. Queda
+> pendiente solo el smoke manual real en navegador/LAN (PathPromptDialog
+> UX, SSE en un tab real y acceso desde otro dispositivo). F04 y
 > F-agents-ui siguen parciales (no cierran comportamiento completo).
 >
 > **Disciplina de status**: este archivo se actualiza en el mismo PR
@@ -64,7 +63,7 @@
 - **ADR-0008** (nuevo, PR 3): scope de providers v1 (Ollama / Groq / Minimax).
 
 ## ✅ Implemented / Partially Implemented (código en main)
-- **features/F06-web-server-lan.md** — `ready` → `implemented (partial)`. PRs:
+- **features/F06-web-server-lan.md** — `ready` → `implemented (partial: automated ACs complete, manual LAN smoke pending)`. PRs:
    Axum skeleton (#26): `server` module con `router/events_sse/auth/lifecycle`,
    `AuthLayer` + `BearerGuard`, `axum_extra` typed extractor.
    EventBus upgrade: `tokio::sync::broadcast` + `EventSink` trait,
@@ -222,7 +221,8 @@ _(ninguno)_
 ## Orden de continuidad para agentes
 
 > Para MVP, trabajar de arriba abajo. No abrir F04 write tools ni
-> subagents reales hasta cerrar P0 web, salvo instrucción humana.
+> subagents reales hasta validar el smoke manual LAN y cerrar F05,
+> salvo instrucción humana.
 
 ### P0 — cerrar MVP web funcional
 
@@ -240,7 +240,7 @@ _(ninguno)_
    `POST /api/v1/permissions/requests/:id/respond` están
    cableados. Tests `f06_ac7_*` y `f06_ac9_*` pasan; el PATCH
    valida el id contra `WorkspaceService` y rechaza con 404.
-3. **F06/F05 web smoke**: ✅ parcialmente automatizado.
+3. **F06/F05 web smoke**: ✅ parcialmente automatizado; pendiente manual.
    - `scripts/web-smoke.sh` arranca el binario en un AGENTYX_HOME
      temporal y verifica con curl: health, workspaces (list +
      open), config GET/PATCH, permission matrix, permission
@@ -274,12 +274,13 @@ _(ninguno)_
 > Nota de contexto: las specs MVP activas (`F01`, `F02`, `F04`, `F05`,
 > `F-agents-ui`, `agents.md`, `domains/config.md`,
 > `domains/journal.md`) ya tienen `## Agent context` para lectura
-> rápida. F06 está parcialmente implementada; el siguiente trabajo es
-> cerrar P0 web funcional antes de retomar F04 o subagents reales.
+> rápida. F06 tiene cerrados sus ACs automatizables; el siguiente
+> trabajo es validar smoke manual LAN y cerrar F05 antes de retomar
+> F04 o subagents reales.
 
 ### Para el MVP (v0.1)
 
-1. Cerrar P0 web funcional (ver arriba).
+1. Validar smoke manual LAN de F06 (ver arriba).
 2. Cerrar F05 al menos para Ollama local + persistencia settings.
 3. Confirmar corte read-only del agente: `read_file`, `list_dir`,
    `search` son las tools MVP; escritura/diffs quedan v0.1.x salvo
@@ -293,13 +294,12 @@ _(ninguno)_
 
 ### Gaps conocidos
 
-- **F06 fue corregida a partial**: los gaps operativos siguen siendo
-  path manual en browser, HTTP `permissions.respond/list`, config
-  workspace y smoke LAN.
-- **ROADMAP acceptance estaba obsoleto**: algunos checks web siguen sin
-  marcar aunque parte de F06 ya existe; usar la sección "Orden de
-  continuidad" como fuente operativa hasta que cada PR sincronice su
-  spec afectada.
+- **F06 sigue en partial solo por verificación manual**: los gaps HTTP
+  (`permissions.respond/list` y config workspace) y browser path prompt
+  ya están cubiertos por tests. Falta smoke en navegador real/LAN.
+- **ROADMAP acceptance sincronizado**: los checks web automatizables ya
+  están marcados; los checks que implican navegador/LAN real quedan como
+  verificación manual pendiente.
 - **`agents.md` sigue en `draft`** aunque parte del modelo built-in ya
   existe en core; `@mention` real sigue pendiente.
 - **F04 depende de tools de escritura inexistentes**: el registry MVP

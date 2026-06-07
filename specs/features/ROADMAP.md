@@ -3,9 +3,9 @@
 > Vista por features. Para vista global: [specs/README.md](../README.md).
 > Para índice de ADRs: [specs/adr/README.md](../adr/README.md).
 > Última actualización: 2026-06-07 (sincronizado tras auditoría MVP:
-> F06 infra web existe, pero quedan P0 browser UX + HTTP permission/config
-> gaps; F04/F-agents-ui pasan a esqueleto parcial/post-MVP salvo
-> decisión humana).
+> F06 tiene cerrados sus ACs automatizables; queda smoke manual real de
+> navegador/LAN. F04/F-agents-ui pasan a esqueleto parcial/post-MVP
+> salvo decisión humana).
 
 ## Agent context
 
@@ -39,19 +39,20 @@
 | [F02](F02-multi-workspace.md) | Multi-workspace: list, open, delete, **extra paths**, badge venv pasivo | implemented | workspace, tools, permissions | — | 1 |
 | [F05](F05-settings.md) | Settings: providers activos (Ollama/Groq/Minimax), modelos, keychain entry, approval_mode | partial — P1 | providers, permissions, **config** | F02 | 2 |
 | [F01](F01-chat-streaming.md) | Chat con streaming LLM (provider agnóstico, multi-agent: build/plan) | partial — read-only MVP viable | agent-loop, providers, session, **agents**, **journal** | F02, F05 | 3 |
-| [F06](F06-web-server-lan.md) | Servidor web embebido + UI navegador LAN: `0.0.0.0` opt-in, bearer token, REST + SSE | partial — P0 blocker | server, ipc, ui, config, session, workspace, permissions | F02, F05, F01 | 4 |
+| [F06](F06-web-server-lan.md) | Servidor web embebido + UI navegador LAN: `0.0.0.0` opt-in, bearer token, REST + SSE | partial — manual LAN smoke pending | server, ipc, ui, config, session, workspace, permissions | F02, F05, F01 | 4 |
 | [F04](F04-file-diffs.md) | File diffs en UI tras write/edit/apply_patch | skeleton — v0.1.x unless write tools enter MVP | tools, ui | F01, F02 | 5 |
 | [F-agents-ui](F-agents-ui.md) | UI multi-agent: chip/cycle/@mention/SessionTree | partial UI — subagents real v0.1.x | ui, agent-loop, **agents**, session | F01 | 6 |
 
 ### MVP finish line (orden operativo)
 
-1. **P0 F06 browser UX**: browser mode debe abrir workspace y añadir
-   extra paths escribiendo paths absolutos. No usar OS dialogs fuera de
-   Tauri.
-2. **P0 F06 HTTP gaps**: completar config workspace y permissions
-   request/respond por HTTP + adapter `ui/src/lib/ipc.ts`.
-3. **P0 smoke web LAN**: abrir UI web, listar/abrir workspace, mandar
-   mensaje, recibir SSE, responder permission prompt.
+1. **P0 F06 browser UX**: ✅ cerrado. Browser mode abre workspace y
+   añade extra paths escribiendo paths absolutos; el bundle browser no
+   importa diálogos Tauri estáticamente.
+2. **P0 F06 HTTP gaps**: ✅ cerrado. Config workspace y permissions
+   request/respond están cableados por HTTP + adapter `ui/src/lib/ipc.ts`.
+3. **P0 smoke web LAN**: pendiente manual. Abrir UI web en navegador real,
+   listar/abrir workspace, mandar mensaje, recibir SSE, responder
+   permission prompt y repetir desde otro dispositivo LAN.
 4. **P1 F05 Ollama/settings**: asegurar "configurar Ollama local" y
    persistencia de settings como flujo E2E.
 5. **Corte explícito**: MVP v0.1 es read-only agent (`read_file`,
@@ -86,7 +87,7 @@
   `DiffsSidePanel`, read-only en v0.1 (12 ACs).
 - [`features/F06-web-server-lan.md`](F06-web-server-lan.md) — servidor
   Axum embebido, UI por navegador en LAN, REST + SSE, bearer token
-  obligatorio cuando el bind es `0.0.0.0` (10 ACs).
+  soportado y obligatorio cuando `server.require_token = true` (10 ACs).
 - [`features/F-agents-ui.md`](F-agents-ui.md) — `AgentChip`,
   `Cmd+[` / `Cmd+]` para cycle, `@mention` popover, `SessionTree`
   con child sessions (15 ACs).
@@ -113,11 +114,14 @@
 - [x] Arrancar servidor HTTP embebido y servir la misma UI en loopback.
 - [x] Habilitar bind LAN `0.0.0.0:<port>` con `[server].lan_enabled`.
 - [x] Activar `[server].require_token = true` y verificar 401 sin bearer.
-- [ ] Abrir la UI desde navegador LAN y listar workspaces vía HTTP
-  **sin import/uso de diálogos Tauri**.
-- [ ] En navegador LAN, enviar un mensaje y recibir streaming vía SSE.
-- [ ] En navegador LAN, responder un `permission.requested.v1`.
-- [ ] En navegador LAN, editar config de workspace desde Settings.
+- [ ] Smoke manual: abrir la UI desde navegador LAN y listar workspaces
+  vía HTTP sin usar diálogos Tauri.
+- [ ] Smoke manual: en navegador LAN, enviar un mensaje y recibir
+  streaming vía SSE.
+- [ ] Smoke manual: en navegador LAN, responder un
+  `permission.requested.v1`.
+- [ ] Smoke manual: en navegador LAN, editar config de workspace desde
+  Settings.
 
 ### Fuera del corte MVP salvo decisión explícita
 
