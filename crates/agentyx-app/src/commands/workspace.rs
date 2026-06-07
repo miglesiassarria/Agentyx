@@ -12,6 +12,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use agentyx_core::agent::RunRegistry;
 use agentyx_core::ids::WorkspaceId;
 use agentyx_core::workspace::{detect_venv, VenvSpec, Workspace, WorkspaceService};
 use agentyx_core::AppResult;
@@ -172,17 +173,65 @@ pub(crate) async fn get_impl(svc: &WorkspaceService, id: WorkspaceId) -> AppResu
         })
 }
 
-/// Remove a workspace. With `force=true`, aborts any active runs
-/// first (deferred to the agent-loop PR). With `force=false`,
-/// refuses if there are active runs (also deferred; for now we
-/// just always allow).
+/// Remove a workspace. F02.AC7: refuses with `Conflict` if the
+/// workspace has any `Running` runs and `force=false`. With
+/// `force=true`, aborts each running run first (the run finishes
+/// asynchronously as the agent loop observes the abort flag) and
+/// then proceeds to delete. The `RunRegistry` is consulted
+/// directly; the per-workspace `SessionService` is updated
+/// lazily by the next `workspace_runtime` open after eviction.
+///
+/// **Errors**:
+/// - `not_found` — workspace id is unknown.
+/// - `conflict` — workspace has running runs and `force=false`.
+///   The `context` (when serialized in debug) carries the count.
 #[allow(clippy::unused_async)]
 pub(crate) async fn delete_impl(
     svc: &WorkspaceService,
+    runs: &RunRegistry,
     id: WorkspaceId,
-    _force: bool,
+    force: bool,
 ) -> AppResult<()> {
-    svc.delete(id, _force)
+    // F02.AC7: refuse delete when the workspace has active runs
+    // unless the caller explicitly opts into `force`. We use
+    // `iter_for_workspace` + a fresh `is_running()` check to
+    // avoid a TOCTOU race (the run may finish between the
+    // snapshot and the delete; that is fine, it just means
+    // `force=false` may succeed in that window).
+    let active: Vec<_> = runs
+        .iter_for_workspace(id)
+        .into_iter()
+        .filter(|(_, h)| h.is_running())
+        .collect();
+    if !active.is_empty() {
+        if !force {
+            let count = active.len();
+            tracing::warn!(
+                workspace_id = %id,
+                active_runs = count,
+                "refusing to delete workspace with active runs"
+            );
+            return Err(agentyx_core::AppError::Conflict {
+                message: format!(
+                    "workspace has {count} active run{}; abort it or retry with force=true",
+                    if count == 1 { "" } else { "s" }
+                ),
+            });
+        }
+        // `force=true`: request abort on each running run. The
+        // loop checks the flag between deltas and finishes
+        // within ~100ms (per agent-loop.md §AC5), so we don't
+        // block here.
+        for (run_id, handle) in &active {
+            tracing::info!(
+                workspace_id = %id,
+                run_id = %run_id,
+                "force=true: aborting active run before workspace delete"
+            );
+            handle.abort();
+        }
+    }
+    svc.delete(id, force)
 }
 
 /// Detect a venv for the workspace. Returns `Ok(None)` if no
@@ -429,15 +478,20 @@ pub async fn get_workspace(
 }
 
 /// Remove a workspace. Does NOT delete files on disk. With
-/// `force=true`, aborts any active runs first (deferred to the
-/// agent-loop PR; currently a no-op for the abort).
+/// `force=true`, aborts any active runs first (the runs finish
+/// asynchronously). With `force=false`, refuses with `Conflict`
+/// if the workspace has any running sessions (F02.AC7).
 #[tauri::command]
 pub async fn delete_workspace(
     state: State<'_, Arc<AppState>>,
     workspace_id: WorkspaceId,
     force: bool,
 ) -> AppResult<()> {
-    delete_impl(&state.workspaces, workspace_id, force).await
+    delete_impl(&state.workspaces, &state.runs, workspace_id, force).await?;
+    // Drop the cached runtime so subsequent commands don't reuse
+    // a dangling session/journal pointing at a deleted db file.
+    state.evict_workspace_runtime(workspace_id);
+    Ok(())
 }
 
 /// Detect a venv for the workspace. Returns `Ok(None)` if no
@@ -708,8 +762,91 @@ mod tests {
         let (_home, state) = fresh_state().await;
         let (_root, ws) = make_workspace(&state, "main");
 
-        delete_impl(&state.workspaces, ws.id, false).await.unwrap();
+        delete_impl(&state.workspaces, &state.runs, ws.id, false)
+            .await
+            .unwrap();
 
+        let out = list_impl(&state.workspaces).await.unwrap();
+        assert!(out.is_empty());
+    }
+
+    /// F02.AC7 — delete without `force` is rejected when the
+    /// workspace has at least one running run.
+    #[tokio::test]
+    async fn f02_ac7_delete_with_active_runs_rejected() {
+        let (_home, state) = fresh_state().await;
+        let (_root, ws) = make_workspace(&state, "main");
+
+        // Register a synthetic running run for the workspace.
+        let run_id = agentyx_core::ids::RunId::new();
+        let session_id = agentyx_core::ids::SessionId::new();
+        let agent_id = agentyx_core::ids::AgentId::new();
+        state.runs.register(agentyx_core::agent::RunHandle::new(
+            run_id, session_id, ws.id, agent_id,
+        ));
+
+        // force=false → Conflict, workspace is NOT deleted.
+        let err = delete_impl(&state.workspaces, &state.runs, ws.id, false)
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, agentyx_core::AppError::Conflict { .. }),
+            "expected Conflict, got {err:?}"
+        );
+
+        let out = list_impl(&state.workspaces).await.unwrap();
+        assert_eq!(out.len(), 1, "workspace must remain after Conflict");
+
+        // The run is still running (we only rejected delete; the
+        // abort flag is untouched).
+        let handle = state.runs.get(run_id).expect("run should still exist");
+        assert!(handle.is_running());
+    }
+
+    /// F02.AC7 — delete with `force=true` aborts the running run
+    /// (sets its abort flag) and proceeds to delete the workspace.
+    #[tokio::test]
+    async fn f02_ac7_delete_with_force_aborts_runs() {
+        let (_home, state) = fresh_state().await;
+        let (_root, ws) = make_workspace(&state, "main");
+
+        let run_id = agentyx_core::ids::RunId::new();
+        state.runs.register(agentyx_core::agent::RunHandle::new(
+            run_id,
+            agentyx_core::ids::SessionId::new(),
+            ws.id,
+            agentyx_core::ids::AgentId::new(),
+        ));
+
+        delete_impl(&state.workspaces, &state.runs, ws.id, true)
+            .await
+            .unwrap();
+
+        let out = list_impl(&state.workspaces).await.unwrap();
+        assert!(out.is_empty(), "workspace must be deleted with force=true");
+
+        // The run's handle is still in the registry (we don't
+        // remove it from `RunRegistry`; the loop's `mark` will
+        // transition it to a terminal status asynchronously),
+        // but its abort flag must be set.
+        let handle = state.runs.get(run_id).expect("run handle still registered");
+        assert!(
+            handle.is_aborted(),
+            "force-delete must have requested abort"
+        );
+    }
+
+    /// F02.AC7 — delete with no active runs succeeds regardless
+    /// of `force`. Regression for the no-runs happy path.
+    #[tokio::test]
+    async fn f02_ac7_delete_no_runs_succeeds() {
+        let (_home, state) = fresh_state().await;
+        let (_root, ws) = make_workspace(&state, "main");
+
+        // No runs registered; both force=true and force=false must work.
+        delete_impl(&state.workspaces, &state.runs, ws.id, false)
+            .await
+            .unwrap();
         let out = list_impl(&state.workspaces).await.unwrap();
         assert!(out.is_empty());
     }

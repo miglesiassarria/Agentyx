@@ -8,10 +8,12 @@
 
 ## Agent context
 
-- Estado real: F02 está implementada salvo AC7 parcial. Backend y UI
-  cubren workspace open/list/delete, file tree lazy, venv pasivo y
-  extra paths; AC7 requiere que delete rechace workspaces con sesiones
-  activas cuando `agent-loop`/runs estén cableados.
+- Estado real: F02 está implementada al 100% (18/18 ACs backend,
+  9/9 UI). El gap AC7 (delete con runs activos) se cerró en el PR
+  `fix/f02-ac7-delete-workspace-with-active-runs` (BUG-01,
+  categoría B). `delete_impl` consulta `RunRegistry::iter_for_workspace`,
+  rechaza con `Conflict` si hay runs activos y `force=false`, aborta
+  los runs y procede con `force=true`.
 - Contratos clave: `workspace_list`, `workspace_open`,
   `workspace_delete`, `workspace_get`, `workspace_read_dir`,
   `workspace_detect_venv`, `workspace_list_extra_paths`,
@@ -308,14 +310,11 @@ Cada AC → test con nombre derivado `f02_ac<n>_<short>`.
 - [x] **F02.AC6**: borrar un workspace pide confirmación, luego lo
   elimina del sidebar y del filesystem. **Test** (e2e):
   `f02_ac6_delete_with_confirmation`.
-- [ ] **F02.AC7**: borrar un workspace con sesiones en estado
+- [x] **F02.AC7**: borrar un workspace con sesiones en estado
   `running` se rechaza con `conflict` y un mensaje claro. **Test**
-  (Rust integration): `f02_ac7_delete_with_active_runs_rejected`.
-  **Nota (v0.1)**: el backend `WorkspaceService::delete` es un
-  placeholder que siempre permite el borrado; el check de runs
-  activos se cableará cuando aterrice el PR de `agent-loop`. La UI
-  ya muestra el confirm dialog; el rechazo se materializará cuando
-  el backend crezca.
+  (Rust integration): `f02_ac7_delete_with_active_runs_rejected`,
+  `f02_ac7_delete_with_force_aborts_runs`,
+  `f02_ac7_delete_no_runs_succeeds`.
 - [x] **F02.AC8**: el file tree es **lazy**: las subcarpetas
   cerradas no se listan hasta que el usuario las expande. **Test**
   (e2e con workspace de 1000 archivos):
@@ -474,8 +473,9 @@ completo cuando es del usuario (solo el `workspace_id` y el basename).
 > mismo PR que cambia el código (ver `AGENTS.md` §17 Spec-Driven
 > Development). La fecha indica el último sync.
 
-**Última sync**: 2026-06-06
-**Backend (Rust)**: **17 / 18 ACs cubiertos** ✅ (AC7 parcial)
+**Última sync**: 2026-06-07
+**Backend (Rust)**: **18 / 18 ACs cubiertos** ✅ (F02.AC7 cerrado en
+PR `fix/f02-ac7-delete-workspace-with-active-runs`)
 **IPC (Tauri commands)**: **10 / 10 commands cableados** ✅
 **UI (Svelte)**: **9 / 9 ACs UI cubiertos** ✅
 
@@ -529,6 +529,7 @@ completo cuando es del usuario (solo el `workspace_id` y el basename).
 | BUG-001 | 2026-06-06 | A. Spec gap (proceso) | PR #11 | F02 fue mergeado en PRs #5 y #6 cuando aún estaba en status `review`, no `approved`. Se sube retroactivamente a `approved` allí y se refuerza la regla §17 de `AGENTS.md` (STATUS.md debe actualizarse en el mismo PR). El spec en sí no cambió. |
 | BUG-002 | 2026-06-06 | A. Spec gap (modelo) | este PR | El spec listaba `list_dir` como tool del agente (F01) pero el UI de F02 necesitaba listar directorios **ahora**. Se añade el Tauri command `workspace_list_dir(workspaceId, path)` con sandbox check (root ∪ extras) y se documenta en la sección "Affected Tauri commands". Mismo código podrá ser consumido por la tool del agente en F01 (un solo punto de enforcement del path sandbox). |
 | BUG-003 | 2026-06-06 | A. Spec gap (modelo) | este PR | El spec asumía que `list_dir` se invocaría con un solo argumento (path), pero en el contexto de F02 UI necesitamos garantizar que el path está dentro del workspace. Por eso el command toma `workspaceId + path` y rechaza con `PathOutsideWorkspace` si el path canónico no está en `effective_paths(workspaceId)`. Esto blinda el command para que no se use como vector de traversal. |
+| BUG-01 | 2026-06-07 | B. Implementation bug | PR `fix/f02-ac7-delete-workspace-with-active-runs` | `delete_workspace` ignoraba el parámetro `force` y borraba el workspace aunque tuviera runs activos, dejando handles huérfanos en `RunRegistry` cuyo `workspace_id` apuntaba a un registro borrado. Categoría B (el spec estaba bien, el código no lo implementaba). Fix: `delete_impl` consulta `RunRegistry::iter_for_workspace` + `is_running()`; rechaza con `Conflict` si hay runs activos y `force=false`; aborta cada run y procede si `force=true`; evicta el `WorkspaceRuntime` cacheado. Cambios: `RunHandle::is_aborted` y `RunHandle::new` se hacen `pub` para que los tests de integración de `agentyx-app` puedan fabricar runs sintéticos. `RunRegistry::iter_for_workspace` nuevo. AC7 marcado [x] en el spec. |
 
 ## Próximos pasos
 

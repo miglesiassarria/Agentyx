@@ -152,8 +152,16 @@ impl std::fmt::Debug for RunInner {
 }
 
 impl RunHandle {
-    /// Build a new handle (used by [`spawn_run`]).
-    fn new(
+    /// Build a new handle. Used by [`spawn_run`] in production
+    /// and by the test suite (in both `agentyx-core` and
+    /// `agentyx-app`) to fabricate synthetic running runs
+    /// without going through the full spawn path. The public
+    /// visibility is intentional: it is the smallest surface
+    /// that lets the integration tests for F02.AC7
+    /// (workspace delete with active runs) construct a
+    /// `RunHandle` directly. Production code should always
+    /// prefer [`spawn_run`].
+    pub fn new(
         run_id: RunId,
         session_id: SessionId,
         workspace_id: WorkspaceId,
@@ -172,6 +180,15 @@ impl RunHandle {
                 abort_flag: Arc::new(AtomicBool::new(false)),
             }),
         }
+    }
+
+    /// Workspace this run belongs to. Stable for the lifetime of
+    /// the run; does not change after `abort` or `mark`. Used by
+    /// `WorkspaceService::delete` to refuse when a workspace has
+    /// active runs (F02.AC7).
+    #[must_use]
+    pub fn workspace_id(&self) -> WorkspaceId {
+        self.inner.workspace_id
     }
 
     /// Snapshot the current state.
@@ -222,8 +239,14 @@ impl RunHandle {
         self.inner.abort_flag.store(true, Ordering::SeqCst);
     }
 
-    /// Internal: read the abort flag.
-    fn is_aborted(&self) -> bool {
+    /// Read the abort flag. Returns `true` if [`Self::abort`] has
+    /// been called, even if the agent loop has not yet observed
+    /// the flag and transitioned `status` to a terminal value.
+    /// Useful for "is this run about to stop?" checks from
+    /// outside the loop (e.g. F02.AC7 verifying that a
+    /// `force=true` delete actually requested the abort).
+    #[must_use]
+    pub fn is_aborted(&self) -> bool {
         self.inner.abort_flag.load(Ordering::SeqCst)
     }
 
@@ -1368,6 +1391,21 @@ impl RunRegistry {
         self.snapshot()
             .into_iter()
             .filter(|(_, h)| h.state().session_id == session_id)
+            .collect()
+    }
+
+    /// Snapshot all handles that belong to a given workspace.
+    /// Used by `WorkspaceService::delete` (F02.AC7) to refuse
+    /// deletion when a workspace has active runs. Returns a
+    /// snapshot in registration order; the caller is expected to
+    /// re-check `is_running()` on each handle (the snapshot can
+    /// include finished runs that have not yet been removed by
+    /// the loop).
+    #[must_use]
+    pub fn iter_for_workspace(&self, workspace_id: WorkspaceId) -> Vec<(RunId, RunHandle)> {
+        self.snapshot()
+            .into_iter()
+            .filter(|(_, h)| h.workspace_id() == workspace_id)
             .collect()
     }
 }
