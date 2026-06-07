@@ -37,6 +37,12 @@ fn ui_dist_path() -> std::path::PathBuf {
 
 /// `GET /*` fallback. Serves static files from `ui/dist/` with
 /// SPA fallback (unknown paths return `index.html`).
+///
+/// `ServeDir` with a `not_found_service(ServeFile)` will serve
+/// the index file body for unknown paths but preserves the inner
+/// `ServeFile`'s 404 status. We rewrite the status to 200 so
+/// deep-link refreshes and client-side routes work correctly
+/// per F06.AC10.
 pub async fn serve_ui_fallback(request: Request) -> impl IntoResponse {
     let dist = ui_dist_path();
     let index = dist.join("index.html");
@@ -44,7 +50,18 @@ pub async fn serve_ui_fallback(request: Request) -> impl IntoResponse {
     let service = ServeDir::new(&dist).not_found_service(ServeFile::new(&index));
 
     match service.oneshot(request).await {
-        Ok(response) => response.into_response(),
+        Ok(response) => {
+            let status = response.status();
+            // If ServeDir missed and fell back to index.html,
+            // promote the 404 to 200 so SPA routing works.
+            if status == StatusCode::NOT_FOUND {
+                let mut resp = response.into_response();
+                *resp.status_mut() = StatusCode::OK;
+                resp
+            } else {
+                response.into_response()
+            }
+        }
         Err(_) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             axum::Json(serde_json::json!({

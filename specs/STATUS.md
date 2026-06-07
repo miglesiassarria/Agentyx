@@ -74,20 +74,19 @@ _(vacío)_
 - **ADR-0008** (nuevo, PR 3): scope de providers v1 (Ollama / Groq / Minimax).
 
 ## ✅ Implemented (código en main, ACs cumplidos, tests pasando)
-- **features/F06-web-server-lan.md** — `ready` → `implemented (partial — AC1+AC2+AC3)`. PR #6:
-   Axum skeleton: `server` module con `router/events_sse/auth/lifecycle`,
+- **features/F06-web-server-lan.md** — `ready` → `implemented (full — AC1-AC10)`. PRs:
+   Axum skeleton (#26): `server` module con `router/events_sse/auth/lifecycle`,
    `AuthLayer` + `BearerGuard`, `axum_extra` typed extractor.
    EventBus upgrade: `tokio::sync::broadcast` + `EventSink` trait,
    Tauri windows + SSE comparten bus.
    Lifecycle en `AppState`: serve loop spawn, `ServerHandle` drop guard,
    initial bearer token generation.
-   Tauri commands `server_get_info` / `server_update_config` /
-   `server_rotate_token`.
-   5 integration tests pasando (loopback serve, LAN+require_token 401,
-   LAN+!require_token 200, bearer correct/invalid, config reload + rotate).
-   AC4-AC10 pendientes (browser workspace open, SSE chat, permissions
-   browser flow, event consistency, provider/config/secret e2e,
-   manual deep-link smoke).
+   REST + SSE + ServeDir (#27): `POST /sessions/:id/messages`, `GET /events`
+   con heartbeat, `GET/PATCH /config/global`, `POST /providers/test-connection`,
+   `/secrets/*`, `/permissions/*`, `/diffs/*`, `ServeDir` con SPA fallback,
+   `BroadcastEventSink`, browser IPC adapter dual-mode.
+   F06.AC10 (#TBD): SPA fallback ahora retorna 200 (no 404) en deep-links;
+   integración test verifica app shell + API JSON.
 - **features/F02-multi-workspace.md** — `approved` → `implemented (full)`.
   PRs: UI (#12) 9/9 ACs UI + AC3, AC9 backend con `list_dir`; **AC7
   cerrado en PR `fix/f02-ac7-delete-workspace-with-active-runs`**

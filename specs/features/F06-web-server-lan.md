@@ -151,7 +151,7 @@ entry.
   updates config, stores/deletes a secret, or edits default tool
   decisions, Then the corresponding HTTP endpoint matches the Tauri
   command behavior and never returns secret values.
-- [ ] F06.AC10: Given the UI is built for production, When served from
+- [x] F06.AC10: Given the UI is built for production, When served from
   the embedded server, Then refresh/deep-link fallback returns the app
   shell and API routes still return JSON.
 
@@ -166,7 +166,7 @@ entry.
 - `F06.AC7` -> Pending Rust HTTP test with `PermissionRegistry` ask flow
 - `F06.AC8` -> Pending Rust event bus test with Tauri sink mocked + SSE broadcast
 - `F06.AC9` -> Pending HTTP endpoint tests per command group
-- `F06.AC10` -> Pending manual smoke
+- `F06.AC10` -> Rust integration test: `server::tests::f06_spa_fallback_returns_index_for_unknown_routes` ✅
 
 ## No-gos
 
