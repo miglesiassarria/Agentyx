@@ -4,10 +4,11 @@
 > Para roadmap de features: [features/ROADMAP.md](./features/ROADMAP.md).
 > Para índice de ADRs: [adr/README.md](./adr/README.md).
 >
-> Última actualización: 2026-06-07 (PR `docs/f06-ready-and-server-domain`:
-> F06 promovido `draft → ready` con ajuste de AC3 (auth opcional en
-> MVP dogfooding) y creación de `domains/server.md` como dominio
-> bloqueante para F06)
+> Última actualización: 2026-06-07 (PR `fix/f02-ac7-delete-workspace-with-active-runs`:
+> F02.AC7 cerrado; F02 promoted a `implemented (full)` — 18/18 ACs
+> backend cubiertos. BUG-01 (categoría B) resuelto. `RunHandle::is_aborted`
+> y `RunHandle::new` se hicieron `pub` para que los tests de
+> `agentyx-app` puedan fabricar runs sintéticos.)
 >
 > **Disciplina de status**: este archivo se actualiza en el mismo PR
 > que cambia el estado real de cualquier pitch/spec o deja el board
@@ -57,10 +58,15 @@
 - **ADR-0008** (nuevo, PR 3): scope de providers v1 (Ollama / Groq / Minimax).
 
 ## ✅ Implemented (código en main, ACs cumplidos, tests pasando)
-- **features/F02-multi-workspace.md** — `approved` → `implemented`
-  (PR de UI: 9 ACs UI + AC3, AC9 backend cubiertos con `list_dir`
-  command; AC7 sigue parcial: el check de runs activos llega con
-  el PR de `agent-loop`).
+- **features/F02-multi-workspace.md** — `approved` → `implemented (full)`.
+  PRs: UI (#12) 9/9 ACs UI + AC3, AC9 backend con `list_dir`; **AC7
+  cerrado en PR `fix/f02-ac7-delete-workspace-with-active-runs`**
+  (BUG-01, categoría B): `delete_impl` consulta `RunRegistry::iter_for_workspace`,
+  rechaza con `Conflict` si hay runs activos y `force=false`, aborta
+  con `force=true`, evicta el `WorkspaceRuntime` cacheado. Cambios
+  auxiliares: `RunHandle::is_aborted` y `RunHandle::new` se hicieron
+  `pub` para que los tests de `agentyx-app` puedan fabricar runs
+  sintéticos. 18/18 ACs backend cubiertos.
 - **features/F01-chat-streaming.md** — `approved` →
   `implemented (partial — Phase 1 backend + UI + Phase 2-core + Phase 2-app)`. PRs:
   - `feat(core): F01-Phase1 backends` (PR #13): 5/15 ACs
@@ -192,8 +198,7 @@ _(ninguno)_
 
 ### Gaps conocidos
 
-- **F02.AC7** sigue parcial: borrar un workspace con runs activos
-  requiere cerrar el comportamiento final contra session/agent-loop.
+_(vacío — F02.AC7 cerrado en PR `fix/f02-ac7-delete-workspace-with-active-runs`)_
 - **`agents.md` sigue en `draft`** aunque parte del modelo built-in ya
   existe en core; F-agents-ui debe decidir si promueve la spec o la
   mantiene como dominio en diseño.
