@@ -146,6 +146,8 @@ fn main() -> anyhow::Result<()> {
             commands::permissions::list,
             commands::permissions::get_matrix,
             commands::permissions::set_default,
+            commands::diff::diff_list_pending,
+            commands::diff::diff_get_full,
             commands::server::server_get_info,
             commands::server::server_update_config,
             commands::server::server_rotate_token,
