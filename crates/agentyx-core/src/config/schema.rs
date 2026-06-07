@@ -110,6 +110,36 @@ pub enum ApprovalMode {
     Deny,
 }
 
+/// Default per-tool decision. Persisted in
+/// `GlobalConfig.default_tool_decisions`. When a tool is present
+/// in the map, its decision wins over the static default from
+/// `tools.md`. Used by the `permissions_set_default` Tauri
+/// command (F05.AC9).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ToolDecision {
+    /// Allow without prompting.
+    Allow,
+    /// Prompt the user.
+    Ask,
+    /// Deny without prompting.
+    Deny,
+}
+
+impl ToolDecision {
+    /// Parse from a lowercase string. Returns `None` for unknown
+    /// values so the caller can return `invalid_input` cleanly.
+    #[must_use]
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "allow" => Some(Self::Allow),
+            "ask" => Some(Self::Ask),
+            "deny" => Some(Self::Deny),
+            _ => None,
+        }
+    }
+}
+
 /// Update channel (per config.md §State).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
@@ -184,6 +214,12 @@ pub struct GlobalConfig {
     pub check_updates: bool,
     /// Update channel.
     pub update_channel: UpdateChannel,
+    /// Per-tool default decision overrides. Empty means "use the
+    /// static default from `tools.md`". When a tool id is present,
+    /// its decision wins over the static default. Populated by
+    /// the `permissions_set_default` Tauri command (F05.AC9).
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub default_tool_decisions: HashMap<String, ToolDecision>,
 }
 
 impl Default for GlobalConfig {
@@ -208,6 +244,7 @@ impl Default for GlobalConfig {
             telemetry_enabled: false,
             check_updates: true,
             update_channel: UpdateChannel::Stable,
+            default_tool_decisions: HashMap::new(),
         }
     }
 }
@@ -452,6 +489,60 @@ mod tests {
         let mut cfg = WorkspaceConfig::defaults();
         cfg.workspace.ignore_patterns.push(String::new());
         assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn tool_decision_parse_known_values() {
+        assert_eq!(ToolDecision::parse("allow"), Some(ToolDecision::Allow));
+        assert_eq!(ToolDecision::parse("ask"), Some(ToolDecision::Ask));
+        assert_eq!(ToolDecision::parse("deny"), Some(ToolDecision::Deny));
+    }
+
+    #[test]
+    fn tool_decision_parse_unknown_returns_none() {
+        assert_eq!(ToolDecision::parse(""), None);
+        assert_eq!(ToolDecision::parse("Allow"), None);
+        assert_eq!(ToolDecision::parse("prompt"), None);
+    }
+
+    #[test]
+    fn default_config_has_empty_tool_decisions() {
+        let cfg = GlobalConfig::default();
+        assert!(cfg.default_tool_decisions.is_empty());
+        cfg.validate().unwrap();
+    }
+
+    #[test]
+    fn tool_decisions_toml_roundtrips() {
+        let mut cfg = GlobalConfig::default();
+        cfg.default_tool_decisions
+            .insert("write_file".into(), ToolDecision::Allow);
+        cfg.default_tool_decisions
+            .insert("shell".into(), ToolDecision::Deny);
+        let s = toml::to_string_pretty(&cfg).unwrap();
+        let back: GlobalConfig = toml::from_str(&s).unwrap();
+        assert_eq!(
+            back.default_tool_decisions.get("write_file"),
+            Some(&ToolDecision::Allow)
+        );
+        assert_eq!(
+            back.default_tool_decisions.get("shell"),
+            Some(&ToolDecision::Deny)
+        );
+    }
+
+    #[test]
+    fn tool_decisions_omitted_from_toml_when_empty() {
+        // `skip_serializing_if = "HashMap::is_empty"` keeps the
+        // TOML minimal and matches the existing v0.1 on-disk format
+        // for users upgrading from a build that didn't have this
+        // field.
+        let cfg = GlobalConfig::default();
+        let s = toml::to_string_pretty(&cfg).unwrap();
+        assert!(
+            !s.contains("default_tool_decisions"),
+            "default_config.toml should not contain the empty map: {s}"
+        );
     }
 }
 

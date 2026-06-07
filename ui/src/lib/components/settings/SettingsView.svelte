@@ -1,15 +1,23 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
 
-  import { config as configIpc, permissions as permissionsIpc, providers, secrets } from '$lib/ipc';
+  import {
+    config as configIpc,
+    events,
+    permissions as permissionsIpc,
+    providers,
+    secrets,
+  } from '$lib/ipc';
   import type {
     ApprovalMode,
+    ConfigChangedPayload,
     GlobalConfigDto,
     PermissionMatrixDto,
     ProviderConfigDto,
     ProviderId,
     ResolvedConfigDto,
     TestConnectionResult,
+    ToolDecision,
     UpdateChannel,
     WorkspaceDto,
   } from '$lib/ipc-types';
@@ -24,6 +32,7 @@
     providerLabel,
     requiresDevChannelConfirmation,
     sortedProviderIds,
+    sortedToolIds,
   } from './helpers';
 
   interface Props {
@@ -63,6 +72,14 @@
   let ignorePatternsText = $state('');
   let journalMaxRows = $state('100000');
 
+  // F05.AC9 — per-row state for the editable permission matrix.
+  // `matrixSaving[tool]` is `true` while a `set_default` call is
+  // in flight for that tool; used to disable the radios and show
+  // a per-row spinner.
+  let matrixSaving = $state<Record<string, boolean>>({});
+
+  let unlistenConfigChanged: (() => void) | null = null;
+
   $effect(() => {
     if (globalConfig !== null) {
       selectedDefaultProvider = globalConfig.defaultProvider;
@@ -90,7 +107,35 @@
 
   onMount(() => {
     void loadSettings();
+    // F05.AC15 — subscribe to `config.changed.v1` so an external
+    // writer (other tab, CLI, etc.) propagates into the panel.
+    void events.configChanged((payload) => {
+      void onConfigChanged(payload);
+    }).then((unlisten) => {
+      unlistenConfigChanged = unlisten;
+    });
   });
+
+  onDestroy(() => {
+    unlistenConfigChanged?.();
+    unlistenConfigChanged = null;
+  });
+
+  async function onConfigChanged(payload: ConfigChangedPayload): Promise<void> {
+    if (payload.kind === 'global' && payload.global !== undefined) {
+      globalConfig = payload.global;
+      providerDrafts = cloneProviders(payload.global.providers);
+    }
+    // Refresh the matrix: the persisted default may have changed.
+    try {
+      permissionMatrix =
+        workspace !== null
+          ? await permissionsIpc.getMatrix(workspace.id)
+          : await permissionsIpc.getMatrix();
+    } catch (e) {
+      error = formatError(e);
+    }
+  }
 
   async function loadSettings(): Promise<void> {
     loading = true;
@@ -238,6 +283,29 @@
     }
     await saveGlobal({ providers: emptyProviderPatch(globalConfig, addKind, provider) });
     addFailed = false;
+  }
+
+  // F05.AC9 — set a tool's default decision. The Tauri command
+  // persists to `GlobalConfig.default_tool_decisions`. After it
+  // returns, we refresh the matrix to pick up the new value (we
+  // also rely on `config.changed.v1` for cross-tab sync, but the
+  // direct refresh avoids a round-trip wait).
+  async function setToolDecision(tool: string, decision: ToolDecision): Promise<void> {
+    matrixSaving = { ...matrixSaving, [tool]: true };
+    error = null;
+    try {
+      await permissionsIpc.setDefault(tool, decision);
+      // Re-fetch the matrix so the UI shows the new value
+      // (also covers the case where the listener is racing).
+      permissionMatrix =
+        workspace !== null
+          ? await permissionsIpc.getMatrix(workspace.id)
+          : await permissionsIpc.getMatrix();
+    } catch (e) {
+      error = formatError(e);
+    } finally {
+      matrixSaving = { ...matrixSaving, [tool]: false };
+    }
   }
 </script>
 
@@ -499,16 +567,48 @@
       </article>
       <article class="card">
         <h3>Tool matrix</h3>
-        <p class="muted">Backend exposes the matrix as read-only in this PR.</p>
+        <p class="muted">
+          Each tool has a default decision (allow / ask / deny). Changes persist
+          to <code>GlobalConfig</code> and apply to new runs.
+        </p>
         <table>
-          <thead><tr><th>Tool</th><th>Global</th><th>Workspace</th><th>Effective</th></tr></thead>
+          <thead>
+            <tr><th>Tool</th><th>Default</th><th>Workspace override</th></tr>
+          </thead>
           <tbody>
-            {#each Object.keys(permissionMatrix?.effective ?? {}).sort() as tool}
+            {#each sortedToolIds(permissionMatrix) as tool}
+              {@const global = permissionMatrix?.global[tool] ?? 'ask'}
+              {@const workspace = permissionMatrix?.workspace?.[tool]}
+              {@const effective = permissionMatrix?.effective[tool] ?? 'ask'}
               <tr>
-                <td>{tool}</td>
-                <td>{permissionMatrix?.global[tool] ?? 'ask'}</td>
-                <td>{permissionMatrix?.workspace?.[tool] ?? 'inherit'}</td>
-                <td>{permissionMatrix?.effective[tool] ?? 'ask'}</td>
+                <td><code>{tool}</code></td>
+                <td>
+                  <div class="radio-row" role="radiogroup" aria-label="Default decision for {tool}">
+                    {#each ['allow', 'ask', 'deny'] as decision (decision)}
+                      <label class="radio">
+                        <input
+                          type="radio"
+                          name="tool-{tool}"
+                          value={decision}
+                          checked={global === decision}
+                          disabled={matrixSaving[tool] === true}
+                          onchange={() => void setToolDecision(tool, decision as ToolDecision)}
+                        />
+                        {decision}
+                      </label>
+                    {/each}
+                  </div>
+                </td>
+                <td>
+                  {#if workspace !== undefined}
+                    {workspace}
+                  {:else}
+                    <span class="muted">—</span>
+                  {/if}
+                  {#if effective !== global}
+                    <span class="effective-note">→ {effective}</span>
+                  {/if}
+                </td>
               </tr>
             {/each}
           </tbody>
@@ -761,5 +861,29 @@
     padding: var(--space-2);
     border-bottom: 1px solid var(--color-border-subtle);
     text-align: left;
+  }
+
+  .radio-row {
+    display: inline-flex;
+    gap: var(--space-3);
+  }
+
+  .radio {
+    display: inline-flex;
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-1);
+    color: var(--color-fg);
+    font-size: var(--font-size-sm);
+  }
+
+  .radio input {
+    width: auto;
+  }
+
+  .effective-note {
+    margin-left: var(--space-2);
+    color: var(--color-fg-subtle);
+    font-size: var(--font-size-sm);
   }
 </style>

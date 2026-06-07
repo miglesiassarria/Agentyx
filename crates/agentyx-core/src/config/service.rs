@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::{
     EffectiveConfig, FakeKeychain, GlobalConfig, GlobalConfigPatch, KeychainAccess, ProviderConfig,
-    ResolvedConfig, SecretRef, WorkspaceConfig, WorkspaceConfigPatch,
+    ResolvedConfig, SecretRef, ToolDecision, WorkspaceConfig, WorkspaceConfigPatch,
 };
 use crate::ids::WorkspaceId;
 use crate::{AppError, AppResult};
@@ -366,6 +366,40 @@ impl ConfigService {
         out.sort();
         Ok(out)
     }
+
+    /// Set the default permission decision for a single tool.
+    /// Persists the global config atomically. Used by the
+    /// `permissions_set_default` Tauri command (F05.AC9).
+    ///
+    /// The tool id is taken as-is (no validation against the
+    /// static tool catalog) so custom tools added in v1.x can
+    /// also be configured. Unknown tool ids land in the map but
+    /// are never read by `get_matrix` (which only iterates the
+    /// static v0.1 catalog).
+    pub fn set_default_tool_decision(
+        &self,
+        tool: &str,
+        decision: ToolDecision,
+    ) -> AppResult<GlobalConfig> {
+        if tool.is_empty() {
+            return Err(AppError::InvalidInput {
+                message: "tool id cannot be empty".into(),
+            });
+        }
+        self.update(|cfg| {
+            cfg.default_tool_decisions
+                .insert(tool.to_string(), decision);
+        })
+    }
+
+    /// Remove the per-tool decision override so the tool falls
+    /// back to the static default from `tools.md`. No-op if the
+    /// tool has no entry.
+    pub fn clear_default_tool_decision(&self, tool: &str) -> AppResult<GlobalConfig> {
+        self.update(|cfg| {
+            cfg.default_tool_decisions.remove(tool);
+        })
+    }
 }
 
 fn write_atomic(path: &Path, cfg: &GlobalConfig) -> std::io::Result<()> {
@@ -411,7 +445,7 @@ fn write_workspace_atomic(path: &Path, cfg: &WorkspaceConfig) -> std::io::Result
 )]
 mod tests {
     use super::*;
-    use crate::config::{ApprovalMode, UpdateChannel};
+    use crate::config::{ApprovalMode, ToolDecision, UpdateChannel};
 
     fn fresh_paths() -> (tempfile::TempDir, ServiceConfigPaths) {
         let dir = tempfile::tempdir().unwrap();
@@ -872,5 +906,81 @@ mod tests {
         patch.default_provider = Some("nonexistent".into());
         let err = svc.update_with_patch(&patch).unwrap_err();
         assert!(matches!(err, AppError::InvalidInput { .. }));
+    }
+
+    // ===============================================================
+    // F05.AC9 — per-tool default decision
+    // ===============================================================
+
+    #[test]
+    fn f05_ac9_set_default_tool_decision_persists_and_reloads() {
+        let (dir, svc) = fresh_service();
+        let after = svc
+            .set_default_tool_decision("write_file", ToolDecision::Allow)
+            .unwrap();
+        assert_eq!(
+            after.default_tool_decisions.get("write_file"),
+            Some(&ToolDecision::Allow)
+        );
+
+        // Reload from disk: the decision must persist.
+        let reloaded =
+            ConfigService::load(&ServiceConfigPaths::from_agentyx_home(dir.path())).unwrap();
+        assert_eq!(
+            reloaded.get().default_tool_decisions.get("write_file"),
+            Some(&ToolDecision::Allow)
+        );
+    }
+
+    #[test]
+    fn f05_ac9_set_default_tool_decision_rejects_empty_tool() {
+        let (_dir, svc) = fresh_service();
+        let err = svc
+            .set_default_tool_decision("", ToolDecision::Allow)
+            .unwrap_err();
+        assert!(matches!(err, AppError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn f05_ac9_set_default_tool_decision_overrides_previous() {
+        let (_dir, svc) = fresh_service();
+        let _ = svc
+            .set_default_tool_decision("shell", ToolDecision::Ask)
+            .unwrap();
+        let after = svc
+            .set_default_tool_decision("shell", ToolDecision::Deny)
+            .unwrap();
+        assert_eq!(
+            after.default_tool_decisions.get("shell"),
+            Some(&ToolDecision::Deny)
+        );
+    }
+
+    #[test]
+    fn f05_ac9_clear_default_tool_decision_removes_entry() {
+        let (_dir, svc) = fresh_service();
+        let _ = svc
+            .set_default_tool_decision("shell", ToolDecision::Deny)
+            .unwrap();
+        let after = svc.clear_default_tool_decision("shell").unwrap();
+        assert!(!after.default_tool_decisions.contains_key("shell"));
+    }
+
+    #[test]
+    fn f05_ac9_clear_default_tool_decision_is_noop_when_missing() {
+        let (_dir, svc) = fresh_service();
+        let after = svc.clear_default_tool_decision("never_set").unwrap();
+        assert!(after.default_tool_decisions.is_empty());
+    }
+
+    #[test]
+    fn f05_ac9_set_default_tool_decision_does_not_touch_other_fields() {
+        let (_dir, svc) = fresh_service();
+        let before_model = svc.get().default_model.clone();
+        let _ = svc
+            .set_default_tool_decision("write_file", ToolDecision::Allow)
+            .unwrap();
+        let after = svc.get();
+        assert_eq!(after.default_model, before_model);
     }
 }

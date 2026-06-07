@@ -217,6 +217,23 @@ export interface PermissionMatrixDto {
   effective: Record<ToolId, 'allow' | 'ask' | 'deny'>;
 }
 
+/** Per-tool default decision. Persisted in
+ * `GlobalConfig.defaultToolDecisions` and surfaced via the
+ * `permissions.get_matrix` Tauri command (F05.AC9). */
+export type ToolDecision = 'allow' | 'ask' | 'deny';
+
+/** Payload of `config.changed.v1` (F05.AC15). The UI listens
+ * for this event to refresh multi-tab state without polling. */
+export interface ConfigChangedPayload {
+  kind: 'global' | 'workspace';
+  /** Present only when `kind = 'global'`. */
+  global?: GlobalConfigDto;
+  /** Present only when `kind = 'workspace'`. */
+  workspaceId?: WorkspaceId;
+  /** Present only when `kind = 'workspace'`. */
+  workspace?: WorkspaceConfigDto;
+}
+
 /** DTO returned by `agents.list` / `agents.get`. */
 export interface AgentInfoDto {
   id: AgentId;

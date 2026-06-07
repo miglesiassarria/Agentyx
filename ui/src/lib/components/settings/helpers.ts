@@ -1,4 +1,10 @@
-import type { GlobalConfigDto, ProviderConfigDto, ProviderId } from '$lib/ipc-types';
+import type {
+  GlobalConfigDto,
+  PermissionMatrixDto,
+  ProviderConfigDto,
+  ProviderId,
+  ToolId,
+} from '$lib/ipc-types';
 
 export const PROVIDER_DEFAULTS: Record<ProviderId, ProviderConfigDto> = {
   ollama: {
@@ -69,4 +75,38 @@ export function requiresDevChannelConfirmation(channel: string): boolean {
 
 export function formatError(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
+}
+
+/**
+ * Stable, alphabetical list of tool ids from a permission
+ * matrix. Used by the `ApprovalTab` table in `SettingsView` to
+ * render rows in a deterministic order across renders and users
+ * (F05.AC9).
+ */
+export function sortedToolIds(matrix: PermissionMatrixDto | null): ToolId[] {
+  if (matrix === null) return [];
+  return Object.keys(matrix.effective).sort();
+}
+
+/**
+ * Static v0.1 default per-tool decision. Kept in sync with
+ * `crates/agentyx-app/src/commands/permissions.rs::default_decision_for`.
+ * Used by the matrix UI to display the fallback value when the
+ * user has not persisted an override.
+ */
+export function staticDefaultDecision(tool: ToolId): 'allow' | 'ask' | 'deny' {
+  switch (tool) {
+    case 'read_file':
+    case 'list_dir':
+    case 'search':
+      return 'allow';
+    case 'write_file':
+    case 'edit_file':
+    case 'shell':
+    case 'python_run':
+    case 'apply_patch':
+      return 'ask';
+    default:
+      return 'ask';
+  }
 }

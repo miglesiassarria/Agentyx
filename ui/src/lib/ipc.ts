@@ -28,6 +28,7 @@ import type {
   ChatRunErrorPayload,
   ChatRunFinishedPayload,
   ChatRunStartedPayload,
+  ConfigChangedPayload,
   EffectivePathsDto,
   ExtraPathDto,
   FileEntryDto,
@@ -307,4 +308,10 @@ export const events = {
   ) => listen('workspace.extra_path_added.v1', cb),
   workspaceExtraPathRemoved: (cb: (p: { workspaceId: WorkspaceId; path: string }) => void) =>
     listen('workspace.extra_path_removed.v1', cb),
+
+  // config.changed.v1 (F05.AC15) — fired after a successful
+  // `config_update_global` or `config_update_workspace`. Multi-tab
+  // and multi-window UIs use this to refresh their state.
+  configChanged: (cb: (p: ConfigChangedPayload) => void) =>
+    listen('config.changed.v1', cb),
 };

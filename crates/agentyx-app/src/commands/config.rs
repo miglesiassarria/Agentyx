@@ -9,6 +9,16 @@
 //! values. API keys travel through the dedicated `secrets_set` /
 //! `secrets_delete` / `secrets_list_providers` commands, which
 //! write to the OS keychain and never log the value.
+//!
+//! ## Events
+//!
+//! Successful `config_update_global` and `config_update_workspace`
+//! emit `config.changed.v1` with a payload identifying the scope
+//! and the resulting DTO. The UI uses this to refresh multi-tab
+//! state without polling. The payload is built by the pure
+//! [`build_config_changed_payload_global`] and
+//! [`build_config_changed_payload_workspace`] helpers so the
+//! shape is unit-testable without an `AppHandle`.
 
 use agentyx_core::config::{
     GlobalConfig, GlobalConfigPatch, ResolvedConfigSnapshot, WorkspaceConfig, WorkspaceConfigPatch,
@@ -17,9 +27,65 @@ use agentyx_core::ids::WorkspaceId;
 use agentyx_core::AppResult;
 use serde::Serialize;
 use std::sync::Arc;
-use tauri::State;
+use tauri::{AppHandle, State};
 
 use crate::state::AppState;
+
+/// Discriminator for the `config.changed.v1` payload. Serializes
+/// as `"global"` or `"workspace"` (Tauri-side DTO convention).
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ConfigChangedKind {
+    Global,
+    Workspace,
+}
+
+/// Payload of the `config.changed.v1` event (F05.AC15). The UI
+/// reads `kind` to know which scope changed and refreshes the
+/// corresponding panel.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigChangedPayload {
+    /// Which scope was mutated.
+    pub kind: ConfigChangedKind,
+    /// Present only when `kind = "global"`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub global: Option<GlobalConfigDto>,
+    /// Present only when `kind = "workspace"`. The UI can use
+    /// this to filter the listener by workspace id.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<WorkspaceId>,
+    /// Present only when `kind = "workspace"`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<WorkspaceConfigDto>,
+}
+
+/// Pure builder for the global-update variant of
+/// `config.changed.v1`. Testable without an `AppHandle`.
+#[must_use]
+pub fn build_config_changed_payload_global(global: GlobalConfigDto) -> ConfigChangedPayload {
+    ConfigChangedPayload {
+        kind: ConfigChangedKind::Global,
+        global: Some(global),
+        workspace_id: None,
+        workspace: None,
+    }
+}
+
+/// Pure builder for the workspace-update variant of
+/// `config.changed.v1`. Testable without an `AppHandle`.
+#[must_use]
+pub fn build_config_changed_payload_workspace(
+    workspace_id: WorkspaceId,
+    workspace: WorkspaceConfigDto,
+) -> ConfigChangedPayload {
+    ConfigChangedPayload {
+        kind: ConfigChangedKind::Workspace,
+        global: None,
+        workspace_id: Some(workspace_id),
+        workspace: Some(workspace),
+    }
+}
 
 /// DTO for the global config as exposed to the UI. The shape is
 /// `#[serde(rename_all = "camelCase")]` and is identical to the
@@ -70,12 +136,19 @@ pub async fn config_get_global(state: State<'_, Arc<AppState>>) -> AppResult<Glo
 /// Patch and persist the global config. The patch is rejected if
 /// it would leave the config invalid. The DTO returned reflects
 /// the new state.
+///
+/// On success, emits `config.changed.v1` with the new global
+/// config so other windows/tabs can refresh (F05.AC15).
 #[tauri::command]
 pub async fn config_update_global(
+    app: AppHandle,
     state: State<'_, Arc<AppState>>,
     patch: GlobalConfigPatch,
 ) -> AppResult<GlobalConfigDto> {
-    state.config.update_with_patch(&patch)
+    let new_cfg = state.config.update_with_patch(&patch)?;
+    let payload = build_config_changed_payload_global(new_cfg.clone());
+    state.event_bus.emit(&app, "config.changed.v1", payload);
+    Ok(new_cfg)
 }
 
 /// Get a workspace's resolved config. Returns the workspace
@@ -93,13 +166,20 @@ pub async fn config_get_workspace(
 
 /// Patch and persist a workspace's config. Returns the new
 /// workspace config DTO.
+///
+/// On success, emits `config.changed.v1` with the new workspace
+/// config (F05.AC15).
 #[tauri::command]
 pub async fn config_update_workspace(
+    app: AppHandle,
     state: State<'_, Arc<AppState>>,
     workspace_id: WorkspaceId,
     patch: WorkspaceConfigPatch,
 ) -> AppResult<WorkspaceConfigDto> {
-    state.config.update_workspace(workspace_id, &patch)
+    let new_cfg = state.config.update_workspace(workspace_id, &patch)?;
+    let payload = build_config_changed_payload_workspace(workspace_id, new_cfg.clone());
+    state.event_bus.emit(&app, "config.changed.v1", payload);
+    Ok(new_cfg)
 }
 
 #[cfg(test)]
@@ -241,5 +321,67 @@ mod tests {
         let dto = state.config.get();
         // The default has Ollama preconfigured.
         assert!(dto.providers.contains_key("ollama"));
+    }
+
+    // ===============================================================
+    // F05.AC15 — `config.changed.v1` event payload
+    // ===============================================================
+
+    #[test]
+    fn f05_ac15_global_changed_payload_shape() {
+        // The pure payload builder serializes to the expected
+        // shape: `kind: "global"`, with the full global DTO and
+        // no workspace fields.
+        let cfg = GlobalConfig::default();
+        let payload = build_config_changed_payload_global(cfg);
+        let json = serde_json::to_value(&payload).unwrap();
+        assert_eq!(json["kind"], "global");
+        assert!(json["global"].is_object());
+        assert!(json.get("workspaceId").is_none() || json["workspaceId"].is_null());
+        assert!(json.get("workspace").is_none() || json["workspace"].is_null());
+    }
+
+    #[test]
+    fn f05_ac15_workspace_changed_payload_shape() {
+        // The workspace variant carries `kind: "workspace"`,
+        // `workspaceId`, and the workspace DTO; no global field.
+        let ws = WorkspaceConfig::defaults();
+        let payload = build_config_changed_payload_workspace(WorkspaceId::new(), ws);
+        let json = serde_json::to_value(&payload).unwrap();
+        assert_eq!(json["kind"], "workspace");
+        assert!(json["workspaceId"].is_string());
+        assert!(json["workspace"].is_object());
+        assert!(json.get("global").is_none() || json["global"].is_null());
+    }
+
+    #[test]
+    fn f05_ac15_global_changed_payload_serializes_camelcase() {
+        // The wire shape must match what the TS side expects.
+        let cfg = GlobalConfig::default();
+        let payload = build_config_changed_payload_global(cfg);
+        let json = serde_json::to_string(&payload).unwrap();
+        assert!(json.contains(r#""kind":"global""#));
+        assert!(json.contains(r#""global":"#));
+    }
+
+    #[test]
+    fn f05_ac15_workspace_changed_payload_serializes_camelcase() {
+        let ws = WorkspaceConfig::defaults();
+        let payload = build_config_changed_payload_workspace(WorkspaceId::new(), ws);
+        let json = serde_json::to_string(&payload).unwrap();
+        assert!(json.contains(r#""kind":"workspace""#));
+        assert!(json.contains(r#""workspaceId":"#));
+        assert!(json.contains(r#""workspace":"#));
+    }
+
+    #[test]
+    fn f05_ac15_payloads_are_distinct_by_kind() {
+        // The kind discriminator makes the two variants trivially
+        // distinguishable for the UI listener.
+        let g = build_config_changed_payload_global(GlobalConfig::default());
+        let w =
+            build_config_changed_payload_workspace(WorkspaceId::new(), WorkspaceConfig::defaults());
+        assert!(matches!(g.kind, ConfigChangedKind::Global));
+        assert!(matches!(w.kind, ConfigChangedKind::Workspace));
     }
 }
