@@ -264,6 +264,13 @@ impl AppState {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .remove(&workspace_id);
     }
+
+    /// Refresh the provider registry from the current config.
+    /// Called after provider config or secrets change so newly
+    /// added providers become available without restart.
+    pub fn refresh_providers(&self) -> AppResult<()> {
+        self.providers.refresh(&self.config)
+    }
 }
 
 /// Per-workspace runtime state. Created lazily and cached in
@@ -285,13 +292,14 @@ pub struct WorkspaceRuntime {
 /// (`"ollama"`, `"groq"`, ...).
 #[derive(Clone)]
 pub struct ProviderRegistry {
-    providers: HashMap<String, Arc<dyn Provider>>,
+    providers: Arc<parking_lot::RwLock<HashMap<String, Arc<dyn Provider>>>>,
 }
 
 impl std::fmt::Debug for ProviderRegistry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let keys: Vec<_> = self.providers.read().keys().cloned().collect();
         f.debug_struct("ProviderRegistry")
-            .field("providers", &self.providers.keys().collect::<Vec<_>>())
+            .field("providers", &keys)
             .finish()
     }
 }
@@ -304,6 +312,22 @@ impl ProviderRegistry {
     /// skipped with a `tracing::warn!` (the user can still add
     /// the key via the Settings UI).
     pub fn from_config(config: &ConfigService) -> AppResult<Self> {
+        let providers = Self::build_providers(config)?;
+        Ok(Self {
+            providers: Arc::new(parking_lot::RwLock::new(providers)),
+        })
+    }
+
+    /// Rebuild the registry from the current config. Called after
+    /// provider config or secrets change so newly added providers
+    /// become available without restarting the app.
+    pub fn refresh(&self, config: &ConfigService) -> AppResult<()> {
+        let new = Self::build_providers(config)?;
+        *self.providers.write() = new;
+        Ok(())
+    }
+
+    fn build_providers(config: &ConfigService) -> AppResult<HashMap<String, Arc<dyn Provider>>> {
         use agentyx_core::llm::{GroqProvider, MinimaxProvider, OllamaProvider};
         let cfg = config.get();
         let mut providers: HashMap<String, Arc<dyn Provider>> = HashMap::new();
@@ -392,21 +416,21 @@ impl ProviderRegistry {
             }
         }
 
-        Ok(Self { providers })
+        Ok(providers)
     }
 
     /// Get a provider by id.
     #[allow(dead_code)]
     #[must_use]
     pub fn get(&self, id: &str) -> Option<Arc<dyn Provider>> {
-        self.providers.get(id).cloned()
+        self.providers.read().get(id).cloned()
     }
 
     /// List the registered provider ids.
     #[allow(dead_code)]
     #[must_use]
     pub fn ids(&self) -> Vec<String> {
-        let mut ids: Vec<String> = self.providers.keys().cloned().collect();
+        let mut ids: Vec<String> = self.providers.read().keys().cloned().collect();
         ids.sort();
         ids
     }
@@ -415,7 +439,7 @@ impl ProviderRegistry {
     /// Used by the agent loop when constructing `AgentLoopDeps`.
     #[must_use]
     pub fn to_hashmap(&self) -> HashMap<String, Arc<dyn Provider>> {
-        self.providers.clone()
+        self.providers.read().clone()
     }
 }
 

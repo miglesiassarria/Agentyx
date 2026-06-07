@@ -125,7 +125,7 @@ pub async fn providers_test_connection(
 /// Build a fresh `Box<dyn Provider>` from the request. The
 /// inline_api_key (if provided) is preferred; otherwise we
 /// resolve from the persisted `SecretRef`.
-fn build_ephemeral_provider(
+pub(crate) fn build_ephemeral_provider(
     request: &TestConnectionRequest,
     state: &Arc<AppState>,
 ) -> AppResult<Box<dyn Provider>> {
