@@ -4,9 +4,9 @@
 > Para roadmap de features: [features/ROADMAP.md](./features/ROADMAP.md).
 > Para índice de ADRs: [adr/README.md](./adr/README.md).
 >
-> Última actualización: 2026-06-07 (sync PR `feat/f05-permission-matrix-and-config-event`:
-> F05.AC9 + F05.AC15 cerrados; matriz de permisos editable + evento
-> `config.changed.v1` emitido y consumido por la UI)
+> Última actualización: 2026-06-07 (replan MVP: F06 Web server LAN
+> pasa de v0.2/v0.3 a bloqueante de v0.1; navegador LAN con REST + SSE
+> queda especificado en `features/F06-web-server-lan.md`)
 >
 > **Disciplina de status**: este archivo se actualiza en el mismo PR
 > que cambia el estado real de cualquier pitch/spec o deja el board
@@ -22,6 +22,9 @@
 - domains/journal.md
 - features/F05-settings.md (UI parcial en curso; providers/models/approval/
   workspace shell implementado, edición completa de matriz pendiente)
+- features/F06-web-server-lan.md (nuevo bloque MVP; Axum embebido,
+  UI por navegador LAN, REST + SSE, auth bearer obligatoria en
+  `0.0.0.0`)
 - features/F04-file-diffs.md
 - features/F-agents-ui.md
 
@@ -39,7 +42,8 @@
 - domains/session.md
 - domains/storage.md
 - domains/pty.md
-- features/ROADMAP.md (revisado en PR 5: v0.1 sin F03; F-agents-ui nuevo; F-extra-paths-* en v0.1.x)
+- features/ROADMAP.md (revisado: v0.1 incluye F06 Web server LAN;
+  F03 sigue en v0.1.x; F16 queda como navegador avanzado post-MVP)
 
 ## ADRs
 
@@ -152,7 +156,7 @@ _(ninguno)_
 ## Próximas specs a escribir
 
 > Nota de contexto: las specs MVP activas (`F01`, `F02`, `F04`, `F05`,
-> `F-agents-ui`, `agents.md`, `domains/config.md`,
+> `F06`, `F-agents-ui`, `agents.md`, `domains/config.md`,
 > `domains/journal.md`) ya tienen `## Agent context` para lectura
 > rápida. Los estados no cambian por esta compactación.
 
@@ -160,15 +164,19 @@ _(ninguno)_
 
 > F02 está implementada y F01 tiene la foundation core/app/UI en
 > `main`. El siguiente trabajo MVP es cerrar la configuración real de
-> providers/secrets (F05), completar los AC abiertos de F01, y después
-> implementar F-agents-ui y F04.
+> providers/secrets (F05), completar los AC abiertos de F01, implementar
+> F06 para que desktop y web LAN funcionen a la vez, y después cerrar
+> F-agents-ui y F04.
 
 1. `F05-settings.md`: cerrar edición persistente de la matriz de
    permisos, cobertura E2E de add provider y evento `config.changed.v1`.
 2. `F01-chat-streaming.md`: cerrar AC9, AC10, AC11 y AC14.
-3. `F-agents-ui.md`: AgentChip, cycle shortcuts, @mention popover y
+3. `F06-web-server-lan.md`: Axum embebido, REST endpoints MVP,
+   SSE sobre el EventBus compartido, adapter HTTP en `ui/src/lib/ipc.ts`,
+   bind LAN `0.0.0.0` con bearer token obligatorio.
+4. `F-agents-ui.md`: AgentChip, cycle shortcuts, @mention popover y
    SessionTree.
-4. `F04-file-diffs.md`: diffs read-only sobre eventos/tool results.
+5. `F04-file-diffs.md`: diffs read-only sobre eventos/tool results.
 
 ### Para v0.1.x (no bloquea MVP)
 
@@ -186,6 +194,10 @@ _(ninguno)_
 - **F05 Settings UI es parcial**: consume comandos reales de config,
   providers y secrets, pero `permissions_set_default`/eventos F05 y E2E
   de persistencia completa siguen pendientes.
+- **F06 Web server LAN aún no está implementada**: `specs/ipc.md` y
+  `specs/architecture.md` ya anticipan HTTP/SSE, pero el código no tiene
+  módulo `server`, dependencia `axum`, EventBus SSE ni adapter HTTP en
+  `ui/src/lib/ipc.ts`.
 
 ## Reglas de transición
 

@@ -1,17 +1,20 @@
 # Agentyx
 
-> Fast, lightweight, agentic desktop app — Tauri 2 + Svelte 5 + Rust.
+> Fast, lightweight, local-first agentic app — Tauri 2 + Axum + Svelte 5 + Rust.
 
-Agentyx is a desktop application that turns open-source LLM code
-into autonomous productivity agents. You ask, Agentyx coordinates
-the work to get it done. Built for action, not for programming.
+Agentyx is a desktop application with an embedded LAN web server that
+turns open-source LLM code into autonomous productivity agents. You ask,
+Agentyx coordinates the work to get it done. Built for action, not for
+programming.
 
 ## Status
 
 **v0.1.0** — MVP foundation in progress. The monorepo skeleton is in
 place, F02 multi-workspace is implemented, and F01 chat streaming has
-the core/app/UI Phase 1 + Phase 2 foundation in `main`. Settings,
-diffs, and the full agents UI remain the next MVP blocks.
+the core/app/UI Phase 1 + Phase 2 foundation in `main`. The MVP now
+requires both desktop and browser access over LAN via the embedded
+server (`F06`). Settings, LAN web, diffs, and the full agents UI remain
+the next MVP blocks.
 
 | Component | State |
 |---|---|
@@ -19,7 +22,8 @@ diffs, and the full agents UI remain the next MVP blocks.
 | Monorepo skeleton | ✅ in place |
 | F02 multi-workspace | ✅ implemented, with AC7 still tracked as partial |
 | F01 chat streaming | 🚧 implemented partial: sessions, events, read-only tools, permissions, chat UI |
-| F05 settings | 🚧 draft; config/provider/secrets commands still placeholder |
+| F05 settings | 🚧 draft; backend/config/secrets/permission matrix partly implemented, UI/E2E still pending |
+| F06 web server LAN | 🚧 draft; moved into v0.1 MVP, not implemented |
 | F04 file diffs | 🚧 draft; not implemented |
 | F-agents-ui | 🚧 draft; agent model exists, dedicated UI still pending |
 | CI (fmt, clippy, test, audit, deny, typecheck, vitest) | ✅ GitHub Actions |
@@ -36,7 +40,7 @@ agentyx/
 │   ├── ipc.md             # IPC contract
 │   ├── agents.md          # multi-agent model
 │   ├── domains/           # domain specs
-│   └── features/          # 5 feature specs
+│   └── features/          # MVP and roadmap feature specs
 ├── crates/                # Rust workspace
 │   ├── agentyx-core/      # pure Rust domain (no Tauri)
 │   ├── agentyx-app/       # Tauri 2 desktop binary
@@ -49,6 +53,7 @@ agentyx/
 ## Tech stack
 
 - **Tauri 2** (Rust) — desktop shell
+- **Axum** — embedded HTTP/SSE server for browser access over LAN
 - **Svelte 5** (runes) + Vite + TypeScript strict
 - **rusqlite** (bundled) — local storage
 - **reqwest + SSE** — LLM provider streaming
@@ -109,11 +114,13 @@ bun run clean      # remove target/, node_modules/, dist/
 - **Rust core** (`agentyx-core`): pure domain logic, no Tauri. All
   business rules, types, and tests live here.
 - **Tauri app** (`agentyx-app`): thin shell. Sets up the window,
-  configures plugins, exposes IPC commands, and streams events.
+  configures plugins, exposes IPC commands, starts the embedded
+  HTTP/SSE server, and streams events.
 - **SDK** (`agentyx-sdk`): reusable Rust API for third-party
   integrations.
 - **UI** (`ui/`): Svelte 5 + runes. All IPC goes through
-  `src/lib/ipc.ts` (typed wrappers, never `window.__TAURI__`).
+  `src/lib/ipc.ts`; desktop uses Tauri `invoke/listen`, browser LAN
+  uses HTTP + SSE.
 
 See `specs/architecture.md` for the full design.
 
@@ -133,6 +140,8 @@ Cycle between primaries with `Cmd+[` / `Cmd+]`. See `specs/agents.md`.
   (see ADR-0007). Tools cannot escape this union.
 - **Secrets in keychain**: API keys are never written to `config.toml`.
   They live in the OS keychain (`agentyx` service).
+- **LAN auth**: when the embedded server binds to `0.0.0.0`, bearer
+  token auth is mandatory.
 - **No telemetry by default**: `telemetry_enabled = false` in config.
 - **CSP locked down in production**: `script-src 'self'`, no
   `unsafe-inline`.

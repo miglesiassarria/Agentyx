@@ -11,6 +11,8 @@
 - **Tauri 2** (Rust) — desktop shell multiplataforma.
 - **Rust** (edition 2021, MSRV `1.80+`).
 - **Tokio** como runtime async.
+- **axum** para el servidor HTTP/SSE embebido que sirve la UI por
+  navegador en loopback/LAN desde el MVP.
 - **reqwest** con `stream` y `rustls-tls` para HTTP/SSE.
 - **serde** + **serde_json** + **toml** para serialización y config.
 - **rusqlite** (bundled) para persistencia local. Sin servidor SQL externo.
@@ -69,6 +71,9 @@
     dispositivo. El único tráfico de red saliente son las llamadas
     a los providers LLM que el usuario haya configurado
     explícitamente.
+11. **Desktop + web LAN en el MVP** — la app se usa desde Tauri y desde
+    navegador en la LAN mediante el servidor embebido. `127.0.0.1`
+    es el bind por defecto; `0.0.0.0` requiere auth bearer obligatoria.
 
 ---
 
