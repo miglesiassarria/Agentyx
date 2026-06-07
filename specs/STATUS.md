@@ -4,15 +4,14 @@
 > Para roadmap de features: [features/ROADMAP.md](./features/ROADMAP.md).
 > Para índice de ADRs: [adr/README.md](./adr/README.md).
 >
-> Última actualización: 2026-06-07 (multi-PR session:
-> PR1: F01.AC9 cerrado — `agent.changed.v1` event emission + agent
-> permission overrides en `build_permission_snapshot` + integration test.
-> PR2: F05 ProviderRegistry refresh post-config-change + tests E2E.
-> PR3: F06 web server — SSE streaming `/api/v1/events`, `POST
-> /sessions/:id/messages` send endpoint, config/secrets/providers/
-> permissions HTTP endpoints, `ServeDir` static file serving con SPA
-> fallback, browser IPC adapter dual-mode (Tauri + HTTP).
-> 65/66 tests passing (1 pre-existing failure en workspace sandbox).
+> Última actualización: 2026-06-07 (orden de MVP tras auditoría local):
+> `cargo test --workspace` pasa (274 tests), `npm run typecheck`,
+> `npm test` y `npm run build` pasan. F06 tiene infraestructura web
+> usable (Axum + ServeDir + REST parcial + SSE + adapter HTTP), pero
+> sigue bloqueado para MVP web por gaps de UX/browser y endpoints HTTP
+> faltantes: path manual para abrir workspace/extra paths, config
+> workspace HTTP, `permissions.list/respond` HTTP. F04/F-agents-ui
+> tienen UI parcial, pero no cierran comportamiento completo.
 >
 > **Disciplina de status**: este archivo se actualiza en el mismo PR
 > que cambia el estado real de cualquier pitch/spec o deja el board
@@ -23,30 +22,20 @@
 > `approved` e `implemented` siguen aceptados para specs existentes.
 
 ## 🟡 Draft (en construcción)
-- agents.md
-- domains/providers.md
-- domains/journal.md
-- features/F05-settings.md (UI parcial en curso; providers/models/approval/
-  workspace shell implementado, edición completa de matriz pendiente)
-- features/F04-file-diffs.md
-
-## 🔵 Review (pendiente de aprobación)
-_(vacío)_
-- agents.md
-- domains/providers.md
-- domains/journal.md
-- features/F05-settings.md (UI parcial en curso; providers/models/approval/
-  workspace shell implementado, edición completa de matriz pendiente)
+- agents.md (modelo built-in existe; subagent real vía `@mention` sigue
+  pendiente).
+- domains/providers.md.
+- domains/journal.md.
+- features/F05-settings.md (UI y backend avanzados; quedan E2E/HTTP de
+  workspace config y cierre de ACs abiertos).
 
 ## 🟢 Ready (AC + contratos listos, pendiente implementación)
-- features/F-agents-ui.md (spec completada: AgentChip, AgentPickerMenu,
-  Cmd+[/Cmd+] cycle, AtMentionPopover, SessionTree, SubagentLiveDot,
-  SessionTabs placeholder. 15 ACs definidos. Sin código aún.)
-- features/F04-file-diffs.md (spec completada: DiffView con
-  CodeMirror 6 Merge, DiffsSidePanel, truncation/binary/image
-  detection, collapse state en localStorage. 12 ACs definidos.
-  Depende de F01.AC8 (chat.tool_call.v1 enriquecido). Sin código
-  aún.)
+- features/F-agents-ui.md (UI parcial en código: `AgentChip`,
+  `AgentPickerMenu`, `AtMentionPopover`, shortcut cycle. Falta backend
+  de `@mention`/child sessions y SessionTree para cerrar ACs).
+- features/F04-file-diffs.md (infra parcial en código: `diff` domain,
+  DTOs, `DiffsSidePanel`, endpoints de lista. Falta write/edit/apply
+  tools reales y payload completo para cerrar ACs).
 
 ## 🔵 Review (pending approval)
 - domains/agent-loop.md
@@ -73,8 +62,8 @@ _(vacío)_
 - **ADR-0007** (nuevo, PR 3): modelo `root + extra_paths` por workspace.
 - **ADR-0008** (nuevo, PR 3): scope de providers v1 (Ollama / Groq / Minimax).
 
-## ✅ Implemented (código en main, ACs cumplidos, tests pasando)
-- **features/F06-web-server-lan.md** — `ready` → `implemented (full — AC1-AC10)`. PRs:
+## ✅ Implemented / Partially Implemented (código en main)
+- **features/F06-web-server-lan.md** — `ready` → `implemented (partial)`. PRs:
    Axum skeleton (#26): `server` module con `router/events_sse/auth/lifecycle`,
    `AuthLayer` + `BearerGuard`, `axum_extra` typed extractor.
    EventBus upgrade: `tokio::sync::broadcast` + `EventSink` trait,
@@ -87,6 +76,10 @@ _(vacío)_
    `BroadcastEventSink`, browser IPC adapter dual-mode.
    F06.AC10 (#TBD): SPA fallback ahora retorna 200 (no 404) en deep-links;
    integración test verifica app shell + API JSON.
+   Pendiente para `implemented (full)`: browser-safe manual path open/add
+   extra path, `GET/PATCH /config/workspaces/:id`, `GET
+   /permissions/requests`, `POST /permissions/requests/:id/respond`, y
+   smoke LAN completo.
 - **features/F02-multi-workspace.md** — `approved` → `implemented (full)`.
   PRs: UI (#12) 9/9 ACs UI + AC3, AC9 backend con `list_dir`; **AC7
   cerrado en PR `fix/f02-ac7-delete-workspace-with-active-runs`**
@@ -169,7 +162,7 @@ _(vacío)_
       `clear_default_tool_decision`.
     - `permissions.get_matrix` consulta `default_tool_decisions` antes
       de caer al default estático del catálogo.
-    - Nuevo Tauri command `permissions_set_default(tool, decision)`.
+    - Nuevo Tauri command `set_default(tool, decision)`.
     - `config_update_global` y `config_update_workspace` emiten
       `config.changed.v1` con payload `{ kind, global?, workspaceId?,
       workspace? }` (builders puros testeados en
@@ -193,28 +186,69 @@ _(vacío)_
 ## ⚫ Deprecated
 _(ninguno)_
 
+## Orden de continuidad para agentes
+
+> Para MVP, trabajar de arriba abajo. No abrir F04 write tools ni
+> subagents reales hasta cerrar P0 web, salvo instrucción humana.
+
+### P0 — cerrar MVP web funcional
+
+1. **F06-browser-workspace-paths**: en browser mode, reemplazar los
+   diálogos OS por inputs de path absoluto para:
+   - abrir workspace (`workspace.open(rootPath)`);
+   - añadir extra path (`workspace.addExtraPath(workspaceId, path)`).
+   Mantener `@tauri-apps/plugin-dialog` solo en desktop mode.
+   Tests esperados: UI/store tests para browser path flow y smoke manual
+   `http://127.0.0.1:<port>` abre workspace.
+2. **F06-http-config-permissions-gap**: completar router + handlers +
+   `ui/src/lib/ipc.ts` browser adapter para:
+   - `GET /api/v1/config/workspaces/:id`;
+   - `PATCH /api/v1/config/workspaces/:id`;
+   - `GET /api/v1/permissions/requests`;
+   - `POST /api/v1/permissions/requests/:id/respond`.
+   Tests esperados: Rust HTTP tests y Vitest del adapter.
+3. **F06/F05 web smoke**: verificar en navegador LAN:
+   - listar/abrir workspace;
+   - configurar/testear Ollama local;
+   - mandar mensaje y recibir `chat.content.delta.v1` por SSE;
+   - recibir y responder un `permission.requested.v1`;
+   - refresh/deep-link conserva app shell.
+
+### P1 — cerrar MVP desktop/read-only
+
+4. **F05-settings**: marcar o cerrar AC2/AC3/AC4/AC5/AC6/AC7/AC8/AC10/
+   AC11/AC13 según tests reales. Si falta código, priorizar Ollama
+   local configurable y persistencia de settings sobre providers remotos.
+5. **F01-chat-streaming**: decidir corte de MVP:
+   - si no hay subagents reales en v0.1, mover F01.AC10 y la parte
+     funcional de F-agents-ui a v0.1.x;
+   - mantener AC11 (429) y AC14 (approval mode mid-run) como hardening
+     si el MVP dogfood no depende de ellos.
+
+### P2 — post-MVP / v0.1.x recomendado
+
+6. **F04-file-diffs + write tools**: implementar `write_file`,
+   `edit_file`, `apply_patch` antes de exigir diffs completos. La UI de
+   diffs sin tools de escritura solo sirve como esqueleto.
+7. **F-agents-ui subagents reales**: implementar `@mention` expansion,
+   child sessions y SessionTree. La UI parcial actual no ejecuta
+   `@general` porque `send` todavía ignora `mentions`.
+
 ## Próximas specs a escribir
 
 > Nota de contexto: las specs MVP activas (`F01`, `F02`, `F04`, `F05`,
 > `F-agents-ui`, `agents.md`, `domains/config.md`,
 > `domains/journal.md`) ya tienen `## Agent context` para lectura
-> rápida. F06 está shipped; el siguiente trabajo es cerrar `config`/`providers`
-> reales (F05), completar los AC abiertos de F01, cerrar F-agents-ui y F04.
+> rápida. F06 está parcialmente implementada; el siguiente trabajo es
+> cerrar P0 web funcional antes de retomar F04 o subagents reales.
 
 ### Para el MVP (v0.1)
 
-> F02 está implementada y F01 tiene la foundation core/app/UI en
-> `main`. El siguiente trabajo MVP es cerrar la configuración real de
-> providers/secrets (F05), completar los AC abiertos de F01, implementar
-> F06 para que desktop y web LAN funcionen a la vez, y después cerrar
-> F-agents-ui y F04.
-
-1. `F05-settings.md`: cerrar edición persistente de la matriz de
-   permisos, cobertura E2E de add provider y evento `config.changed.v1`.
-2. `F01-chat-streaming.md`: cerrar AC9, AC10, AC11 y AC14.
-3. `F-agents-ui.md`: AgentChip, cycle shortcuts, @mention popover y
-   SessionTree.
-4. `F04-file-diffs.md`: diffs read-only sobre eventos/tool results.
+1. Cerrar P0 web funcional (ver arriba).
+2. Cerrar F05 al menos para Ollama local + persistencia settings.
+3. Confirmar corte read-only del agente: `read_file`, `list_dir`,
+   `search` son las tools MVP; escritura/diffs quedan v0.1.x salvo
+   decisión humana explícita.
 
 ### Para v0.1.x (no bloquea MVP)
 
@@ -224,13 +258,17 @@ _(ninguno)_
 
 ### Gaps conocidos
 
-_(vacío — F02.AC7 cerrado en PR `fix/f02-ac7-delete-workspace-with-active-runs`)_
+- **F06 fue corregida a partial**: los gaps operativos siguen siendo
+  path manual en browser, HTTP `permissions.respond/list`, config
+  workspace y smoke LAN.
+- **ROADMAP acceptance estaba obsoleto**: algunos checks web siguen sin
+  marcar aunque parte de F06 ya existe; usar la sección "Orden de
+  continuidad" como fuente operativa hasta que cada PR sincronice su
+  spec afectada.
 - **`agents.md` sigue en `draft`** aunque parte del modelo built-in ya
-  existe en core; F-agents-ui debe decidir si promueve la spec o la
-  mantiene como dominio en diseño.
-- **F05 Settings UI es parcial**: consume comandos reales de config,
-  providers y secrets, pero `permissions_set_default`/eventos F05 y E2E
-  de persistencia completa siguen pendientes.
+  existe en core; `@mention` real sigue pendiente.
+- **F04 depende de tools de escritura inexistentes**: el registry MVP
+  solo expone `read_file`, `list_dir`, `search`.
 
 ## Reglas de transición
 

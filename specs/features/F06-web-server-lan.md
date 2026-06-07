@@ -1,6 +1,6 @@
 # F06 — Web server LAN
 
-**Status**: ready
+**Status**: implemented (partial)
 **Owner**: @miglesias
 **Last update**: 2026-06-07
 **Affects**: [`ipc`](../ipc.md), [`architecture`](../architecture.md),
@@ -14,6 +14,13 @@
 
 - F06 is now part of the v0.1 MVP, not v0.2. The MVP must be usable
   from the desktop app and from a browser on the local network.
+- Current code has Axum lifecycle, static serving, `/api/v1/events`,
+  `POST /sessions/:id/messages`, global config/provider/secrets/
+  permissions matrix endpoints, diff skeleton endpoints, and a dual
+  Tauri/HTTP `ui/src/lib/ipc.ts` adapter.
+- Do **not** treat F06 as full yet. MVP blockers still open:
+  browser-safe workspace/extra-path path inputs, HTTP workspace config,
+  HTTP permission request list/respond, and a real LAN smoke.
 - Implement one embedded Axum server in `agentyx-app`, started with
   the desktop process. It serves the same Svelte build and exposes
   REST + SSE under `/api/v1`.
@@ -132,22 +139,22 @@ entry.
 - [x] F06.AC3 — `require_token=false` path: `tracing::warn!` at startup,
   unauthenticated requests succeed; middleware compiled and wireable via
   config flip.
-- [x] F06.AC4: Given a browser opens the LAN URL with a valid token,
+- [ ] F06.AC4: Given a browser opens the LAN URL with a valid token,
   When it loads the app, Then it uses the HTTP adapter and can list
   workspaces without importing Tauri APIs.
-- [x] F06.AC5: Given browser mode, When the user opens a workspace,
+- [ ] F06.AC5: Given browser mode, When the user opens a workspace,
   Then the UI accepts an absolute path typed by the user and calls
   the HTTP workspace endpoint.
 - [x] F06.AC6: Given browser mode and an active workspace, When the
   user sends a chat message, Then `send` returns a run handle and
   chat deltas arrive through `/api/v1/events`.
-- [x] F06.AC7: Given a permission request is emitted, When a browser
+- [ ] F06.AC7: Given a permission request is emitted, When a browser
   client is connected, Then it receives `permission.requested.v1` over
   SSE and can respond through the HTTP permissions endpoint.
 - [x] F06.AC8: Given a config or extra path changes in desktop or web,
   When the event is emitted, Then both Tauri listeners and SSE clients
   receive the same event payload.
-- [x] F06.AC9: Given a browser client, When it tests a provider,
+- [ ] F06.AC9: Given a browser client, When it tests a provider,
   updates config, stores/deletes a secret, or edits default tool
   decisions, Then the corresponding HTTP endpoint matches the Tauri
   command behavior and never returns secret values.
@@ -160,13 +167,31 @@ entry.
 - `F06.AC1` -> Rust integration test: `server::tests::f06_ac1_loopback_serves_ui` ✅
 - `F06.AC2` -> Rust integration test: `server::tests::f06_ac2_lan_with_require_token_blocks_without_bearer` ✅
 - `F06.AC3` -> Rust integration test: `server::tests::f06_ac3_lan_without_require_token_serves_with_warn` ✅
-- `F06.AC4` -> Vitest: `ui/src/lib/ipc.test.ts` (httpAdapter passthrough) ✅
-- `F06.AC5` -> Pending browser workspace open by path
-- `F06.AC6` -> Pending Rust HTTP test with `MockProvider` + SSE client
-- `F06.AC7` -> Pending Rust HTTP test with `PermissionRegistry` ask flow
+- `F06.AC4` -> Pending: browser build must avoid direct Tauri dialog
+  usage and list workspaces through HTTP.
+- `F06.AC5` -> Pending: browser workspace + extra path open by typed
+  absolute path.
+- `F06.AC6` -> Pending stronger Rust HTTP test with `MockProvider` +
+  SSE client; code path exists.
+- `F06.AC7` -> Pending Rust HTTP test with `PermissionRegistry` ask
+  flow and `POST /permissions/requests/:id/respond`; endpoint missing.
 - `F06.AC8` -> Pending Rust event bus test with Tauri sink mocked + SSE broadcast
-- `F06.AC9` -> Pending HTTP endpoint tests per command group
+- `F06.AC9` -> Pending HTTP endpoint tests per command group; workspace
+  config endpoints and permission request endpoints are missing.
 - `F06.AC10` -> Rust integration test: `server::tests::f06_spa_fallback_returns_index_for_unknown_routes` ✅
+
+## Implementation notes
+
+- Static serving and SPA fallback are implemented via `ServeDir` in
+  `crates/agentyx-app/src/server/static_files.rs`.
+- HTTP routes currently cover workspaces, sessions, agents, global
+  config, provider test, secrets, permission matrix/default, diffs
+  skeleton and SSE.
+- Missing routes from the contract: `GET/PATCH
+  /api/v1/config/workspaces/:id`, `GET /api/v1/permissions/requests`,
+  `POST /api/v1/permissions/requests/:id/respond`.
+- `ui/src/lib/stores/workspace.svelte.ts` still imports and uses the
+  Tauri dialog plugin directly; browser mode needs a manual path flow.
 
 ## No-gos
 

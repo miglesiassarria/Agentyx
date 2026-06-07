@@ -2,7 +2,10 @@
 
 > Vista por features. Para vista global: [specs/README.md](../README.md).
 > Para índice de ADRs: [specs/adr/README.md](../adr/README.md).
-> Última actualización: 2026-06-07
+> Última actualización: 2026-06-07 (sincronizado tras auditoría MVP:
+> F06 infra web existe, pero quedan P0 browser UX + HTTP permission/config
+> gaps; F04/F-agents-ui pasan a esqueleto parcial/post-MVP salvo
+> decisión humana).
 
 ## Agent context
 
@@ -33,12 +36,26 @@
 
 | ID | Feature | Status | Affects | Depends on | Phase |
 |---|---|---|---|---|---|
-| [F02](F02-multi-workspace.md) | Multi-workspace: list, open, delete, **extra paths**, badge venv pasivo | implemented (AC7 partial) | workspace, tools, permissions | — | 1 |
-| [F05](F05-settings.md) | Settings: providers activos (Ollama/Groq/Minimax), modelos, keychain entry, approval_mode | draft (2026-06-05) | providers, permissions, **config** | F02 | 2 |
-| [F01](F01-chat-streaming.md) | Chat con streaming LLM (provider agnóstico, multi-agent: build/plan) | implemented partial (Phase 1 + Phase 2 foundation) | agent-loop, providers, session, **agents**, **journal** | F02, F05 | 3 |
-| [F06](F06-web-server-lan.md) | Servidor web embebido + UI navegador LAN: `0.0.0.0` opt-in, bearer token, REST + SSE | draft (2026-06-07) | server, ipc, ui, config, session, workspace, permissions | F02, F05, F01 | 4 |
-| [F04](F04-file-diffs.md) | File diffs en UI (CodeMirror merge) tras edit_file / apply_patch — **read-only en v0.1** | draft (2026-06-05) | tools, ui | F01, F02 | 5 |
-| [F-agents-ui](F-agents-ui.md) | UI multi-agent: cycle con Cmd+[/] entre build/plan, @mention popover, SessionTree en sidebar | draft (2026-06-05) | ui, agent-loop, **agents**, session | F01 | 6 |
+| [F02](F02-multi-workspace.md) | Multi-workspace: list, open, delete, **extra paths**, badge venv pasivo | implemented | workspace, tools, permissions | — | 1 |
+| [F05](F05-settings.md) | Settings: providers activos (Ollama/Groq/Minimax), modelos, keychain entry, approval_mode | partial — P1 | providers, permissions, **config** | F02 | 2 |
+| [F01](F01-chat-streaming.md) | Chat con streaming LLM (provider agnóstico, multi-agent: build/plan) | partial — read-only MVP viable | agent-loop, providers, session, **agents**, **journal** | F02, F05 | 3 |
+| [F06](F06-web-server-lan.md) | Servidor web embebido + UI navegador LAN: `0.0.0.0` opt-in, bearer token, REST + SSE | partial — P0 blocker | server, ipc, ui, config, session, workspace, permissions | F02, F05, F01 | 4 |
+| [F04](F04-file-diffs.md) | File diffs en UI tras write/edit/apply_patch | skeleton — v0.1.x unless write tools enter MVP | tools, ui | F01, F02 | 5 |
+| [F-agents-ui](F-agents-ui.md) | UI multi-agent: chip/cycle/@mention/SessionTree | partial UI — subagents real v0.1.x | ui, agent-loop, **agents**, session | F01 | 6 |
+
+### MVP finish line (orden operativo)
+
+1. **P0 F06 browser UX**: browser mode debe abrir workspace y añadir
+   extra paths escribiendo paths absolutos. No usar OS dialogs fuera de
+   Tauri.
+2. **P0 F06 HTTP gaps**: completar config workspace y permissions
+   request/respond por HTTP + adapter `ui/src/lib/ipc.ts`.
+3. **P0 smoke web LAN**: abrir UI web, listar/abrir workspace, mandar
+   mensaje, recibir SSE, responder permission prompt.
+4. **P1 F05 Ollama/settings**: asegurar "configurar Ollama local" y
+   persistencia de settings como flujo E2E.
+5. **Corte explícito**: MVP v0.1 es read-only agent (`read_file`,
+   `list_dir`, `search`) salvo que se decida subir write tools a P0.
 
 > **F03 (Python en `.venv`) se difiere a v0.1.x** (ver §v0.1.x más
 > abajo). En v0.1, un workspace sin venv es perfectamente válido y
@@ -82,22 +99,31 @@
   (es válido).
 - [x] Añadir 1 directorio extra al workspace desde la UI y verlo en
   la sección "Extras" del sidebar.
-- [ ] El agente puede leer en el extra path añadido; escritura queda
+- [x] El agente puede leer en el extra path añadido; escritura queda
   para tools de escritura/diffs.
 - [x] Quitar un extra path con confirmación.
 - [ ] Configurar al menos 1 provider (Ollama local) en Settings.
 - [x] Chatear con streaming visible.
-- [ ] Cambiar entre primary `build` y `plan` con Tab y ver cómo
+- [x] Cambiar entre primary `build` y `plan` con Tab y ver cómo
   cambia el system prompt y las tools disponibles.
 - [x] Cuando el modelo pide `read_file`, ver el resultado en la UI.
 - [x] Persistir mensajes y journal entre sesiones de la app.
 - [x] Cerrar y reabrir la app → workspaces, sesiones y extra paths
   intactos.
-- [ ] Arrancar servidor HTTP embebido y servir la misma UI en loopback.
-- [ ] Habilitar bind LAN `0.0.0.0:<port>` con `[server].lan_enabled`.
-- [ ] Activar `[server].require_token = true` y verificar 401 sin bearer.
-- [ ] Abrir la UI desde navegador LAN y listar workspaces vía HTTP.
+- [x] Arrancar servidor HTTP embebido y servir la misma UI en loopback.
+- [x] Habilitar bind LAN `0.0.0.0:<port>` con `[server].lan_enabled`.
+- [x] Activar `[server].require_token = true` y verificar 401 sin bearer.
+- [ ] Abrir la UI desde navegador LAN y listar workspaces vía HTTP
+  **sin import/uso de diálogos Tauri**.
 - [ ] En navegador LAN, enviar un mensaje y recibir streaming vía SSE.
+- [ ] En navegador LAN, responder un `permission.requested.v1`.
+- [ ] En navegador LAN, editar config de workspace desde Settings.
+
+### Fuera del corte MVP salvo decisión explícita
+
+- `write_file`, `edit_file`, `apply_patch`, `shell`, `python_run`.
+- Diffs completos de F04 ligados a tools de escritura.
+- `@general` con child sessions reales y SessionTree.
 
 ---
 
