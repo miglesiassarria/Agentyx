@@ -1,8 +1,8 @@
 # F-agents-ui — UI multi-agente
 
-**Status**: draft
+**Status**: ready
 **Owner**: @miglesias
-**Last update**: 2026-06-05
+**Last update**: 2026-06-07
 **Affects**: [`agents`](../agents.md) (consume `AgentRegistry`,
 `AgentSpec`, `expand_at_mentions`, `invoke_subagent`),
 [`session`](../domains/session.md) (active agent per session),
@@ -12,6 +12,24 @@ eventos de subagent), `ui` (Svelte components y stores).
 y emite eventos), [`F02`](./F02-multi-workspace.md) (workspaces
 existen), [`agents.md`](../agents.md) (modelo de agentes), UI shell
 existe (lib/app shell + sidebar).
+
+## Agent context
+
+- Leer primero este bloque, `Affected Tauri commands / endpoints /
+  events` y `Acceptance criteria`; la UX larga solo aplica al tocar
+  `AgentChip`, `AtMentionPopover`, `SessionTree` o shortcuts.
+- Objetivo MVP: exponer el modelo multi-agent ya definido en
+  `agents.md`: elegir/ciclar primary agents (`build`, `plan`),
+  mencionar subagent `@general`, y mostrar child sessions en sidebar.
+- Contratos clave: `agents_list`, `agents_get`,
+  `session_set_active_agent`, `session_get_active_agent`,
+  `agents_invoke_subagent`; eventos `agent.changed.v1`,
+  `subagent.started.v1`, `subagent.finished.v1`,
+  `subagent.aborted.v1`.
+- Pendientes de F01/agents: `@mention` expansion, child session schema
+  (`parent_session_id`) y bloqueo de cambio de active agent durante
+  runs activos.
+- No incluir hidden agents en UI; no custom agents editor en v0.1.
 
 > Nombre informal: **F-agents-ui**. No tiene número `F<NN>` porque
 > se introduce como **feature complementaria** al MVP tras la

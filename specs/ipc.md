@@ -2,7 +2,7 @@
 
 **Status**: approved
 **Owner**: @miglesias
-**Last update**: 2026-06-04
+**Last update**: 2026-06-07
 
 > Contratos entre Rust (core/app) y el frontend (Svelte) en sus dos
 > modos: **Tauri webview nativo** y **navegador HTTP/SSE**.
@@ -63,33 +63,44 @@ pub async fn list_sessions(
 | `timeout` | Operación excedió el timeout. |
 | `path_traversal` | Intento de escape del workspace root. |
 
-### 2.3 Inventario (borrador — se cierra con cada spec de dominio)
+### 2.3 Inventario
 
 | Command | Scope | Spec |
 |---|---|---|
-| `workspace_list` | workspace | `domains/workspace.md` |
-| `workspace_open(path)` | workspace | `domains/workspace.md` |
-| `workspace_detect_venv(workspace_id)` | workspace | `domains/workspace.md` |
-| `workspace_create_venv(workspace_id, backend)` | workspace | `domains/workspace.md` |
-| `session_list(workspace_id)` | session | `domains/session.md` |
-| `session_create(workspace_id, parent_id?)` | session | `domains/session.md` |
-| `session_send(session_id, message)` | session | `domains/agent-loop.md` |
-| `session_abort(session_id)` | session | `domains/agent-loop.md` |
-| `pty_spawn(workspace_id, command, args)` | pty | `domains/pty.md` |
-| `pty_write(pty_id, data)` | pty | `domains/pty.md` |
-| `pty_resize(pty_id, cols, rows)` | pty | `domains/pty.md` |
-| `pty_kill(pty_id)` | pty | `domains/pty.md` |
-| `server_get_url()` | server | `domains/server.md` (futuro) |
-| `server_set_bind(bind, lan_enabled)` | server | (futuro) |
-| `server_get_token()` | server | (futuro) |
-| `provider_list()` | providers | `domains/providers.md` |
-| `provider_set_active(id, model)` | providers | `domains/providers.md` |
-| `agents_list()` | agents | `agents.md` |
-| `agents_get(id)` | agents | `agents.md` |
-| `agents_set_active(session_id, agent_id)` | agents | `agents.md` |
-| `agents_invoke_subagent(session_id, subagent_id, prompt)` | agents | `agents.md` |
-| `config_get(key)` | config | `domains/config.md` (futuro) |
-| `config_set(key, value)` | config | (futuro) |
+| `list_workspaces()` | workspace | `domains/workspace.md` |
+| `open(root_path, name?)` | workspace | `domains/workspace.md` |
+| `get_workspace(workspace_id)` | workspace | `domains/workspace.md` |
+| `delete_workspace(workspace_id, force)` | workspace | `domains/workspace.md` |
+| `detect_workspace_venv(workspace_id)` | workspace | `domains/workspace.md` |
+| `add_extra_path(workspace_id, path, label?)` | workspace | `domains/workspace.md` |
+| `remove_extra_path(workspace_id, path)` | workspace | `domains/workspace.md` |
+| `list_extra_paths(workspace_id)` | workspace | `domains/workspace.md` |
+| `effective_paths(workspace_id)` | workspace | `domains/workspace.md` |
+| `list_dir(workspace_id, path)` | workspace | `domains/workspace.md` |
+| `create_session(workspace_id, agent_id?, title?)` | session | `domains/session.md` |
+| `send(session_id, content, mentions)` | session | `domains/agent-loop.md` |
+| `abort(session_id)` | session | `domains/agent-loop.md` |
+| `list_sessions(workspace_id, limit?)` | session | `domains/session.md` |
+| `get_history(session_id, limit?)` | session | `domains/session.md` |
+| `set_active_agent(session_id, agent_id)` | agents/session | `agents.md` |
+| `get_active_agent(session_id)` | agents/session | `agents.md` |
+| `list_agents()` | agents | `agents.md` |
+| `get_agent(id)` | agents | `agents.md` |
+| `config_get_global()` | config | `domains/config.md` |
+| `config_update_global(patch)` | config | `domains/config.md` |
+| `config_get_workspace(workspace_id)` | config | `domains/config.md` |
+| `config_update_workspace(workspace_id, patch)` | config | `domains/config.md` |
+| `providers_test_connection(request)` | providers | `domains/providers.md` |
+| `set_secret(provider_id, value)` | secrets | `domains/config.md` |
+| `delete_secret(provider_id)` | secrets | `domains/config.md` |
+| `list_providers()` | secrets | `domains/config.md` |
+| `get_matrix(workspace_id?)` | permissions | `domains/permissions.md` |
+| `set_default(tool, decision)` | permissions | `domains/permissions.md` |
+| `list()` | permissions | `domains/permissions.md` |
+| `respond(request_id, response)` | permissions | `domains/permissions.md` |
+| `server_get_info()` | server | `features/F06-web-server-lan.md` |
+| `server_update_config(patch)` | server | `features/F06-web-server-lan.md` |
+| `server_rotate_token()` | server | `features/F06-web-server-lan.md` |
 
 ## 3. Eventos (streaming)
 
@@ -141,10 +152,16 @@ la UI (`ui/dist/`) cuando se accede desde navegador.
 ### 4.1 Bind y auth
 
 - **Por defecto**: `127.0.0.1:<random>`, **sin auth** (loopback seguro).
-- **Opt-in LAN**: `0.0.0.0:<port>`, **auth obligatoria** vía
-  `Authorization: Bearer <token>`.
-- Token generado al primer arranque, guardado en keychain del SO.
-- CORS: allowlist cerrado (solo el propio origen y `null` para file://).
+- **Opt-in LAN**: `0.0.0.0:<port>`, controlado por `[server].require_token`:
+  - `require_token = true` (recomendado fuera del dogfooding): **auth
+    obligatoria** vía `Authorization: Bearer <token>`. 401 sin token
+    o con token inválido.
+  - `require_token = false` (default MVP para dogfooding en LAN de
+    confianza): server emite un `tracing::warn!` único al arrancar y
+    sirve `/api/v1/*` sin requerir token. Ver
+    [`features/F06-web-server-lan.md`](./features/F06-web-server-lan.md) §MVP dogfooding caveats.
+- Token generado al rotar (`server_rotate_token`), guardado en keychain del SO.
+- CORS: allowlist cerrado (solo el propio origen).
 
 ### 4.2 Endpoints (request / response)
 
@@ -154,26 +171,40 @@ Mismo shape que los Tauri commands, en JSON sobre HTTP. Versionado en URL:
 | Método | Path | Equivalente Tauri | Spec |
 |---|---|---|---|
 | `GET` | `/api/v1/health` | — | (transversal) |
-| `GET` | `/api/v1/workspaces` | `workspace_list` | `domains/workspace.md` |
-| `POST` | `/api/v1/workspaces` | `workspace_open` | `domains/workspace.md` |
-| `GET` | `/api/v1/workspaces/:id/venv` | `workspace_detect_venv` | `domains/workspace.md` |
-| `POST` | `/api/v1/workspaces/:id/venv` | `workspace_create_venv` | `domains/workspace.md` |
-| `GET` | `/api/v1/workspaces/:id/sessions` | `session_list` | `domains/session.md` |
-| `POST` | `/api/v1/workspaces/:id/sessions` | `session_create` | `domains/session.md` |
-| `POST` | `/api/v1/sessions/:id/messages` | `session_send` | `domains/agent-loop.md` |
-| `POST` | `/api/v1/sessions/:id/abort` | `session_abort` | `domains/agent-loop.md` |
-| `POST` | `/api/v1/pty` | `pty_spawn` | `domains/pty.md` |
-| `POST` | `/api/v1/pty/:id/write` | `pty_write` | `domains/pty.md` |
-| `POST` | `/api/v1/pty/:id/resize` | `pty_resize` | `domains/pty.md` |
-| `DELETE` | `/api/v1/pty/:id` | `pty_kill` | `domains/pty.md` |
-| `GET` | `/api/v1/providers` | `provider_list` | `domains/providers.md` |
-| `POST` | `/api/v1/providers/active` | `provider_set_active` | `domains/providers.md` |
-| `GET` | `/api/v1/agents` | `agents_list` | `agents.md` |
-| `GET` | `/api/v1/agents/:id` | `agents_get` | `agents.md` |
-| `POST` | `/api/v1/sessions/:id/active-agent` | `agents_set_active` | `agents.md` |
-| `POST` | `/api/v1/sessions/:id/invoke-subagent` | `agents_invoke_subagent` | `agents.md` |
-| `GET` | `/api/v1/server/info` | `server_get_url` | (futuro) |
-| `POST` | `/api/v1/server/bind` | `server_set_bind` | (futuro) |
+| `GET` | `/api/v1/server/info` | `server_get_info` | `features/F06-web-server-lan.md` |
+| `PATCH` | `/api/v1/server/config` | `server_update_config` | `features/F06-web-server-lan.md` |
+| `POST` | `/api/v1/server/token/rotate` | `server_rotate_token` | `features/F06-web-server-lan.md` |
+| `GET` | `/api/v1/workspaces` | `list_workspaces` | `domains/workspace.md`, `features/F06-web-server-lan.md` |
+| `POST` | `/api/v1/workspaces` | `open` | `domains/workspace.md`, `features/F06-web-server-lan.md` |
+| `GET` | `/api/v1/workspaces/:id` | `get_workspace` | `domains/workspace.md`, `features/F06-web-server-lan.md` |
+| `DELETE` | `/api/v1/workspaces/:id` | `delete_workspace` | `domains/workspace.md`, `features/F06-web-server-lan.md` |
+| `GET` | `/api/v1/workspaces/:id/venv` | `detect_workspace_venv` | `domains/workspace.md`, `features/F06-web-server-lan.md` |
+| `GET` | `/api/v1/workspaces/:id/extra-paths` | `list_extra_paths` | `domains/workspace.md`, `features/F06-web-server-lan.md` |
+| `POST` | `/api/v1/workspaces/:id/extra-paths` | `add_extra_path` | `domains/workspace.md`, `features/F06-web-server-lan.md` |
+| `DELETE` | `/api/v1/workspaces/:id/extra-paths` | `remove_extra_path` | `domains/workspace.md`, `features/F06-web-server-lan.md` |
+| `GET` | `/api/v1/workspaces/:id/effective-paths` | `effective_paths` | `domains/workspace.md`, `features/F06-web-server-lan.md` |
+| `POST` | `/api/v1/workspaces/:id/list-dir` | `list_dir` | `domains/workspace.md`, `features/F06-web-server-lan.md` |
+| `GET` | `/api/v1/workspaces/:id/sessions` | `list_sessions` | `domains/session.md`, `features/F06-web-server-lan.md` |
+| `POST` | `/api/v1/workspaces/:id/sessions` | `create_session` | `domains/session.md`, `features/F06-web-server-lan.md` |
+| `GET` | `/api/v1/sessions/:id/history` | `get_history` | `domains/session.md`, `features/F06-web-server-lan.md` |
+| `POST` | `/api/v1/sessions/:id/messages` | `send` | `domains/agent-loop.md`, `features/F06-web-server-lan.md` |
+| `POST` | `/api/v1/sessions/:id/abort` | `abort` | `domains/agent-loop.md`, `features/F06-web-server-lan.md` |
+| `GET` | `/api/v1/sessions/:id/active-agent` | `get_active_agent` | `agents.md`, `features/F06-web-server-lan.md` |
+| `POST` | `/api/v1/sessions/:id/active-agent` | `set_active_agent` | `agents.md`, `features/F06-web-server-lan.md` |
+| `GET` | `/api/v1/agents` | `list_agents` | `agents.md`, `features/F06-web-server-lan.md` |
+| `GET` | `/api/v1/agents/:id` | `get_agent` | `agents.md`, `features/F06-web-server-lan.md` |
+| `GET` | `/api/v1/config/global` | `config_get_global` | `domains/config.md`, `features/F06-web-server-lan.md` |
+| `PATCH` | `/api/v1/config/global` | `config_update_global` | `domains/config.md`, `features/F06-web-server-lan.md` |
+| `GET` | `/api/v1/config/workspaces/:id` | `config_get_workspace` | `domains/config.md`, `features/F06-web-server-lan.md` |
+| `PATCH` | `/api/v1/config/workspaces/:id` | `config_update_workspace` | `domains/config.md`, `features/F06-web-server-lan.md` |
+| `POST` | `/api/v1/providers/test-connection` | `providers_test_connection` | `domains/providers.md`, `features/F06-web-server-lan.md` |
+| `POST` | `/api/v1/secrets/:provider_id` | `set_secret` | `domains/config.md`, `features/F06-web-server-lan.md` |
+| `DELETE` | `/api/v1/secrets/:provider_id` | `delete_secret` | `domains/config.md`, `features/F06-web-server-lan.md` |
+| `GET` | `/api/v1/secrets/providers` | `list_providers` | `domains/config.md`, `features/F06-web-server-lan.md` |
+| `GET` | `/api/v1/permissions/matrix` | `get_matrix` | `domains/permissions.md`, `features/F06-web-server-lan.md` |
+| `POST` | `/api/v1/permissions/default` | `set_default` | `domains/permissions.md`, `features/F06-web-server-lan.md` |
+| `GET` | `/api/v1/permissions/requests` | `list` | `domains/permissions.md`, `features/F06-web-server-lan.md` |
+| `POST` | `/api/v1/permissions/requests/:id/respond` | `respond` | `domains/permissions.md`, `features/F06-web-server-lan.md` |
 
 ### 4.3 SSE (streaming)
 
@@ -252,7 +283,10 @@ El resto de la UI **nunca** accede a `window.__TAURI__` ni a `fetch` directo.
   `.<vN>`.
 - [ ] AC4: la UI nunca usa `window.__TAURI__` directamente — siempre
   pasa por `lib/ipc.ts`.
-- [ ] AC5: el HTTP server exige bearer token cuando `bind != 127.0.0.1`.
+- [ ] AC5: el HTTP server exige bearer token cuando
+  `[server].require_token = true` y `bind != 127.0.0.1`; cuando
+  `require_token = false`, emite un único warning al arrancar y sirve
+  sin auth (MVP dogfooding).
 - [ ] AC6: las rutas HTTP están versionadas (`/api/v1/...`).
 - [ ] AC7: el spec de cada command nuevo o modificado referencia este
   documento (`ipc.md`).

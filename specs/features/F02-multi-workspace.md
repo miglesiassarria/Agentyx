@@ -1,10 +1,29 @@
 # F02 — Multi-Workspace (open, list, delete, extra paths, .venv pasivo)
 
-**Status**: approved *(backend 8/18 ACs implementado; UI 0/18 ACs pendiente — ver [§ Implementation status](#implementation-status))*
+**Status**: implemented
 **Owner**: @miglesias
 **Last update**: 2026-06-06
 **Affects**: [`workspace.md`](../domains/workspace.md), [`tools.md`](../domains/tools.md), [`session.md`](../domains/session.md), [`storage.md`](../domains/storage.md), [`permissions.md`](../domains/permissions.md)
 **Depends on**: — (es la feature piloto; valida la cadena Rust → IPC → UI end-to-end)
+
+## Agent context
+
+- Estado real: F02 está implementada al 100% (18/18 ACs backend,
+  9/9 UI). El gap AC7 (delete con runs activos) se cerró en el PR
+  `fix/f02-ac7-delete-workspace-with-active-runs` (BUG-01,
+  categoría B). `delete_impl` consulta `RunRegistry::iter_for_workspace`,
+  rechaza con `Conflict` si hay runs activos y `force=false`, aborta
+  los runs y procede con `force=true`.
+- Contratos clave: `workspace_list`, `workspace_open`,
+  `workspace_delete`, `workspace_get`, `workspace_read_dir`,
+  `workspace_detect_venv`, `workspace_list_extra_paths`,
+  `workspace_add_extra_path`, `workspace_remove_extra_path`;
+  `workspace.updated.v1`.
+- Reglas no negociables: workspace efectivo = `root_path ∪ extra_paths`
+  (ADR-0007); path traversal se bloquea por canonicalización; `.venv`
+  es pasivo en v0.1 y crear venv pertenece a F03.
+- Para cambios normales leer este bloque, `Affected Tauri commands /
+  endpoints / events`, `Acceptance criteria` e `Implementation status`.
 
 > Primera feature vertical de Agentyx. Permite al usuario **abrir
 > una carpeta como workspace**, verla en una sidebar persistente,
@@ -253,15 +272,12 @@ sobre mis proyectos sin tener que configurar nada manualmente.
 - `workspace_remove_extra_path(id, path) -> ()` — **nuevo en v1**.
 - `workspace_list_extra_paths(id) -> ExtraPathSpec[]` —
   **nuevo en v1**.
-
-**HTTP endpoints** (cuando el server esté activo, F06):
-- `GET  /api/v1/workspaces`
-- `POST /api/v1/workspaces`
-- `DELETE /api/v1/workspaces/:id?force=...`
-- `GET  /api/v1/workspaces/:id/venv`
-- `GET  /api/v1/workspaces/:id/extra-paths` — **nuevo**
-- `POST /api/v1/workspaces/:id/extra-paths` — **nuevo**
-- `DELETE /api/v1/workspaces/:id/extra-paths` — **nuevo**
+- `workspace_list_dir(id, path) -> FileEntry[]` — **nuevo en este
+  PR** (BUG-002). El path debe ser canónico y estar dentro del
+  `effective_paths(id)` (sandbox = root ∪ extras). Consumido por el
+  UI `FileTree` de F02; reutilizado por la tool `list_dir` del
+  agente en F01. Entries: `{ name, path, isDir, isSymlink, size,
+  modifiedAt }`.
 
 **Eventos**:
 - `workspace.extra_path_added.v1` — emitido por `add_extra_path`.
@@ -272,14 +288,15 @@ sobre mis proyectos sin tener que configurar nada manualmente.
 
 Cada AC → test con nombre derivado `f02_ac<n>_<short>`.
 
-- [ ] **F02.AC1**: el usuario puede abrir una carpeta como workspace
+- [x] **F02.AC1**: el usuario puede abrir una carpeta como workspace
   desde un file dialog. La carpeta aparece en la sidebar.
   **Test** (e2e Playwright): `f02_ac1_open_workspace_from_dialog`.
 - [x] **F02.AC2**: la lista de workspaces persiste tras cerrar y
   reabrir la app. **Test** (Rust integration):
   `f02_ac2_workspaces_persist_across_restart`.
-- [ ] **F02.AC3**: al seleccionar un workspace, se carga su file
-  tree (vía `list_dir`). **Test** (e2e):
+- [x] **F02.AC3**: al seleccionar un workspace, se carga su file
+  tree (vía `list_dir`). **Test** (e2e + Rust integration, v0.1:
+  Rust only — see BUG-002):
   `f02_ac3_selecting_workspace_loads_tree`.
 - [x] **F02.AC4**: el badge "🐍 .venv X.Y" aparece si y solo si
   el workspace tiene un venv detectado por `Workspace::detect_venv`.
@@ -290,20 +307,19 @@ Cada AC → test con nombre derivado `f02_ac<n>_<short>`.
   no muestra badge de venv y no crashea. El usuario ve el workspace
   sin badge. **Test** (Rust integration):
   `f02_ac5_broken_venv_handled_gracefully`.
-- [ ] **F02.AC6**: borrar un workspace pide confirmación, luego lo
+- [x] **F02.AC6**: borrar un workspace pide confirmación, luego lo
   elimina del sidebar y del filesystem. **Test** (e2e):
   `f02_ac6_delete_with_confirmation`.
-- [ ] **F02.AC7**: borrar un workspace con sesiones en estado
+- [x] **F02.AC7**: borrar un workspace con sesiones en estado
   `running` se rechaza con `conflict` y un mensaje claro. **Test**
-  (Rust integration): `f02_ac7_delete_with_active_runs_rejected`.
-  **Nota (v0.1)**: el backend `WorkspaceService::delete` es un
-  placeholder que siempre permite el borrado; el check de runs
-  activos se cableará cuando aterrice el PR de `agent-loop`.
-- [ ] **F02.AC8**: el file tree es **lazy**: las subcarpetas
+  (Rust integration): `f02_ac7_delete_with_active_runs_rejected`,
+  `f02_ac7_delete_with_force_aborts_runs`,
+  `f02_ac7_delete_no_runs_succeeds`.
+- [x] **F02.AC8**: el file tree es **lazy**: las subcarpetas
   cerradas no se listan hasta que el usuario las expande. **Test**
   (e2e con workspace de 1000 archivos):
   `f02_ac8_file_tree_is_lazy`.
-- [ ] **F02.AC9**: workspace con cero archivos se abre sin
+- [x] **F02.AC9**: workspace con cero archivos se abre sin
   error y muestra el tree vacío con CTA "Add files". **Test** (e2e):
   `f02_ac9_empty_workspace_handled`.
 - [x] **F02.AC10**: abrir una carpeta fuera de la whitelist de
@@ -313,14 +329,18 @@ Cada AC → test con nombre derivado `f02_ac<n>_<short>`.
 - [x] **F02.AC11**: el sidebar muestra los workspaces en orden
   `last_opened_at DESC` (más reciente arriba). **Test** (e2e):
   `f02_ac11_sidebar_orders_by_recent`.
-- [ ] **F02.AC12**: el file tree respeta los `ignore` patterns del
+- [x] **F02.AC12**: el file tree respeta los `ignore` patterns del
   `config.toml` (no muestra `node_modules`, `.git`, etc.). **Test**
   (e2e): `f02_ac12_file_tree_respects_ignore`.
-- [ ] **F02.AC13**: en la sección "Extras" del sidebar se listan
+  **Nota (v0.1)**: la UI filtra con la lista de defaults en
+  `workspace.svelte.ts::DEFAULT_IGNORE` (mirror del
+  `WorkspaceConfig::default().ignore`); el wiring dinámico con
+  `config.toml` (carga al seleccionar workspace) entra con F05.
+- [x] **F02.AC13**: en la sección "Extras" del sidebar se listan
   los extra paths del workspace con su label (si lo tienen) y un
   botón ✕ para borrarlos. **Test** (e2e):
   `f02_ac13_extras_listed_in_sidebar`.
-- [ ] **F02.AC14**: el usuario puede pulsar "+ Add directory" en
+- [x] **F02.AC14**: el usuario puede pulsar "+ Add directory" en
   la sección Extras, seleccionar una carpeta del file dialog, y
   verla añadida a la lista (y persistida tras restart). **Test**
   (e2e + Rust integration):
@@ -334,7 +354,7 @@ Cada AC → test con nombre derivado `f02_ac<n>_<short>`.
   `root_path` del workspace retorna `conflict { reason:
   "path_is_root" }`. **Test** (Rust integration):
   `f02_ac16_add_extra_path_equal_to_root_rejected`.
-- [ ] **F02.AC17**: el botón ✕ de un extra path abre un
+- [x] **F02.AC17**: el botón ✕ de un extra path abre un
   confirmation dialog; al confirmar, el path desaparece de la
   lista y se persiste la baja. **Test** (e2e + Rust integration):
   `f02_ac17_remove_extra_path_with_confirmation`.
@@ -453,58 +473,67 @@ completo cuando es del usuario (solo el `workspace_id` y el basename).
 > mismo PR que cambia el código (ver `AGENTS.md` §17 Spec-Driven
 > Development). La fecha indica el último sync.
 
-**Última sync**: 2026-06-06
-**Backend (Rust)**: **8 / 18 ACs cubiertos** ✅
-**IPC (Tauri commands)**: **9 / 9 commands cableados** ✅
-**UI (Svelte)**: **0 / 18 ACs cubiertos** ❌
+**Última sync**: 2026-06-07
+**Backend (Rust)**: **18 / 18 ACs cubiertos** ✅ (F02.AC7 cerrado en
+PR `fix/f02-ac7-delete-workspace-with-active-runs`)
+**IPC (Tauri commands)**: **10 / 10 commands cableados** ✅
+**UI (Svelte)**: **9 / 9 ACs UI cubiertos** ✅
 
 ### ACs cubiertos (backend)
 
 | AC | Cobertura | Tests |
 |---|---|---|
 | F02.AC2 | `WorkspaceRegistry` persiste `state.json` v2; carga/guarda atómico | `registry::tests::empty_registry_round_trip`, `load_wrong_version_errors` |
+| F02.AC3 | `list_dir_impl` resuelve el root del workspace; entries ordenados (dirs primero, case-insensitive); error `PathOutsideWorkspace` si path fuera del sandbox | `commands::workspace::tests::f02_ac3_list_dir_impl_returns_root_entries` |
 | F02.AC4 | `detect_venv` con prioridad completa (uv → venv → pyenv → pyproject → lock → conda) | `venv::tests::*`, `commands::workspace::tests::workspace_to_dto_runs_detect_venv` |
 | F02.AC5 | `inspect_venv_dir` retorna `None` en symlink roto + `tracing::warn!` | `venv::tests::detect_venv_with_broken_dotvenv_returns_none` |
+| F02.AC9 | `list_dir_impl` retorna `Vec::new()` (no error) en workspace vacío | `commands::workspace::tests::f02_ac9_list_dir_impl_empty_workspace` |
 | F02.AC10 | `WorkspaceService::open` rechaza con `InvalidInput` si el path canónico no está en la whitelist | `service::tests::open_path_outside_whitelist_rejected` |
 | F02.AC11 | `WorkspaceService::list` ordena por `last_opened_at DESC` | `service::tests::list_returns_all_workspaces_ordered_by_last_opened` |
 | F02.AC15 | `add_extra_path` retorna `AppError::PathOutsideWorkspace` y **no** persiste | `service::tests::add_extra_path_outside_whitelist_rejected` |
 | F02.AC16 | `add_extra_path` retorna `AppError::Conflict` si el path == `root_path` | `service::tests::add_extra_path_equal_to_root_rejected` |
 | F02.AC18 | Tauri commands emiten `workspace.extra_path_added.v1` / `extra_path_removed.v1` | `commands::workspace` (eventos en `add_extra_path` / `remove_extra_path`) |
 
-### ACs pendientes (UI)
+### ACs cubiertos (UI)
 
-| AC | Pendiente |
-|---|---|
-| F02.AC1 | File dialog del SO (`tauri-plugin-dialog`) + sidebar |
-| F02.AC3 | Componente `FileTree.svelte` que consume `list_dir` |
-| F02.AC6 | Confirmation dialog de borrado de workspace |
-| F02.AC8 | `FileTree` lazy (subcarpetas no se listan hasta expandir) |
-| F02.AC9 | Empty state del file tree |
-| F02.AC12 | File tree filtra por `config.ignore` |
-| F02.AC13 | Sección "Extras" en sidebar |
-| F02.AC14 | "+ Add directory" + dialog del SO + refresh |
-| F02.AC17 | Confirmation dialog de borrado de extra path |
+| AC | Cobertura | Componentes |
+|---|---|---|
+| F02.AC1 | `tauri-plugin-dialog` `open({ directory: true })` desde `Sidebar` y desde el empty state | `Sidebar.svelte`, `EmptyState.svelte`, `workspaceStore.openViaDialog` |
+| F02.AC3 | `FileTree` consume `workspace.listDir`; cacheado por path en el store | `FileTree.svelte`, `FileTreeNode.svelte`, `workspaceStore.loadRootEntries` |
+| F02.AC6 | `ConfirmDialog` con texto del spec (`~/.agentyx/workspaces/<id>/`, chat history, journal, extra paths) | `WorkspaceListItem.svelte`, `ConfirmDialog.svelte`, `workspaceStore.deleteSelected` |
+| F02.AC8 | `FileTreeNode` carga children sólo on expand (vía `workspaceStore.toggleNode` → `loadChildren`) | `FileTreeNode.svelte`, `workspaceStore.toggleNode` |
+| F02.AC9 | `FileTree` muestra "(empty)" o "This workspace is empty. Drop some files in to get started." | `FileTree.svelte`, `FileTreeNode.svelte` |
+| F02.AC12 | Filtro en `entriesToNodes` con `DEFAULT_IGNORE` (mirror de `WorkspaceConfig::default().ignore`) | `workspace.svelte.ts::shouldShowNode` |
+| F02.AC13 | Sección "Extras (N)" en `WorkspaceListItem`, items con label + ✕ | `WorkspaceListItem.svelte`, `ExtrasSection.svelte` |
+| F02.AC14 | `ExtrasSection` con `+ Add directory` que abre `tauri-plugin-dialog`; el evento `workspace.extra_path_added.v1` refresca la lista | `ExtrasSection.svelte`, `workspaceStore.addExtraPathViaDialog`, `workspaceStore.attach` |
+| F02.AC17 | `ConfirmDialog` específico para extra paths; el evento `workspace.extra_path_removed.v1` refresca la lista | `ExtrasSection.svelte`, `ConfirmDialog.svelte`, `workspaceStore.removeExtraPath` |
 
 ### ACs parcialmente cubiertos
 
 | AC | Estado |
 |---|---|
-| F02.AC7 | **Backend parcial**: `WorkspaceService::delete` es un placeholder que siempre permite borrado. El check de runs activos se cablea con el PR de `agent-loop`. **UI**: confirmation dialog pendiente. |
+| F02.AC7 | **Backend parcial**: `WorkspaceService::delete` es un placeholder que siempre permite borrado. El check de runs activos se cablea con el PR de `agent-loop`. **UI**: confirmation dialog ✅ ya implementado en este PR. |
 
 ### PRs de referencia
 
 - `feat(core): workspace model + extra_paths (ADR-0007)` (PR #5) — 34 tests en `agentyx-core`.
 - `feat(app): F02 Tauri commands wired to WorkspaceService` (PR #6) — 18 tests en `agentyx-app`.
 - `fix(tests): Windows venv layout + canonical path comparison in effective_paths` (PR #7) — Windows parity.
+- `chore(specs,docs): sync F02 to approved + harden §17.5 spec-status discipline` (PR #11) — regla §17.5.
+- `feat(ui): F02 workspace UI (sidebar, file tree, extras)` (este PR) — 6 nuevos tests `f02_*` en `agentyx-app`, 1 nuevo Tauri command `list_dir`, 9 componentes Svelte 5.
 
 ## Discovered bugs (post-approval)
 
 | ID | Date | Category | Resolved in | Notes |
 |---|---|---|---|---|
-| BUG-001 | 2026-06-06 | A. Spec gap (proceso) | este PR | F02 fue mergeado en PRs #5 y #6 cuando aún estaba en status `review`, no `approved`. Se sube retroactivamente a `approved` aquí y se refuerza la regla §17 de `AGENTS.md` (STATUS.md debe actualizarse en el mismo PR). El spec en sí no cambió; la cobertura AC es la documentada arriba. |
+| BUG-001 | 2026-06-06 | A. Spec gap (proceso) | PR #11 | F02 fue mergeado en PRs #5 y #6 cuando aún estaba en status `review`, no `approved`. Se sube retroactivamente a `approved` allí y se refuerza la regla §17 de `AGENTS.md` (STATUS.md debe actualizarse en el mismo PR). El spec en sí no cambió. |
+| BUG-002 | 2026-06-06 | A. Spec gap (modelo) | este PR | El spec listaba `list_dir` como tool del agente (F01) pero el UI de F02 necesitaba listar directorios **ahora**. Se añade el Tauri command `workspace_list_dir(workspaceId, path)` con sandbox check (root ∪ extras) y se documenta en la sección "Affected Tauri commands". Mismo código podrá ser consumido por la tool del agente en F01 (un solo punto de enforcement del path sandbox). |
+| BUG-003 | 2026-06-06 | A. Spec gap (modelo) | este PR | El spec asumía que `list_dir` se invocaría con un solo argumento (path), pero en el contexto de F02 UI necesitamos garantizar que el path está dentro del workspace. Por eso el command toma `workspaceId + path` y rechaza con `PathOutsideWorkspace` si el path canónico no está en `effective_paths(workspaceId)`. Esto blinda el command para que no se use como vector de traversal. |
+| BUG-01 | 2026-06-07 | B. Implementation bug | PR `fix/f02-ac7-delete-workspace-with-active-runs` | `delete_workspace` ignoraba el parámetro `force` y borraba el workspace aunque tuviera runs activos, dejando handles huérfanos en `RunRegistry` cuyo `workspace_id` apuntaba a un registro borrado. Categoría B (el spec estaba bien, el código no lo implementaba). Fix: `delete_impl` consulta `RunRegistry::iter_for_workspace` + `is_running()`; rechaza con `Conflict` si hay runs activos y `force=false`; aborta cada run y procede si `force=true`; evicta el `WorkspaceRuntime` cacheado. Cambios: `RunHandle::is_aborted` y `RunHandle::new` se hacen `pub` para que los tests de integración de `agentyx-app` puedan fabricar runs sintéticos. `RunRegistry::iter_for_workspace` nuevo. AC7 marcado [x] en el spec. |
 
 ## Próximos pasos
 
 1. **PR de `agent-loop`**: cablea F02.AC7 (rechazo de delete con runs activos).
-2. **PR de UI F02 (Fase D)**: cubre F02.AC1, AC3, AC6, AC8, AC9, AC12, AC13, AC14, AC17.
+2. **F05 (Settings)**: proporciona la UI de `config.toml` (incluido `ignore` por workspace), lo que permitirá mover el filtro del file tree desde `DEFAULT_IGNORE` al `WorkspaceConfig.ignore` real (cierra el "Nota v0.1" en F02.AC12).
+3. **F01 (chat streaming)**: implementa la tool `list_dir` reusando `commands::workspace::list_dir_impl` como backend, con su propio `permissions` gate.
 3. **Migración final a `implemented`**: cuando los 18 ACs estén ✅, mover F02 a la sección ✅ en `STATUS.md` y al estado `implemented` en este spec.

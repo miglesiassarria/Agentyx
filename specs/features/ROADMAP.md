@@ -2,11 +2,21 @@
 
 > Vista por features. Para vista global: [specs/README.md](../README.md).
 > Para índice de ADRs: [specs/adr/README.md](../adr/README.md).
-> Última actualización: 2026-06-04
+> Última actualización: 2026-06-07
+
+## Agent context
+
+- Para trabajo MVP, leer primero esta tabla y luego el bloque
+  `## Agent context` de la feature/dominio afectado.
+- Specs compactadas con contexto rápido: F01, F02, F04, F05, F06,
+  F-agents-ui, `agents.md`, `domains/config.md`, `domains/journal.md`.
+- No usar este roadmap como contrato de IPC o ACs; ir al pitch/spec
+  concreto para contratos y tests.
 
 ## Leyenda
 
-- **Status**: `draft` (spec en redacción) | `approved` (lista para implementar) | `in-progress` (código en marcha) | `shipped` (en release).
+- **Status**: preferido `proposed` | `ready` | `shipped`; histórico
+  `draft` | `approved` | `in-progress` | `implemented`.
 - **Phase**: orden aproximado de implementación dentro de la versión (no estricto; depende de la spec).
 - **Depends on**: features cuyo spec debe estar al menos `approved` antes de empezar esta.
 - **Affects**: specs de [dominio](../domains/) que la feature consume.
@@ -18,15 +28,17 @@
 > La app debe ser utilizable: abrir un workspace (con o sin Python,
 > con 0..N directorios extra), configurar un provider, chatear con
 > el agente (con multi-agent desde el día 1: build + plan + general),
-> ejecutar tools básicas, stream LLM en la UI, todo persistido.
+> ejecutar tools básicas, stream LLM en la UI, servir la misma UI por
+> navegador en LAN, todo persistido.
 
 | ID | Feature | Status | Affects | Depends on | Phase |
 |---|---|---|---|---|---|
-| [F02](F02-multi-workspace.md) | Multi-workspace: list, open, delete, **extra paths**, badge venv pasivo | review | workspace, tools, permissions | — | 1 |
+| [F02](F02-multi-workspace.md) | Multi-workspace: list, open, delete, **extra paths**, badge venv pasivo | implemented (AC7 partial) | workspace, tools, permissions | — | 1 |
 | [F05](F05-settings.md) | Settings: providers activos (Ollama/Groq/Minimax), modelos, keychain entry, approval_mode | draft (2026-06-05) | providers, permissions, **config** | F02 | 2 |
-| [F01](F01-chat-streaming.md) | Chat con streaming LLM (provider agnóstico, multi-agent: build/plan) | draft (2026-06-05) | agent-loop, providers, session, **agents**, **journal** | F02, F05 | 3 |
-| [F04](F04-file-diffs.md) | File diffs en UI (CodeMirror merge) tras edit_file / apply_patch — **read-only en v0.1** | draft (2026-06-05) | tools, ui | F01, F02 | 4 |
-| [F-agents-ui](F-agents-ui.md) | UI multi-agent: cycle con Cmd+[/] entre build/plan, @mention popover, SessionTree en sidebar | draft (2026-06-05) | ui, agent-loop, **agents**, session | F01 | 5 |
+| [F01](F01-chat-streaming.md) | Chat con streaming LLM (provider agnóstico, multi-agent: build/plan) | implemented partial (Phase 1 + Phase 2 foundation) | agent-loop, providers, session, **agents**, **journal** | F02, F05 | 3 |
+| [F06](F06-web-server-lan.md) | Servidor web embebido + UI navegador LAN: `0.0.0.0` opt-in, bearer token, REST + SSE | draft (2026-06-07) | server, ipc, ui, config, session, workspace, permissions | F02, F05, F01 | 4 |
+| [F04](F04-file-diffs.md) | File diffs en UI (CodeMirror merge) tras edit_file / apply_patch — **read-only en v0.1** | draft (2026-06-05) | tools, ui | F01, F02 | 5 |
+| [F-agents-ui](F-agents-ui.md) | UI multi-agent: cycle con Cmd+[/] entre build/plan, @mention popover, SessionTree en sidebar | draft (2026-06-05) | ui, agent-loop, **agents**, session | F01 | 6 |
 
 > **F03 (Python en `.venv`) se difiere a v0.1.x** (ver §v0.1.x más
 > abajo). En v0.1, un workspace sin venv es perfectamente válido y
@@ -35,9 +47,10 @@
 
 ### Especs de dominio nuevas en Fase B (2026-06-05)
 
-> Las 6 specs escritas en Fase B (este commit de docs) son
-> prerrequisito de las features de arriba. Aún en `draft`,
-> pendientes de promoción a `review` / `approved`:
+> Las specs escritas en Fase B siguen siendo el contexto de diseño de
+> las features de arriba. Su estado actual se consulta en
+> [`../STATUS.md`](../STATUS.md); F01/F02 ya tienen implementación en
+> `main`, mientras F05/F04/F-agents-ui siguen pendientes.
 
 - [`domains/journal.md`](../domains/journal.md) — log append-only en
   SQLite puro (16 ACs). Bloqueante de F01.
@@ -54,28 +67,37 @@
 - [`features/F04-file-diffs.md`](F04-file-diffs.md) — CodeMirror
   Merge con `DiffPayload` enriquecido en `chat.tool_call.v1`,
   `DiffsSidePanel`, read-only en v0.1 (12 ACs).
+- [`features/F06-web-server-lan.md`](F06-web-server-lan.md) — servidor
+  Axum embebido, UI por navegador en LAN, REST + SSE, bearer token
+  obligatorio cuando el bind es `0.0.0.0` (10 ACs).
 - [`features/F-agents-ui.md`](F-agents-ui.md) — `AgentChip`,
   `Cmd+[` / `Cmd+]` para cycle, `@mention` popover, `SessionTree`
   con child sessions (15 ACs).
 
 ### Acceptance de v0.1
 
-- [ ] Abrir un workspace y ver su árbol de archivos.
-- [ ] Si el workspace tiene venv, ver el badge "🐍 .venv X.Y".
-- [ ] Si el workspace no tiene venv, **no** se muestra badge ni CTA
+- [x] Abrir un workspace y ver su árbol de archivos.
+- [x] Si el workspace tiene venv, ver el badge "🐍 .venv X.Y".
+- [x] Si el workspace no tiene venv, **no** se muestra badge ni CTA
   (es válido).
-- [ ] Añadir 1 directorio extra al workspace desde la UI y verlo en
+- [x] Añadir 1 directorio extra al workspace desde la UI y verlo en
   la sección "Extras" del sidebar.
-- [ ] El agente puede leer y escribir en el extra path añadido.
-- [ ] Quitar un extra path con confirmación.
+- [ ] El agente puede leer en el extra path añadido; escritura queda
+  para tools de escritura/diffs.
+- [x] Quitar un extra path con confirmación.
 - [ ] Configurar al menos 1 provider (Ollama local) en Settings.
-- [ ] Chatear con streaming visible.
+- [x] Chatear con streaming visible.
 - [ ] Cambiar entre primary `build` y `plan` con Tab y ver cómo
   cambia el system prompt y las tools disponibles.
-- [ ] Cuando el modelo pide `read_file`, ver el archivo en la UI.
-- [ ] Persistir mensajes y journal entre sesiones de la app.
-- [ ] Cerrar y reabrir la app → workspaces, sesiones y extra paths
+- [x] Cuando el modelo pide `read_file`, ver el resultado en la UI.
+- [x] Persistir mensajes y journal entre sesiones de la app.
+- [x] Cerrar y reabrir la app → workspaces, sesiones y extra paths
   intactos.
+- [ ] Arrancar servidor HTTP embebido y servir la misma UI en loopback.
+- [ ] Habilitar bind LAN `0.0.0.0:<port>` con `[server].lan_enabled`.
+- [ ] Activar `[server].require_token = true` y verificar 401 sin bearer.
+- [ ] Abrir la UI desde navegador LAN y listar workspaces vía HTTP.
+- [ ] En navegador LAN, enviar un mensaje y recibir streaming vía SSE.
 
 ---
 
@@ -98,7 +120,6 @@
 
 | ID | Feature | Status | Affects | Depends on | Phase |
 |---|---|---|---|---|---|
-| F06 | Servidor web embebido (LAN) — bind opt-in 0.0.0.0, bearer token | draft | server, ipc | F01 | 6 |
 | F07 | Visor PDF (PDF.js, lazy) — abrir PDF dentro del workspace | draft | tools, ui | F02 | 7 |
 | F08 | Visor DOCX (mammoth.js, lazy) — abrir .docx renderizado | draft | tools, ui | F02 | 7 |
 | F09 | Dashboard con métricas — tokens consumidos, latencia providers, tiempo en tools | draft | storage, ui, providers | F01 | 8 |
@@ -111,7 +132,7 @@
 
 ### Acceptance de v0.2
 
-- [ ] Acceder desde otro device en LAN (iPad, móvil) con bearer token.
+- [ ] Reconectar un navegador LAN tras caída de red y recuperar estado básico.
 - [ ] Abrir un PDF y un DOCX desde el workspace.
 - [ ] Ver dashboard con consumo de tokens del día.
 - [ ] Buscar en el workspace con regex, glob, case-insensitive.
@@ -129,19 +150,16 @@
 
 | ID | Feature | Status | Affects | Depends on | Phase |
 |---|---|---|---|---|---|
-| F16 | UI desde navegador (no solo Tauri webview) — `lib/ipc.ts` con transporte http+SSE | draft | server, ui, ipc | F06 | 11 |
+| F16 | UI navegador avanzada — reconexión SSE, replay básico, estado multi-client y file watcher cross-client | draft | server, ui, ipc | F06 | 11 |
 | F17 | Sincronización read-only entre devices (cambios en workspace A visibles en B) | draft | storage, server, session | F06 | 12 |
 | F18 | Notificaciones de cambios (file_changed) propagadas a otros clients | draft | server, ui, workspace | F16 | 12 |
-| F19 | Tunnel WAN opt-in (cloudflared) — un click y se expone públicamente con URL ephemeral | draft | server | F06 | 13 |
 
 ### Acceptance de v0.3
 
-- [ ] Abrir la UI en un navegador (no Tauri) y chatear con el mismo
-  provider que en el desktop.
+- [ ] Reconectar un navegador tras caída de red y recuperar estado básico.
 - [ ] Empezar un chat en Mac, ver el progreso en el iPad.
 - [ ] Cambiar un archivo del workspace desde Finder y verlo refrescado
   en la UI.
-- [ ] Exponer públicamente con un click y compartir el link a alguien.
 
 ---
 
@@ -209,6 +227,7 @@ v0.1 (Foundation) — incluyendo dominios nuevos (Fase B 2026-06-05)
     journal.md ──┐
                  ├──► F05 (settings) ──► F01 (chat + multi-agent) ──┐
     config.md ───┘                                  │               │
+                                                   │               ├──► F06 (server LAN + browser MVP)
                                                    │   F04 (diffs) │
                                                    │       │       │
                                                    │       ▼       │
@@ -219,9 +238,7 @@ v0.1 (Foundation) — incluyendo dominios nuevos (Fase B 2026-06-05)
     F-extra-paths-tree, F-extra-paths-cap           │
                                                    │
 v0.2 (Productividad)                               │
-  F01 ──► F06 (server LAN)                          │
-              │                                    │
-              └──► F16 (browser UI) ──► v0.3       │
+  F06 ──► F16 (browser advanced) ──► v0.3          │
                                             F04 ──► F11 (apply_patch)
                                             F01 ──► F12 (permisos UI)
                                             F01 ──► F-agents-ui ◄──┐

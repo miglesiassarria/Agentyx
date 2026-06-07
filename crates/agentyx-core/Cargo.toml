@@ -13,6 +13,17 @@ description = "Agentyx core domain — pure Rust library, no Tauri dependencies.
 name = "agentyx_core"
 path = "src/lib.rs"
 
+[features]
+# Optional OS keychain integration. Off by default so CI on
+# headless runners (no keyring) compiles and tests pass; turn
+# on for the desktop app binary.
+keyring = ["dep:keyring"]
+# Default: include the keyring. `agentyx-core` is only used
+# inside the desktop app today, and the production app needs
+# the real OS keychain. Disabling the default would require
+# shipping a fake keychain in the app, which we don't want.
+default = ["keyring"]
+
 [dependencies]
 # Async
 tokio = { workspace = true }
@@ -31,6 +42,13 @@ toml = { workspace = true }
 
 # HTTP / streaming
 reqwest = { workspace = true }
+bytes = { workspace = true }
+
+# Hashing (journal payload SHA-256)
+sha2 = "0.10"
+
+# Synchronization primitives used by config caching.
+parking_lot = "0.12"
 
 # Storage
 rusqlite = { workspace = true }
@@ -54,11 +72,16 @@ chrono = { workspace = true }
 # URL
 url = { workspace = true }
 
-# Keychain
-keyring = { workspace = true }
+# Keychain (optional — see `[features]` above)
+keyring = { workspace = true, optional = true }
 
 # Filesystem locations (HOME, USERPROFILE, etc.)
 dirs = "5"
+
+# Tools (read_file, list_dir, search)
+walkdir = { workspace = true }
+globset = { workspace = true }
+regex = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }

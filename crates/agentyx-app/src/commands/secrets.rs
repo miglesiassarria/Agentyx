@@ -4,9 +4,6 @@
 //! into the keychain in the same call and is never logged. The
 //! `tracing` calls in this module MUST NOT include the value.
 
-// Placeholder commands, not yet wired into `generate_handler!`.
-#![allow(dead_code)]
-
 use agentyx_core::AppResult;
 use std::sync::Arc;
 use tauri::State;
@@ -18,30 +15,25 @@ use crate::state::AppState;
 /// provider. **The value is never logged.**
 #[tauri::command]
 pub async fn set_secret(
-    _state: State<'_, Arc<AppState>>,
-    _provider_id: String,
-    _value: String,
+    state: State<'_, Arc<AppState>>,
+    provider_id: String,
+    value: String,
 ) -> AppResult<()> {
-    Err(agentyx_core::AppError::Internal {
-        message: "secrets::set not yet implemented (F05 in Fase D)".into(),
-    })
+    tracing::info!(provider_id = %provider_id, "setting provider secret");
+    state.config.set_keychain(&provider_id, &value)
 }
 
 /// Delete a secret from the keychain. No-op if no entry exists.
 #[tauri::command]
-pub async fn delete_secret(
-    _state: State<'_, Arc<AppState>>,
-    _provider_id: String,
-) -> AppResult<()> {
-    Err(agentyx_core::AppError::Internal {
-        message: "secrets::delete not yet implemented (F05 in Fase D)".into(),
-    })
+pub async fn delete_secret(state: State<'_, Arc<AppState>>, provider_id: String) -> AppResult<()> {
+    tracing::info!(provider_id = %provider_id, "deleting provider secret");
+    state.config.delete_keychain(&provider_id)
 }
 
-/// List provider ids that have a secret set. Does NOT return values.
+/// List provider ids that have a secret set. Does NOT return
+/// values; the UI uses this to render the "API key: set in
+/// keychain" badge.
 #[tauri::command]
-pub async fn list_providers(_state: State<'_, Arc<AppState>>) -> AppResult<Vec<String>> {
-    Err(agentyx_core::AppError::Internal {
-        message: "secrets::list_providers not yet implemented (F05 in Fase D)".into(),
-    })
+pub async fn list_providers(state: State<'_, Arc<AppState>>) -> AppResult<Vec<String>> {
+    state.config.list_keychain_providers()
 }

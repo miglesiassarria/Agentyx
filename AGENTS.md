@@ -11,6 +11,8 @@
 - **Tauri 2** (Rust) — desktop shell multiplataforma.
 - **Rust** (edition 2021, MSRV `1.80+`).
 - **Tokio** como runtime async.
+- **axum** para el servidor HTTP/SSE embebido que sirve la UI por
+  navegador en loopback/LAN desde el MVP.
 - **reqwest** con `stream` y `rustls-tls` para HTTP/SSE.
 - **serde** + **serde_json** + **toml** para serialización y config.
 - **rusqlite** (bundled) para persistencia local. Sin servidor SQL externo.
@@ -69,6 +71,9 @@
     dispositivo. El único tráfico de red saliente son las llamadas
     a los providers LLM que el usuario haya configurado
     explícitamente.
+11. **Desktop + web LAN en el MVP** — la app se usa desde Tauri y desde
+    navegador en la LAN mediante el servidor embebido. `127.0.0.1`
+    es el bind por defecto; `0.0.0.0` requiere auth bearer obligatoria.
 
 ---
 
@@ -260,6 +265,10 @@ agentyx/
 - Comentarios solo donde aporten contexto (no qué hace, sino por qué).
 - Mensajes de commit: conventional commits (`feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`).
 - PRs: una preocupación por PR. Diff pequeño y revisable.
+- PRs abiertas por un agente: si el CI pasa completo y no hay bloqueo
+  humano explícito, el mismo agente debe cerrar el ciclo fusionando la
+  PR (`gh pr merge`) y verificando que `main` queda actualizado. No
+  dejar PRs verdes abiertas salvo que el usuario pida revisión humana.
 - Ramas: `feat/<scope>`, `fix/<scope>`, `chore/<scope>`.
 
 ---
@@ -555,15 +564,18 @@ pub trait Provider: Send + Sync {
 - [ ] Smoke test manual con Ollama local.
 - [ ] Sin secretos nuevos en el diff.
 - [ ] CHANGELOG actualizado si hay cambio de cara al usuario.
-- [ ] **Spec sync (regla §17.5)**: si el PR toca código cubierto
-      por una spec, el diff incluye:
-      1. `specs/STATUS.md` actualizado (spec movida a su nueva
-         sección, fecha "Última actualización" refrescada).
-      2. La spec afectada con `Status` cambiado, ACs marcados
-         con `[x]`, y (si aplica) sección `## Implementation
-         status` y/o `## Discovered bugs` actualizadas.
-      3. Sección `## Spec status changes` del cuerpo del PR
-         listando cada spec tocada y su nuevo estado.
+- [ ] **Spec sync (regla §17.5)**: si el PR toca comportamiento
+      cubierto por pitch/spec, el diff incluye:
+      1. Pitch/spec afectado actualizado solo cuando cambian
+         alcance, contratos, ACs o estado.
+      2. `specs/STATUS.md` actualizado solo si cambia el status
+         de una spec/pitch o el board queda objetivamente obsoleto.
+      3. Sección `## Spec status changes` del cuerpo del PR con
+         cada pitch/spec tocado, o `N/A` con motivo.
+- [ ] **PR lifecycle**: si el CI del PR está en verde y no hay bloqueo
+      humano explícito, el agente que abrió la PR debe fusionarla y
+      confirmar después que el estado del proyecto refleja el resultado
+      real post-merge.
 
 ---
 
@@ -585,30 +597,74 @@ pub trait Provider: Send + Sync {
 
 ---
 
-## 17. Spec-Driven Development (OBLIGATORIO)
+## 17. Pitch-Driven SDD Lite (OBLIGATORIO)
 
-Este proyecto sigue **Spec-Driven Development**. Es una **regla dura**, no una recomendación. Toda la lógica que cruza más de un archivo debe estar respaldada por una spec en [`specs/`](specs/) **antes** de codearse.
+Este proyecto sigue **Pitch-Driven SDD Lite**: suficiente diseño antes
+de implementar, pero con documentos cortos y lectura selectiva para no
+quemar contexto. La fuente de verdad vive en [`specs/`](specs/), junto
+al código, pero no todo cambio necesita una spec larga.
 
-### 17.1 Reglas inquebrantables
+### 17.1 Cuándo hace falta pitch/spec
 
-1. **PROHIBIDO** tocar código de un dominio si no existe `specs/domains/<x>.md` con `Status` ≥ `draft`.
-2. **PROHIBIDO** implementar una feature si no existe `specs/features/F<NN>-<slug>.md` con `Status` ≥ `approved` y acceptance criteria definidos.
-3. **PROHIBIDO** mergear un PR que no referencie explícitamente las specs que implementa. Formato obligatorio en el cuerpo del PR:
-   `Refs: specs/domains/agent-loop.md#AC3, specs/features/F03-python-venv.md#F03.AC1`
-4. **PROHIBIDO** cambiar la API de un Tauri command, endpoint HTTP o evento streaming sin actualizar [`specs/ipc.md`](specs/ipc.md) y la spec de dominio afectada en el mismo PR.
-5. **OBLIGATORIO** que cada acceptance criterion tenga al menos un test cuyo nombre derive del AC (ej: `AC3` → test `ac3_<short>`; `F03.AC1` → test `f03_ac1_<short>`).
-6. **OBLIGATORIO** que cada decisión de stack/arquitectura tenga un ADR en [`specs/adr/`](specs/adr/) **antes** de implementarse.
-7. **OBLIGATORIO** que cualquier agente (humano o IA) que proponga un cambio lea primero [`specs/README.md`](specs/README.md) + las specs afectadas, y mencione explícitamente qué ACs cubre.
+Un PR **debe** referenciar o actualizar un pitch/spec cuando toca al
+menos una de estas superficies:
+
+1. Comportamiento visible de usuario o una feature vertical.
+2. API de Tauri command, endpoint HTTP, evento streaming o error code.
+3. Persistencia, migraciones, journal, permisos, sandbox, providers,
+   agentes, PTY o ejecución de tools.
+4. Seguridad, secretos, paths, red o capabilities Tauri.
+5. Decisiones de stack/arquitectura difíciles de revertir.
+
+No hace falta pitch/spec nuevo para refactors internos, cambios de
+estilo, renombres locales, tests que cubren comportamiento existente,
+docs operativas o fixes pequeños que no cambian contrato ni UX. En esos
+casos el PR usa `Refs: N/A — <motivo>`.
+
+### 17.1.1 Reglas duras
+
+1. **PROHIBIDO** implementar una feature nueva si no existe un pitch en
+   `specs/features/F<NN>-<slug>.md` con `Status` `ready` o `approved`
+   y acceptance criteria definidos.
+2. **PROHIBIDO** cambiar la API de un Tauri command, endpoint HTTP,
+   evento streaming o error code sin actualizar [`specs/ipc.md`](specs/ipc.md)
+   y el pitch/spec afectado en el mismo PR.
+3. **OBLIGATORIO** que cada AC implementado tenga al menos un test cuyo
+   nombre derive del AC cuando el AC sea automatizable. Si no lo es, el
+   pitch debe indicar la verificación manual esperada en `Test Map`.
+4. **OBLIGATORIO** que cada decisión nueva de stack/arquitectura difícil
+   de revertir tenga un ADR en [`specs/adr/`](specs/adr/) antes de
+   implementarse. No crear ADRs para detalles reversibles.
+5. **OBLIGATORIO** que cualquier agente (humano o IA) lea primero
+   [`specs/README.md`](specs/README.md) y después solo los pitches/specs
+   directamente afectados. Debe mencionar qué ACs cubre o explicar
+   `Refs: N/A`.
+
+### 17.1.2 Forma estándar de un pitch
+
+Las features nuevas usan la plantilla ligera
+[`specs/templates/feature-spec.md`](specs/templates/feature-spec.md).
+Objetivo: 120-180 líneas, salvo features excepcionalmente grandes.
+Debe contener: `Problem`, `Appetite`, `Solution Shape`, `Contracts`,
+`Acceptance Criteria`, `No-gos`, `Risks / Rabbit holes` y `Test Map`.
+
+Las specs largas existentes siguen siendo válidas. Cuando se toquen,
+preferir añadir o actualizar un bloque corto `## Agent context` arriba
+antes que expandir narrativa histórica.
 
 ### 17.2 Estado de las specs
 
-Ver [`specs/STATUS.md`](specs/STATUS.md). Transiciones:
+Ver [`specs/STATUS.md`](specs/STATUS.md). Transiciones preferidas:
 
 ```
-draft → review → approved → implemented → deprecated
+proposed → ready → shipped → deprecated
 ```
 
-Una spec en `draft` **puede** codearse, pero el código **no se mergea** hasta que la spec esté `approved`.
+Los estados históricos `draft`, `review`, `approved` e `implemented`
+siguen aceptados para specs antiguas. Para trabajo nuevo, usar
+`proposed` mientras se perfila, `ready` cuando el pitch ya tiene ACs y
+contratos suficientes, y `shipped` cuando el código y tests están
+mergeados.
 
 ### 17.3 Navegación rápida
 
@@ -620,90 +676,86 @@ Una spec en `draft` **puede** codearse, pero el código **no se mergea** hasta q
 
 ### 17.4 Violaciones
 
-Si un PR viola las reglas 1-4 de §17.1:
+Si un PR viola las reglas duras de §17.1.1:
 
 - Se rechaza en review con la plantilla:
-  > "Bloqueado por AGENTS.md §17. Actualiza/crea la spec correspondiente antes de mergear."
-- No se discute en el PR; se discute en la spec.
+  > "Bloqueado por AGENTS.md §17. Actualiza/crea el pitch/spec correspondiente antes de mergear."
+- No se discute en el PR; se discute en el pitch/spec.
 
-### 17.5 Disciplina de status: STATUS.md se actualiza en el mismo PR (OBLIGATORIO)
+### 17.5 Disciplina de status ligera (OBLIGATORIO)
 
 > **Esta regla existe porque ya fallamos aquí.** F02 fue mergeado
 > en PRs #5 y #6 mientras el spec seguía en `review`, y nadie
 > actualizó `specs/STATUS.md` para reflejar la implementación del
 > backend. La spec quedó desincronizada del código durante semanas.
 >
-> Regla dura, sin excepciones fuera de hotfixes blocker (§18.4).
+La corrección se mantiene: el status no puede mentir. Lo que cambia es
+el alcance: no se duplica implementación en varios documentos si no
+cambió el estado real.
 
 #### 17.5.1 Lo que se actualiza atómicamente con cada PR
 
-Cualquier PR que toque código cubierto por una spec **debe**, en
-el **mismo PR** (mismo commit, no follow-up), actualizar **todos**
-estos archivos cuando aplique:
+Cualquier PR que toque código cubierto por pitch/spec **debe**, en el
+mismo PR, actualizar estos archivos **solo cuando aplique**:
 
-1. **`specs/STATUS.md`** — mover la spec a su nueva sección si
-   cambió de estado (`review` → `approved`, `approved` →
-   `implemented`, etc.). Actualizar la fecha "Última actualización"
-   del board.
-2. **La spec afectada** (`specs/features/F<NN>-<slug>.md` o
-   `specs/domains/<x>.md`):
+1. **`specs/STATUS.md`** — mover la spec/pitch si cambió de estado
+   (`proposed` → `ready`, `ready` → `shipped`, etc.) o si el board
+   queda obsoleto. Actualizar la fecha del board en ese caso.
+2. **El pitch/spec afectado** (`specs/features/F<NN>-<slug>.md` o
+   `specs/domains/<x>.md`) si cambian alcance, contratos, ACs o estado:
    - Cambiar el `Status` en la cabecera.
    - Marcar ACs cubiertos con `[x]`; dejar `[ ]` los pendientes.
-   - Añadir o actualizar una sección `## Implementation status`
-     con snapshot de cobertura (backend / IPC / UI, % ACs).
+   - Mantener `## Test Map` coherente con los tests/verificación.
+   - Añadir `## Implementation notes` solo si hay información útil para
+     futuros cambios; máximo 5 bullets.
    - Añadir entradas en `## Discovered bugs (post-approval)` si
      el PR descubrió gaps (categoría A) o se desvió de la spec
      (categoría B) — ver §18.
-3. **El template del PR** (`.github/PULL_REQUEST_TEMPLATE.md`):
-   la sección `## Spec status changes` debe listar cada spec
-   tocada y el nuevo estado.
+3. **El cuerpo del PR**: `## Refs` lista specs/ACs tocados o `N/A`;
+   `## Spec status changes` lista cambios de estado o `N/A`.
 
 #### 17.5.2 Cuándo aplica
 
-| Tipo de cambio en el PR | STATUS.md | Spec afectada |
+| Tipo de cambio en el PR | STATUS.md | Pitch/spec afectado |
 |---|---|---|
-| Promueve spec `draft` → `review` / `approved` | ✅ mover de sección | ✅ cambiar Status + marcar ACs |
-| Implementa ACs (código mergeado + tests pasando) | ✅ mover a ✅ Implemented (o nota de parcial) | ✅ marcar ACs con `[x]` + Implementation status |
-| Cambia un dominio / IPC | ✅ añadir nota en la sección correspondiente | ✅ actualizar Status / Edge cases / ACs |
-| Spec-wrong (categoría A) → revocar a `review` | ✅ mover a Review | ✅ cambiar Status + sección Discovered bugs |
-| Deprecated una spec | ✅ mover a Deprecated | ✅ cambiar Status + link al ADR de deprecation |
-| PR solo de código (no toca specs) | ❌ no aplica | ❌ no aplica |
+| Promueve `proposed` → `ready` | ✅ mover de sección | ✅ cambiar Status + ACs completos |
+| Implementa todos los ACs de un pitch | ✅ mover a `shipped` | ✅ marcar ACs + Test Map |
+| Implementa parte de un pitch sin cambiar status | ❌ salvo board obsoleto | ✅ marcar ACs si aplica |
+| Cambia IPC/contratos | ✅ solo si cambia status/board | ✅ actualizar `Contracts` + `specs/ipc.md` |
+| Spec-wrong (categoría A) vuelve a diseño | ✅ mover a `proposed`/`review` | ✅ cambiar Status + Discovered bugs |
+| Deprecated una spec | ✅ mover a Deprecated | ✅ cambiar Status + link al ADR si aplica |
+| PR sin cambio cubierto por SDD | ❌ no aplica | ❌ no aplica |
 
 #### 17.5.3 Cómo verificarlo
 
 - **Pre-merge (checklist §15)**: el PR no se aprueba si el diff
-  de `specs/` no refleja la nueva realidad cuando hay código
-  tocado que cae bajo una spec.
+  de `specs/` no refleja cambios reales de alcance, contratos, ACs o
+  status cuando el código cae bajo pitch/spec.
 - **CI** (futuro, v0.1.x): un job de CI parsea la sección
   `## Spec status changes` del cuerpo del PR y comprueba que
-  los `Refs:` apunten a specs que existen y cuyo status en
-  `STATUS.md` es coherente con la sección `## Implementation
-  status` del spec (si dice "8/18 ACs", STATUS.md debe tener
-  la spec en `Approved` con nota, no en `Implemented`).
-- **Post-merge**: el autor actualiza el board en el mismo commit.
-  **Nunca** se abre un PR "fix(status): sync STATUS.md" — eso
-  es síntoma de que se saltó la regla.
+  los `Refs:` apunten a specs que existen cuando no son `N/A`.
+- **Post-merge**: el board debe quedar coherente con el estado real.
+  No abrir PRs posteriores solo para sincronizar status salvo drift
+  heredado que se esté corrigiendo explícitamente.
 
 #### 17.5.4 Ejemplos
 
-**Bien** (un solo PR cubre todo):
+**Bien** (un PR pequeño con pitch ligero):
 
 ```
-feat(core,app): implement F02 backend (PR #5)
-├── código: WorkspaceService + 9 Tauri commands
-├── tests: 34 en core + 18 en app
-├── specs/STATUS.md: F02 movido a ✅ Implemented con nota de parcial
-├── specs/features/F02-multi-workspace.md: Status: implemented,
-│   8 ACs marcados [x], sección Implementation status añadida
-└── PR template: "## Spec status changes" lista F02 → implemented
+feat(ui): add provider health badge
+├── código: componente + ipc wrapper
+├── tests: f05_ac3_provider_health_badge
+├── specs/features/F05-settings.md: AC3 marcado [x], Test Map actualizado
+└── PR: Refs F05.AC3; Spec status changes: N/A — status sigue ready
 ```
 
 **Mal** (lo que NO se debe hacer):
 
 ```
-feat(core,app): implement F02 backend (PR #5)     ← código
-feat(specs): F02 → implemented                    ← follow-up semanas después
-chore(status): sync STATUS.md                     ← parcheo manual
+feat(app): change chat event payload              ← cambia contrato
+Refs: N/A                                         ← incorrecto
+specs/ipc.md sin actualizar                       ← incorrecto
 ```
 
 #### 17.5.5 Recuperación de drift (caso F02)
@@ -711,9 +763,9 @@ chore(status): sync STATUS.md                     ← parcheo manual
 Si se detecta que una spec quedó desincronizada del código (como
 pasó con F02), el PR correctivo debe:
 
-1. Recalificar la spec a su estado real (`approved` si la spec
-   es sólida y el código cumple ACs; `review` si la spec no
-   cubre el código actual; `draft` si hay que reescribir).
+1. Recalificar la spec a su estado real (`shipped`/`implemented` si el
+   código cumple ACs; `ready`/`approved` si el diseño es sólido pero
+   falta código; `proposed`/`review` si no cubre el código actual).
 2. Añadir una entrada en `## Discovered bugs` con categoría
    "A. Spec gap (proceso)" y la causa raíz.
 3. Endurecer las reglas si el gap es de proceso (como este PR).
@@ -769,11 +821,15 @@ Solo dos categorías (se simplificaron en sesión de planning):
    - Si el bug es trivial y aislado, **se permite** abrir issue sin spec referenciada, pero el PR de fix debe añadir al menos un test de regresión con nombre `bug_<NN>_*`.
 2. **El PR del fix cierra el issue** con `Closes #NN` y referencia `specs/...` igual que cualquier feature.
 3. **Spec-gaps y edge cases se acumulan** en una sección `## Discovered bugs (post-approval)` al final de cada spec afectada, con id, fecha, categoría y versión de resolución. Esto mantiene la spec sincronizada con la realidad.
-4. **Spec-wrong** (categoría A): revocar `approved` → `review`, corregir la spec, volver a `approved`, luego fix código + test. **Un solo PR** si la corrección es pequeña; si no, dos PRs (spec primero, código después).
+4. **Spec-wrong** (categoría A): volver el pitch/spec a diseño
+   (`ready` → `proposed`, o `approved` → `review` en specs históricas),
+   corregir AC/contrato, luego fix código + test. **Un solo PR** si la
+   corrección es pequeña; si no, dos PRs (diseño primero, código después).
 
 ### 18.4 Hotfixes (emergencias)
 
-Para v0.x: si un bug es `blocker` y la spec está en `draft`, se permite un **hotfix** que:
+Para v0.x: si un bug es `blocker` y el pitch/spec está en `proposed`
+o `draft`, se permite un **hotfix** que:
 
 - Crea un issue con categoría A.
 - Añade test de regresión.
@@ -781,7 +837,7 @@ Para v0.x: si un bug es `blocker` y la spec está en `draft`, se permite un **ho
 - PR marcado con etiqueta `hotfix`.
 - La spec se actualiza en un PR separado en **≤ 24 h** después.
 
-Esto evita que specs `draft` bloqueen emergencias.
+Esto evita que pitches/specs en diseño bloqueen emergencias.
 
 ### 18.5 Flujo
 
@@ -804,9 +860,9 @@ bug encontrado
    │                 │         → un solo PR
    │                 │
    │                 └─ SÍ  → Categoría A (raro: spec wrong)
-   │                           → spec a `review`
-   │                           → corregir spec
-   │                           → spec a `approved`
+   │                           → pitch/spec a `proposed` o `review`
+   │                           → corregir AC/contrato
+   │                           → pitch/spec a `ready` o `approved`
    │                           → fix código + test
    │                           → un solo PR (o dos si la corrección es grande)
    │
@@ -815,4 +871,4 @@ bug encontrado
 
 ---
 
-> **Última actualización**: Bloque 1 de Spec-Driven Development aplicado (specs/ + ADRs 0001-0006 + §17/§18 en este AGENTS.md). Cualquier desviación de este documento requiere PR con justificación.
+> **Última actualización**: Pitch-Driven SDD Lite habilitado. Cualquier desviación de este documento requiere PR con justificación.

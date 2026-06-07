@@ -30,6 +30,19 @@ tauri-plugin-deep-link = { workspace = true }
 tauri-plugin-os = { workspace = true }
 tauri-plugin-updater = { workspace = true }
 
+# HTTP server (F06)
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+tokio-stream = { workspace = true, features = ["time"] }
+futures = { workspace = true }
+
+# Synchronization primitives (used by EventBus sinks list)
+parking_lot = { workspace = true }
+
+# Error derive for EventSinkError
+thiserror = { workspace = true }
+
 # Async / error / log
 tokio = { workspace = true }
 anyhow = { workspace = true }
@@ -68,3 +81,4 @@ workspace = true
 
 [dev-dependencies]
 tempfile = "3.10"
+wiremock = "0.6"

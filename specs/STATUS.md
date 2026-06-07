@@ -4,14 +4,31 @@
 > Para roadmap de features: [features/ROADMAP.md](./features/ROADMAP.md).
 > Para índice de ADRs: [adr/README.md](./adr/README.md).
 >
-> Última actualización: 2026-06-06
+> Última actualización: 2026-06-07 (multi-PR session:
+> PR1: F01.AC9 cerrado — `agent.changed.v1` event emission + agent
+> permission overrides en `build_permission_snapshot` + integration test.
+> PR2: F05 ProviderRegistry refresh post-config-change + tests E2E.
+> PR3: F06 web server — SSE streaming `/api/v1/events`, `POST
+> /sessions/:id/messages` send endpoint, config/secrets/providers/
+> permissions HTTP endpoints, `ServeDir` static file serving con SPA
+> fallback, browser IPC adapter dual-mode (Tauri + HTTP).
+> 65/66 tests passing (1 pre-existing failure en workspace sandbox).
 >
-> **Disciplina de status**: este archivo **debe** actualizarse en
-> el mismo PR que cambia el estado de cualquier spec. Ver
-> `AGENTS.md` §17 Spec-Driven Development (regla §17.5).
+> **Disciplina de status**: este archivo se actualiza en el mismo PR
+> que cambia el estado real de cualquier pitch/spec o deja el board
+> obsoleto. Ver `AGENTS.md` §17 Pitch-Driven SDD Lite (regla §17.5).
+>
+> Estados preferidos para trabajo nuevo: `proposed` → `ready` →
+> `shipped` → `deprecated`. Los estados históricos `draft`, `review`,
+> `approved` e `implemented` siguen aceptados para specs existentes.
 
 ## 🟡 Draft (en construcción)
-_(vacío)_
+- agents.md
+- domains/providers.md
+- domains/journal.md
+- features/F05-settings.md (UI parcial en curso; providers/models/approval/
+  workspace shell implementado, edición completa de matriz pendiente)
+- features/F04-file-diffs.md
 
 ## 🔵 Review (pendiente de aprobación)
 _(vacío)_
@@ -41,24 +58,14 @@ _(vacío)_
 - project.md (revisado en PR 1)
 - glossary.md (revisado en PR 1)
 - architecture.md (revisado en PR 1)
-- ipc.md (revisado en PR 2)
-- agents.md (revisado en PR 3 — sistema multi-agente)
-- domains/agent-loop.md (revisado en PR 3)
-- domains/workspace.md (revisado en PR 3)
-- domains/permissions.md (revisado en PR 3)
-- domains/tools.md (revisado en PR 3)
-- domains/providers.md (revisado en PR 3 — reescritura mayor: Ollama / Groq / Minimax)
-- domains/journal.md (revisado en PR de foundational — log append-only SQLite puro)
-- domains/config.md (revisado en PR de foundational — TOML + SecretRef/env/keychain)
+- ipc.md (revisado en PR actual: §4.1 auth configurable con
+  `require_token`, default `false` en MVP dogfooding)
 - domains/session.md
 - domains/storage.md
 - domains/pty.md
-- features/ROADMAP.md (revisado en PR 5: v0.1 sin F03; F-agents-ui nuevo; F-extra-paths-* en v0.1.x)
-- features/F02-multi-workspace.md *(backend 8/18 ACs implementado en PRs #5 y #6; UI 0/18 ACs pendiente — ver § Implementation status en el spec)*
-- features/F05-settings.md (revisado en este PR — Providers/Models/Approval/Workspace tabs)
-- features/F01-chat-streaming.md (revisado en este PR — chat streaming LLM + multi-agent)
-- features/F04-file-diffs.md (revisado en este PR — CodeMirror merge read-only v0.1)
-- features/F-agents-ui.md (revisado en este PR — AgentChip + Cmd+[/] + @mention + SessionTree)
+- domains/server.md
+- features/ROADMAP.md (revisado: v0.1 incluye F06 Web server LAN;
+  F03 sigue en v0.1.x; F16 queda como navegador avanzado post-MVP)
 
 ## ADRs
 
@@ -66,32 +73,149 @@ _(vacío)_
 - **ADR-0007** (nuevo, PR 3): modelo `root + extra_paths` por workspace.
 - **ADR-0008** (nuevo, PR 3): scope de providers v1 (Ollama / Groq / Minimax).
 
-## ✅ Implemented (código en main, AC cumplidos, tests pasando)
-_(ninguno todavía — Bloque 3 pendiente. F02 está en `Approved` con
-nota de backend parcial; cuando la UI aterrice se mueve aquí.)_
+## ✅ Implemented (código en main, ACs cumplidos, tests pasando)
+- **features/F06-web-server-lan.md** — `ready` → `implemented (partial — AC1+AC2+AC3)`. PR #6:
+   Axum skeleton: `server` module con `router/events_sse/auth/lifecycle`,
+   `AuthLayer` + `BearerGuard`, `axum_extra` typed extractor.
+   EventBus upgrade: `tokio::sync::broadcast` + `EventSink` trait,
+   Tauri windows + SSE comparten bus.
+   Lifecycle en `AppState`: serve loop spawn, `ServerHandle` drop guard,
+   initial bearer token generation.
+   Tauri commands `server_get_info` / `server_update_config` /
+   `server_rotate_token`.
+   5 integration tests pasando (loopback serve, LAN+require_token 401,
+   LAN+!require_token 200, bearer correct/invalid, config reload + rotate).
+   AC4-AC10 pendientes (browser workspace open, SSE chat, permissions
+   browser flow, event consistency, provider/config/secret e2e,
+   manual deep-link smoke).
+- **features/F02-multi-workspace.md** — `approved` → `implemented (full)`.
+  PRs: UI (#12) 9/9 ACs UI + AC3, AC9 backend con `list_dir`; **AC7
+  cerrado en PR `fix/f02-ac7-delete-workspace-with-active-runs`**
+  (BUG-01, categoría B): `delete_impl` consulta `RunRegistry::iter_for_workspace`,
+  rechaza con `Conflict` si hay runs activos y `force=false`, aborta
+  con `force=true`, evicta el `WorkspaceRuntime` cacheado. Cambios
+  auxiliares: `RunHandle::is_aborted` y `RunHandle::new` se hicieron
+  `pub` para que los tests de `agentyx-app` puedan fabricar runs
+  sintéticos. 18/18 ACs backend cubiertos.
+- **features/F01-chat-streaming.md** — `approved` →
+  `implemented (partial — Phase 1 backend + UI + Phase 2-core + Phase 2-app)`. PRs:
+  - `feat(core): F01-Phase1 backends` (PR #13): 5/15 ACs
+    backend cubiertos (AC1, AC2, AC4, AC5, AC6).
+  - `feat(app): F01-Phase1 app wiring` (PR #14):
+    9/9 Tauri commands cableados (create_session, send,
+    abort, list_sessions, get_history, set/get_active_agent,
+    list_agents, get_agent); TauriEventSink; AppState
+    refactor.
+  - `feat(ui): F01-Phase2 chat UI` (PR #15):
+    ChatPanel + MessageList + Composer con Svelte 5 runes;
+    `session.svelte.ts` store con state machine completo
+    (create/send/abort/setActiveAgent/cyclePrimary + event
+    folding para chat.run.started/finished/error, message_start,
+    content.delta); 18/18 vitest tests del store pasando;
+    UI checks (svelte-check/tsc/eslint/prettier/build) verdes.
+  - `feat(core): F01-Phase2-core` (PR #16):
+    3 tools read-only (read_file, list_dir, search) en
+    `crates/agentyx-core/src/tools/`; `PermissionGate` con
+    12-step algorithm + `PermissionRegistry` (oneshot); agent
+    loop multi-step en `run_loop` con delta batching, sequential
+    tool dispatch, permission ask flow, sequential-to-allow
+    transition; `DeltaBatcher` (50ms / 100 chars); `MockProvider`
+    para tests; 10/15 ACs backend cubiertos (AC1, AC2, AC3,
+    AC4, AC5, AC6, AC7, AC8, AC12, AC13).
+  - `feat(app,ui): F01-Phase2-app` (PR #17):
+    Permission Tauri commands (`respond`, `list`, `get_matrix`);
+    `PermissionPrompt.svelte` modal en `WorkspaceView`;
+    `SessionStore` permission event handling + recovery
+    (`AppState::recover_orphan_runs` al startup: `Running` →
+    `Aborted` "app_closed"); `chat.run.aborted.v1` emitido
+    en run abort. F01-Phase2 backend+app+UI cubiertos.
+    Ver `## Implementation status` en el spec.
+- **domains/config.md (backend de F05)** — `draft` → `ready`
+  (PR actual: `feat(app,core): F05 backend wiring (config + secrets)`).
+  13/18 ACs cubiertos:
+    - `crates/agentyx-core/src/config/`: `WorkspaceConfig`,
+      `WorkspaceConfigPatch`, `GlobalConfigPatch`,
+      `ResolvedConfig`/`EffectiveConfig` (con `Serialize` para IPC),
+      `ServiceConfigPaths` (centraliza paths de TOML).
+    - `ConfigService::load_workspace`, `update_workspace`,
+      `update_with_patch`, `resolve_secrets`, `resolve_snapshot`,
+      `resolve` (con secretos), `set_keychain`, `delete_keychain`,
+      `list_keychain_providers`. `OsKeychain` cableado en
+      `AppState::initialize` (producción); tests usan
+      `FakeKeychain` inyectado.
+    - `crates/agentyx-app/src/commands/config.rs`:
+      `config_get_global`, `config_update_global`,
+      `config_get_workspace`, `config_update_workspace`.
+    - `crates/agentyx-app/src/commands/secrets.rs`:
+      `set_secret`, `delete_secret`, `list_providers`.
+      `set_secret` loguea solo `provider_id`; el `value` se
+      mueve a `set_keychain` y se descarta tras la llamada.
+    - `crates/agentyx-app/src/main.rs`: 7 nuevos Tauri
+      commands cableados en `invoke_handler!`.
+    - Tests (5/5 passing en `agentyx-app`, 18/18 passing
+      en `agentyx-core`): `f05_ac4_config_update_global_persists`,
+      `f05_ac5_approval_mode_deny_blocks_writes_silently`,
+      `f05_ac6_workspace_override_isolated_from_global`,
+      `f05_ac11_settings_persist_across_app_restart`,
+      `f05_ac12_resolved_snapshot_never_includes_secrets`.
+  Pendientes para `ready` → `implemented`: edición persistente de
+  matriz de permisos (AC9), cobertura E2E de add provider/persistencia
+  completa (AC2, AC10, AC11) y eventos `config.changed.v1` (AC15).
+  - **PR `feat/f05-permission-matrix-and-config-event`**:
+    F05.AC9 + F05.AC15 cerrados.
+    - `GlobalConfig.default_tool_decisions: HashMap<String, ToolDecision>`
+      (omitido del TOML cuando está vacío para compat con installs
+      existentes).
+    - `ConfigService::set_default_tool_decision` +
+      `clear_default_tool_decision`.
+    - `permissions.get_matrix` consulta `default_tool_decisions` antes
+      de caer al default estático del catálogo.
+    - Nuevo Tauri command `permissions_set_default(tool, decision)`.
+    - `config_update_global` y `config_update_workspace` emiten
+      `config.changed.v1` con payload `{ kind, global?, workspaceId?,
+      workspace? }` (builders puros testeados en
+      `commands/config.rs::tests::f05_ac15_*`).
+    - UI: `SettingsView` reemplaza la tabla read-only por radios
+      editables; `events.configChanged` refresca estado cross-tab.
+    - Tests añadidos: `f05_ac9_set_default_tool_decision_persists_and_reloads`
+      (core), `f05_ac9_set_default_*` (variantes),
+      `f05_ac9_set_default_persists_to_disk` (app),
+      `f05_ac9_get_matrix_uses_persisted_default`,
+      `f05_ac9_get_matrix_falls_back_to_static_default`,
+      `f05_ac9_approval_mode_deny_overrides_persisted_default`,
+      `f05_ac15_global_changed_payload_shape`,
+      `f05_ac15_workspace_changed_payload_shape`,
+      `f05_ac15_payloads_are_distinct_by_kind` (más los de round-trip
+      de TOML y parseo de `ToolDecision`).
+    - UI tests: `f05_ac9_permission_matrix_edits_persist helper returns
+      stable order` y `f05_ac9_static_default_decision_matches_known_tools`
+      en `helpers.test.ts`.
 
 ## ⚫ Deprecated
 _(ninguno)_
 
 ## Próximas specs a escribir
 
+> Nota de contexto: las specs MVP activas (`F01`, `F02`, `F04`, `F05`,
+> `F-agents-ui`, `agents.md`, `domains/config.md`,
+> `domains/journal.md`) ya tienen `## Agent context` para lectura
+> rápida. F06 está shipped; el siguiente trabajo es cerrar `config`/`providers`
+> reales (F05), completar los AC abiertos de F01, cerrar F-agents-ui y F04.
+
 ### Para el MVP (v0.1)
 
-> **Actualizado tras Fase B** (2026-06-05). Las 5 specs fundamentales
-> del MVP ya están redactadas en `draft` (journal, config, F01, F05,
-> F04, F-agents-ui) y el dominio `agents.md` se promueve en PR 2.
->
-> Tras la aprobación del WT actual (PR 3+4), las specs a promover a
-> `review` y luego `approved` son, en este orden:
->
-> 1. `journal.md` + `config.md` (bloqueantes de F01 y F05).
-> 2. `F05-settings.md` (bloqueante de F01).
-> 3. `F01-chat-streaming.md` (feature principal).
-> 4. `F04-file-diffs.md` (depende de F01).
-> 5. `F-agents-ui.md` (depende de F01).
->
-> Cuando todas estén `approved`, se puede arrancar la implementación
-> del MVP (Fase C del plan: bootstrap del monorepo + Fase D: features).
+> F02 está implementada y F01 tiene la foundation core/app/UI en
+> `main`. El siguiente trabajo MVP es cerrar la configuración real de
+> providers/secrets (F05), completar los AC abiertos de F01, implementar
+> F06 para que desktop y web LAN funcionen a la vez, y después cerrar
+> F-agents-ui y F04.
+
+1. `F05-settings.md`: cerrar edición persistente de la matriz de
+   permisos, cobertura E2E de add provider y evento `config.changed.v1`.
+2. `F01-chat-streaming.md`: cerrar AC9, AC10, AC11 y AC14.
+3. `F-agents-ui.md`: AgentChip, cycle shortcuts, @mention popover y
+   SessionTree.
+4. `F04-file-diffs.md`: diffs read-only sobre eventos/tool results.
 
 ### Para v0.1.x (no bloquea MVP)
 
@@ -101,28 +225,35 @@ _(ninguno)_
 
 ### Gaps conocidos
 
-- **`agents.md` está en `draft`** (no en `review`/`approved`) — está en
-  el WT pero aún no se ha promovido formalmente.
-- **El schema de `sessions` con `parent_session_id` para soportar
-  child sessions** se introduce en F01 + F-agents-ui; requiere
-  migración de `state.db` antes de implementar F-agents-ui si
-  F-agents-ui entra antes que F01 (no es el caso previsto en
-  ROADMAP: F-agents-ui depende de F01).
-- **Plan original mencionaba "PR 5" para ROADMAP**; tras la
-  ampliación a Fase B, los PRs 5+ deberían cubrir la promoción
-  de las 6 specs nuevas a `review`/`approved`.
+_(vacío — F02.AC7 cerrado en PR `fix/f02-ac7-delete-workspace-with-active-runs`)_
+- **`agents.md` sigue en `draft`** aunque parte del modelo built-in ya
+  existe en core; F-agents-ui debe decidir si promueve la spec o la
+  mantiene como dominio en diseño.
+- **F05 Settings UI es parcial**: consume comandos reales de config,
+  providers y secrets, pero `permissions_set_default`/eventos F05 y E2E
+  de persistencia completa siguen pendientes.
 
 ## Reglas de transición
 
 | De → A | Trigger |
 |---|---|
+| `proposed` → `ready` | Pitch con problema, alcance, contratos y ACs suficientes |
+| `ready` → `shipped` | Código mergeado y tests/verificación pasando |
+| `shipped` → `deprecated` | Pitch/spec retirado o reemplazado |
+| cualquier → `proposed` | Cambios materiales vuelven a diseño |
 | `draft` → `review` | El autor pide review (PR o comentario) |
 | `review` → `approved` | Al menos 1 aprobación humana y ACs completos |
 | `approved` → `implemented` | Código mergeado y tests pasando |
 | `implemented` → `deprecated` | Spec retirada o reemplazada (con ADR que lo justifique) |
 | cualquier → `draft` | Cambios materiales vuelven al inicio del ciclo |
 
-Una spec `draft` **puede codearse**, pero el código no se mergea hasta que la spec esté `approved` (salvo hotfixes blocker, ver `AGENTS.md` §Gestión de bugs).
+Las cinco primeras filas son el flujo preferido para trabajo nuevo. Las
+filas `draft/review/approved/implemented` quedan como compatibilidad
+para specs existentes.
+
+Un pitch `proposed` puede explorarse, pero una feature nueva no se
+mergea hasta que esté `ready` (o `approved` si es spec histórica), salvo
+hotfixes blocker según `AGENTS.md` §18.
 
 ## Nota sobre el ciclo de reforma (PR 1)
 

@@ -1,29 +1,43 @@
 //! `session` Tauri commands — F01 chat surface.
 //!
-//! All command signatures are placeholders in v0.1; they will be
-//! implemented in Fase D (post-bootstrap) following the contracts
-//! in `../../../specs/features/F01-chat-streaming.md`.
+//! Wires the `agentyx_core::agent::spawn_run` loop and the
+//! `SessionService` / `JournalRepo` from F01-Phase1 to the IPC
+//! layer. The UI talks to these commands via `lib/ipc.ts`.
+//!
+//! See `../../../specs/features/F01-chat-streaming.md` and
+//! `../../../specs/domains/agent-loop.md` for the contracts.
 
-// Placeholder commands are not yet wired into `generate_handler!`;
-// see AGENTS.md §17 (Spec-Driven Development) — implementations
-// are deferred to F01 in Fase D.
-#![allow(dead_code)]
+use std::sync::Arc;
 
-use agentyx_core::ids::SessionId;
+use agentyx_core::agent::{
+    spawn_run, AgentLoopDeps, EventSink, RunHandle as CoreRunHandle, StartOpts,
+};
+use agentyx_core::ids::{AgentId, RunId, SessionId, WorkspaceId};
+use agentyx_core::session::{ListMessagesOpts, ListOpts as SessionListOpts};
 use agentyx_core::AppResult;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use tauri::State;
+use tauri::{AppHandle, State};
 
+use crate::sink::TauriEventSink;
 use crate::state::AppState;
 
+// ============================================================
+// DTOs (shapes that cross the IPC boundary)
+// ============================================================
+
 /// Handle returned by `session_send` to identify a running run.
-/// The frontend listens for events on this `runId`.
+/// The frontend listens for `chat.*.v1` events on this `runId`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RunHandle {
+pub struct RunHandleDto {
     /// The run that was started.
-    pub run_id: agentyx_core::ids::RunId,
+    pub run_id: RunId,
+    /// The session this run belongs to.
+    pub session_id: SessionId,
+    /// The active agent of the session at run start.
+    pub agent_id: AgentId,
+    /// ISO-8601 UTC timestamp of when the run was created.
+    pub started_at: String,
 }
 
 /// DTO for a session summary in `session_list`.
@@ -32,100 +46,377 @@ pub struct RunHandle {
 pub struct SessionSummaryDto {
     /// The session id.
     pub id: SessionId,
+    /// The workspace the session belongs to.
+    pub workspace_id: WorkspaceId,
     /// The agent active for new runs.
-    pub active_agent: agentyx_core::ids::AgentId,
+    pub active_agent: AgentId,
     /// Display title (truncated first user message in v0.1).
     pub title: String,
-    /// Wall-clock timestamp of last update.
-    pub updated_at: i64,
+    /// Wall-clock timestamp of last update (ISO-8601).
+    pub updated_at: String,
+    /// Session status (idle / running / aborted / errored).
+    pub status: String,
 }
+
+/// DTO for a session message in `session_get_history`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MessageDto {
+    /// Message id.
+    pub id: String,
+    /// Session id.
+    pub session_id: SessionId,
+    /// Run id (None for user messages and pre-run system).
+    pub run_id: Option<RunId>,
+    /// Role (user / assistant / system / tool_result).
+    pub role: String,
+    /// Plain-text content (or JSON for tool_result in Phase 2).
+    pub content: String,
+    /// Sequence number within the session (ASC).
+    pub seq: i64,
+    /// ISO-8601 UTC timestamp.
+    pub created_at: String,
+}
+
+// ============================================================
+// Inner functions (testable; no Tauri deps)
+// ============================================================
+
+/// Create a new session in a workspace. Returns a `SessionSummaryDto`
+/// directly. Used by both the Tauri command and the HTTP
+/// `POST /api/v1/workspaces/:id/sessions` handler.
+#[allow(clippy::unused_async)]
+pub(crate) async fn create_session_impl(
+    state: Arc<AppState>,
+    workspace_id: WorkspaceId,
+    agent_id: Option<AgentId>,
+    title: Option<String>,
+) -> AppResult<SessionSummaryDto> {
+    let summary = tokio::task::spawn_blocking(move || -> AppResult<SessionSummaryDto> {
+        let runtime = state.workspace_runtime(workspace_id)?;
+        let session = runtime.session.create(&state.agents, agent_id)?;
+        Ok::<_, agentyx_core::AppError>(to_summary(&session, title))
+    })
+    .await
+    .map_err(|e| agentyx_core::AppError::Internal {
+        message: format!("join error: {e}"),
+    })??;
+    Ok(summary)
+}
+
+/// List sessions in a workspace, ordered by `updated_at DESC`.
+#[allow(clippy::unused_async)]
+pub(crate) async fn list_sessions_impl(
+    state: Arc<AppState>,
+    workspace_id: WorkspaceId,
+    limit: Option<u32>,
+) -> AppResult<Vec<SessionSummaryDto>> {
+    let list = tokio::task::spawn_blocking(move || -> AppResult<Vec<SessionSummaryDto>> {
+        let runtime = state.workspace_runtime(workspace_id)?;
+        let sessions = runtime.session.list(SessionListOpts {
+            limit,
+            status: None,
+        })?;
+        Ok(sessions.iter().map(|s| to_summary(s, None)).collect())
+    })
+    .await
+    .map_err(|e| agentyx_core::AppError::Internal {
+        message: format!("join error: {e}"),
+    })??;
+    Ok(list)
+}
+
+/// Load the persisted history of a session.
+#[allow(clippy::unused_async)]
+pub(crate) async fn get_history_impl(
+    state: Arc<AppState>,
+    session_id: SessionId,
+    limit: Option<u32>,
+) -> AppResult<Vec<MessageDto>> {
+    let list = tokio::task::spawn_blocking(move || -> AppResult<Vec<MessageDto>> {
+        let (session_svc, _workspace_id) = locate_session(&state, session_id)?;
+        let messages = session_svc.list_messages(
+            session_id,
+            ListMessagesOpts {
+                limit,
+                after_seq: None,
+            },
+        )?;
+        Ok(messages
+            .iter()
+            .map(|m| MessageDto {
+                id: m.id.to_string(),
+                session_id: m.session_id,
+                run_id: m.run_id,
+                role: m.role.as_str().to_string(),
+                content: m.content.clone(),
+                seq: m.seq,
+                created_at: m.created_at.to_rfc3339(),
+            })
+            .collect())
+    })
+    .await
+    .map_err(|e| agentyx_core::AppError::Internal {
+        message: format!("join error: {e}"),
+    })??;
+    Ok(list)
+}
+
+/// Abort all running handles for a session. Idempotent.
+#[allow(clippy::unused_async)]
+pub(crate) async fn abort_impl(state: Arc<AppState>, session_id: SessionId) -> AppResult<()> {
+    tokio::task::spawn_blocking(move || -> AppResult<()> {
+        for (_, handle) in state.runs.iter_for_session(session_id) {
+            if handle.is_running() {
+                handle.abort();
+            }
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| agentyx_core::AppError::Internal {
+        message: format!("join error: {e}"),
+    })??;
+    Ok(())
+}
+
+/// Get the currently active agent of a session.
+#[allow(clippy::unused_async)]
+pub(crate) async fn get_active_agent_impl(
+    state: Arc<AppState>,
+    session_id: SessionId,
+) -> AppResult<AgentId> {
+    let id = tokio::task::spawn_blocking(move || -> AppResult<AgentId> {
+        let (session_svc, _ws) = locate_session(&state, session_id)?;
+        session_svc.get_active_agent(session_id)
+    })
+    .await
+    .map_err(|e| agentyx_core::AppError::Internal {
+        message: format!("join error: {e}"),
+    })??;
+    Ok(id)
+}
+
+/// Change the active agent of a session. Blocked mid-run with `Conflict`.
+/// Emits `agent.changed.v1` on success so other UI components can react.
+#[allow(clippy::unused_async)]
+pub(crate) async fn set_active_agent_impl(
+    state: Arc<AppState>,
+    session_id: SessionId,
+    agent_id: AgentId,
+) -> AppResult<()> {
+    let event_bus = state.event_bus.clone();
+
+    let old_agent = tokio::task::spawn_blocking({
+        let state = state.clone();
+        move || -> AppResult<AgentId> {
+            let (session_svc, _ws) = locate_session(&state, session_id)?;
+            let old = session_svc.get_active_agent(session_id)?;
+            session_svc.set_active_agent(session_id, &state.agents, agent_id)?;
+            Ok(old)
+        }
+    })
+    .await
+    .map_err(|e| agentyx_core::AppError::Internal {
+        message: format!("join error: {e}"),
+    })??;
+
+    // Emit agent.changed.v1 for cross-component reactivity.
+    #[derive(serde::Serialize)]
+    struct AgentChangedPayload {
+        session_id: SessionId,
+        from_agent_id: AgentId,
+        to_agent_id: AgentId,
+    }
+    let _ = event_bus.publish_typed(
+        "agent.changed.v1",
+        AgentChangedPayload {
+            session_id,
+            from_agent_id: old_agent,
+            to_agent_id: agent_id,
+        },
+    );
+
+    Ok(())
+}
+
+// ============================================================
+// Commands
+// ============================================================
 
 /// Create a new session in a workspace.
+///
+/// If `agent_id` is `None`, defaults to the first `Primary` of
+/// the agent registry. If `title` is `None`, the session will
+/// be titled by the first user message (deferred to Phase 2;
+/// for now, title is `Untitled`).
 #[tauri::command]
 pub async fn create_session(
-    _state: State<'_, Arc<AppState>>,
-    _workspace_id: agentyx_core::ids::WorkspaceId,
-    _agent_id: Option<agentyx_core::ids::AgentId>,
-    _title: Option<String>,
-) -> AppResult<serde_json::Value> {
-    // TODO(F01): implement in Fase D.
-    Err(agentyx_core::AppError::Internal {
-        message: "session::create not yet implemented (F01 in Fase D)".into(),
-    })
+    state: State<'_, Arc<AppState>>,
+    workspace_id: WorkspaceId,
+    agent_id: Option<AgentId>,
+    title: Option<String>,
+) -> AppResult<SessionSummaryDto> {
+    create_session_impl(state.inner().clone(), workspace_id, agent_id, title).await
 }
 
-/// Send a message to the active session, starting a new run.
+/// Send a message to a session, starting a new run.
+///
+/// The command returns immediately with a `RunHandleDto`. The
+/// run executes asynchronously on a Tokio task; events
+/// (`chat.run.started.v1`, `chat.content.delta.v1`,
+/// `chat.run.finished.v1`, etc.) stream to the UI via
+/// `TauriEventSink` (which delegates to the `EventBus`).
+///
+/// Phase 1 limitations:
+/// - No `@mention` resolution (mentions are ignored).
+/// - No tool calls (LLM tool_use events are logged and
+///   discarded; the run produces a single assistant message).
+/// - One active run per session (concurrent sends return
+///   `Conflict`).
 #[tauri::command]
 pub async fn send(
-    _state: State<'_, Arc<AppState>>,
-    _session_id: SessionId,
-    _content: String,
+    state: State<'_, Arc<AppState>>,
+    app: AppHandle,
+    session_id: SessionId,
+    content: String,
     _mentions: Vec<super::AtMention>,
-) -> AppResult<RunHandle> {
-    // TODO(F01): implement in Fase D.
-    Err(agentyx_core::AppError::Internal {
-        message: "session::send not yet implemented (F01 in Fase D)".into(),
+) -> AppResult<RunHandleDto> {
+    let state = state.inner().clone();
+    let sink: Arc<dyn EventSink> = Arc::new(TauriEventSink::new(state.event_bus.clone(), app));
+
+    // Locate the session's workspace and snapshot its session + journal services.
+    let (workspace_id, session_svc, journal_svc) = tokio::task::spawn_blocking({
+        let state = state.clone();
+        move || -> AppResult<(
+            WorkspaceId,
+            agentyx_core::session::SessionService,
+            agentyx_core::journal::JournalRepo,
+        )> {
+            for workspace in state.workspaces.list() {
+                let rt = state.workspace_runtime(workspace.id)?;
+                if rt.session.get(session_id).is_ok() {
+                    return Ok((workspace.id, (*rt.session).clone(), (*rt.journal).clone()));
+                }
+            }
+            Err(agentyx_core::AppError::NotFound {
+                kind: "session".into(),
+                id: session_id.to_string(),
+            })
+        }
     })
+    .await
+    .map_err(|e| agentyx_core::AppError::Internal {
+        message: format!("join error: {e}"),
+    })??;
+
+    let _ = workspace_id;
+
+    // Build the AgentLoopDeps and spawn the run.
+    let deps = AgentLoopDeps {
+        agents: (*state.agents).clone(),
+        config: (*state.config).clone(),
+        providers: state.providers.to_hashmap(),
+        session: session_svc,
+        journal: journal_svc,
+        bus: sink,
+        workspaces: (*state.workspaces).clone(),
+        tool_registry: state.tool_registry.clone(),
+        permission_gate: state.permission_gate.clone(),
+        permission_registry: state.permission_registry.clone(),
+    };
+
+    let handle: CoreRunHandle = spawn_run(deps, session_id, content, StartOpts::default())?;
+    let dto = RunHandleDto {
+        run_id: handle.state().run_id,
+        session_id: handle.state().session_id,
+        agent_id: handle.state().agent_id,
+        started_at: handle.state().started_at.to_rfc3339(),
+    };
+    state.runs.register(handle);
+    Ok(dto)
 }
 
 /// Abort the currently active run of a session, if any. Idempotent.
 #[tauri::command]
-pub async fn abort(_state: State<'_, Arc<AppState>>, _session_id: SessionId) -> AppResult<()> {
-    // TODO(F01): implement in Fase D.
-    Err(agentyx_core::AppError::Internal {
-        message: "session::abort not yet implemented (F01 in Fase D)".into(),
-    })
+pub async fn abort(state: State<'_, Arc<AppState>>, session_id: SessionId) -> AppResult<()> {
+    abort_impl(state.inner().clone(), session_id).await
 }
 
 /// List sessions in a workspace, ordered by `updated_at DESC`.
 #[tauri::command]
 pub async fn list_sessions(
-    _state: State<'_, Arc<AppState>>,
-    _workspace_id: agentyx_core::ids::WorkspaceId,
-    _limit: Option<u32>,
-    _before: Option<ulid::Ulid>,
+    state: State<'_, Arc<AppState>>,
+    workspace_id: WorkspaceId,
+    limit: Option<u32>,
 ) -> AppResult<Vec<SessionSummaryDto>> {
-    // TODO(F01, F-agents-ui): implement in Fase D.
-    Err(agentyx_core::AppError::Internal {
-        message: "session::list not yet implemented (F-agents-ui in Fase D)".into(),
-    })
+    list_sessions_impl(state.inner().clone(), workspace_id, limit).await
 }
 
 /// Load the persisted history of a session (cold start, sidebar, etc.).
 #[tauri::command]
 pub async fn get_history(
-    _state: State<'_, Arc<AppState>>,
-    _session_id: SessionId,
-    _limit: Option<u32>,
-    _before: Option<ulid::Ulid>,
-) -> AppResult<Vec<serde_json::Value>> {
-    // TODO(F01): implement in Fase D.
-    Err(agentyx_core::AppError::Internal {
-        message: "session::get_history not yet implemented (F01 in Fase D)".into(),
-    })
+    state: State<'_, Arc<AppState>>,
+    session_id: SessionId,
+    limit: Option<u32>,
+) -> AppResult<Vec<MessageDto>> {
+    get_history_impl(state.inner().clone(), session_id, limit).await
 }
 
 /// Change the active agent of a session. Blocked mid-run with `Conflict`.
 #[tauri::command]
 pub async fn set_active_agent(
-    _state: State<'_, Arc<AppState>>,
-    _session_id: SessionId,
-    _agent_id: agentyx_core::ids::AgentId,
+    state: State<'_, Arc<AppState>>,
+    session_id: SessionId,
+    agent_id: AgentId,
 ) -> AppResult<()> {
-    // TODO(F01, F-agents-ui): implement in Fase D.
-    Err(agentyx_core::AppError::Internal {
-        message: "session::set_active_agent not yet implemented (F-agents-ui in Fase D)".into(),
-    })
+    set_active_agent_impl(state.inner().clone(), session_id, agent_id).await
 }
 
 /// Get the currently active agent of a session.
 #[tauri::command]
 pub async fn get_active_agent(
-    _state: State<'_, Arc<AppState>>,
-    _session_id: SessionId,
-) -> AppResult<agentyx_core::ids::AgentId> {
-    // TODO(F01, F-agents-ui): implement in Fase D.
-    Err(agentyx_core::AppError::Internal {
-        message: "session::get_active_agent not yet implemented (F-agents-ui in Fase D)".into(),
+    state: State<'_, Arc<AppState>>,
+    session_id: SessionId,
+) -> AppResult<AgentId> {
+    get_active_agent_impl(state.inner().clone(), session_id).await
+}
+
+// ============================================================
+// Helpers
+// ============================================================
+
+fn to_summary(
+    session: &agentyx_core::session::Session,
+    title_override: Option<String>,
+) -> SessionSummaryDto {
+    SessionSummaryDto {
+        id: session.id,
+        workspace_id: session.workspace_id,
+        active_agent: session.active_agent_id,
+        title: title_override
+            .or_else(|| session.title.clone())
+            .unwrap_or_else(|| "Untitled".to_string()),
+        updated_at: session.updated_at.to_rfc3339(),
+        status: session.status.as_str().to_string(),
+    }
+}
+
+/// Locate the `SessionService` for a session id by scanning the
+/// per-workspace runtimes cache (small, <10 workspaces typically).
+/// Returns `(session_svc, workspace_id)`.
+fn locate_session(
+    state: &AppState,
+    session_id: SessionId,
+) -> AppResult<(Arc<agentyx_core::session::SessionService>, WorkspaceId)> {
+    for workspace in state.workspaces.list() {
+        let runtime = state.workspace_runtime(workspace.id)?;
+        if runtime.session.get(session_id).is_ok() {
+            return Ok((runtime.session.clone(), workspace.id));
+        }
+    }
+    Err(agentyx_core::AppError::NotFound {
+        kind: "session".to_string(),
+        id: session_id.to_string(),
     })
 }

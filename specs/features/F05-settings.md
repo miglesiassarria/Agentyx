@@ -2,13 +2,32 @@
 
 **Status**: draft
 **Owner**: @miglesias
-**Last update**: 2026-06-05
+**Last update**: 2026-06-06
 **Affects**: [`providers`](../domains/providers.md), [`permissions`](../domains/permissions.md),
 [`config`](../domains/config.md), [`workspace`](../domains/workspace.md).
 **Depends on**: [`F02`](./F02-multi-workspace.md) (workspaces existen
 y se listan), [`config`](../domains/config.md) (carga/valida TOML),
 [`providers`](../domains/providers.md) (cliente HTTP para test
 connection).
+
+## Agent context
+
+- Leer primero este bloque, `Affected Tauri commands / endpoints /
+  events` y `Acceptance criteria`; la sección UX solo es necesaria si
+  se cambian componentes de Settings.
+- Objetivo MVP: pantalla `/settings` con tabs Providers, Models,
+  Approval y Workspace para editar config global/workspace sin exponer
+  secretos.
+- Contratos clave: `config_get`, `config_update_global`,
+  `config_update_workspace`, `secrets_set`, `secrets_delete`,
+  `providers_test_connection`, `providers_list_models`,
+  `permissions_get_matrix`, `permissions_update_matrix`; evento
+  `config.changed.v1`.
+- Reglas no negociables: API keys solo via `SecretRef`/keychain/env;
+  nunca persistir ni renderizar el valor real; F05 delega
+  `extra_paths` en F02 y consume `approval_mode` de `permissions`.
+- Dependencias mínimas: `domains/config.md`, `domains/providers.md`,
+  `domains/permissions.md`, `F02`.
 
 ## User story
 
@@ -347,7 +366,7 @@ PATCH  /api/v1/permissions/default (body: { tool, decision }) → {}
 
 ## Acceptance criteria
 
-- [ ] **F05.AC1**: con la app recién instalada y `config.toml`
+- [x] **F05.AC1**: con la app recién instalada y `config.toml`
   global aún no creado, abrir `/settings` → `ProvidersTab` muestra
   **Ollama preconfigurado** con `base_url = "http://127.0.0.1:11434"`,
   `enabled = true`, y los botones `Test connection` /
@@ -390,7 +409,7 @@ PATCH  /api/v1/permissions/default (body: { tool, decision }) → {}
   claro (verificado en `config.md` AC6, pero F05 re-verifica que
   la UI lo muestra con un toast). **Test**:
   `f05_ac8_missing_env_at_runtime_surfaces_to_ui`.
-- [ ] **F05.AC9**: la matriz de permisos en `ApprovalTab` lista
+- [x] **F05.AC9**: la matriz de permisos en `ApprovalTab` lista
   todas las tools de [`tools.md`](../domains/tools.md) y permite
   cambiar el default de `ask` a `allow` y viceversa. Los cambios
   persisten en `GlobalConfig` y se aplican al siguiente run.
@@ -405,7 +424,7 @@ PATCH  /api/v1/permissions/default (body: { tool, decision }) → {}
   siguen accesibles (no se pierde el `api_key` que está en
   keychain). **Test**:
   `f05_ac11_settings_persist_across_app_restart`.
-- [ ] **F05.AC12**: la UI **nunca** muestra el valor real de un
+- [x] **F05.AC12**: la UI **nunca** muestra el valor real de un
   secret; solo el badge "API key: set in keychain" o el botón
   "Edit API key" (que abre un input vacío). Test E2E en
   Playwright: capturar el árbol DOM tras un save y verificar
@@ -416,11 +435,11 @@ PATCH  /api/v1/permissions/default (body: { tool, decision }) → {}
   describe (add con confirmación, remove con confirmación,
   validación de path absoluto, no duplicados). **Test**:
   `f05_ac13_extra_paths_editor_delegates_to_f02`.
-- [ ] **F05.AC14**: el cambio de `update_channel` a `"dev"`
+- [x] **F05.AC14**: el cambio de `update_channel` a `"dev"`
   muestra un warning visible ("You're switching to a less
   stable channel") y requiere confirmación antes de guardar.
   **Test**: `f05_ac14_update_channel_dev_requires_confirmation`.
-- [ ] **F05.AC15**: emitir `config.changed.v1` con `kind: "global"`
+- [x] **F05.AC15**: emitir `config.changed.v1` con `kind: "global"`
   tras un `config_update_global` exitoso; los listeners (otro
   tab, otra ventana) refrescan su estado. **Test**:
   `f05_ac15_config_changed_event_emitted_and_received`.
@@ -444,6 +463,40 @@ PATCH  /api/v1/permissions/default (body: { tool, decision }) → {}
 - **Security test**: `crates/agentyx-app/tests/secrets_no_leak.rs` —
   instrumenta `tracing` y verifica que ningún log contiene el
   valor de un secret durante el flujo de F05.
+
+## Implementation notes
+
+- PR3 UI añade `SettingsView.svelte` como vista interna accesible desde
+  el sidebar porque el frontend actual todavía no tiene router; `/settings`
+  queda como navegación futura cuando se introduzca router.
+- Los wrappers IPC de `ui/src/lib/ipc.ts` ahora apuntan a los comandos
+  reales mergeados en backend (`config_get_*`, `providers_test_connection`,
+  `set_secret`, `delete_secret`, `list_providers`).
+- `ApprovalTab` muestra la matriz devuelta por `get_matrix`; la edición
+  de defaults queda pendiente porque el backend actual todavía no registra
+  `permissions_set_default`.
+- Tests UI actuales cubren helpers/seguridad de presencia de secrets y
+  confirmación de update channel (`helpers.test.ts`); no se añade
+  `@testing-library/svelte` en esta PR.
+
+- `feat(f05-permission-matrix-and-config-event)` cierra F05.AC9 +
+  F05.AC15. Cambios:
+  - `GlobalConfig` añade `default_tool_decisions: HashMap<String, ToolDecision>`
+    (persistido a `config.toml`; omitido del TOML cuando está vacío para
+    no romper la compat con archivos existentes).
+  - `ConfigService::set_default_tool_decision(tool, decision)` y
+    `clear_default_tool_decision(tool)`.
+  - `permissions.get_matrix` ahora consulta `default_tool_decisions` antes
+    de caer al default estático del catálogo de tools.
+  - Nuevo Tauri command `permissions_set_default(tool, decision)`.
+  - `config_update_global` y `config_update_workspace` emiten
+    `config.changed.v1` con el DTO resultante. La UI lo escucha vía
+    `events.configChanged` y refresca `globalConfig` + `permissionMatrix`.
+  - `SettingsView` reemplaza la tabla read-only por radios editables;
+    un cambio llama `setToolDecision` y refresca la matriz local.
+  - Helpers `sortedToolIds` y `staticDefaultDecision` en
+    `ui/src/lib/components/settings/helpers.ts`, con tests derivados
+    de AC9.
 
 ## Telemetry / logs
 

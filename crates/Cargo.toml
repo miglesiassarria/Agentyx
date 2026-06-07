@@ -39,6 +39,9 @@ reqwest = { version = "0.12", default-features = false, features = [
     "gzip",
 ] }
 
+# Byte buffer type used by reqwest streams.
+bytes = "1.7"
+
 # SQLite (bundled, no system dep)
 rusqlite = { version = "0.32", features = ["bundled", "blob"] }
 
@@ -49,6 +52,9 @@ portable-pty = "0.8"
 notify = "6.1"
 notify-debouncer-mini = "0.4"
 
+# Synchronization primitives (EventBus sink list, config cache).
+parking_lot = "0.12"
+
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = [
@@ -58,7 +64,7 @@ tracing-subscriber = { version = "0.3", features = [
 ] }
 
 # Identifiers
-ulid = "1.1"
+ulid = { version = "1.1", features = ["serde"] }
 
 # Time
 chrono = { version = "0.4", features = ["serde"] }
@@ -78,6 +84,13 @@ windows = { version = "0.58", features = [
     "Win32_System_Com",
 ] }
 
+# Filesystem walking (list_dir, search)
+walkdir = "2.5"
+# Glob filtering (search tool)
+globset = "0.4"
+# Regex search
+regex = "1.10"
+
 # Tauri
 tauri = { version = "2.0", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2.0"
@@ -89,6 +102,12 @@ tauri-plugin-updater = { version = "2", default-features = false, features = ["r
 
 # Tauri build deps
 tauri-build = { version = "2.0", features = [] }
+
+# HTTP server (F06)
+axum = { version = "0.7", features = ["macros"] }
+tower = { version = "0.5", features = ["limit", "timeout"] }
+tower-http = { version = "0.5", features = ["cors", "set-header", "trace", "fs"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
 
 # Internal crates
 agentyx-core = { path = "agentyx-core", version = "0.1.0" }

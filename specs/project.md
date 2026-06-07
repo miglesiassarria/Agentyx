@@ -23,9 +23,9 @@ no como identidad de producto.
 
 Construido sobre **Tauri 2 + Rust** con un frontend **Svelte 5** y un servidor
 HTTP embebido (axum) que permite operar la misma UI desde el navegador y
-desde otros dispositivos en LAN. **No sube archivos del usuario a la nube**:
-todo el trabajo ocurre en local, contra los directorios que el usuario
-explícitamente autorizó.
+desde otros dispositivos en LAN desde el MVP. **No sube archivos del usuario
+a la nube**: todo el trabajo ocurre en local, contra los directorios que el
+usuario explícitamente autorizó.
 
 ## Goals (v1)
 
@@ -53,8 +53,10 @@ explícitamente autorizó.
   evita refactors masivos cuando se añadan agentes custom.
 - **UI rica**: chat con streaming, diffs visuales (CodeMirror 6), visor PDF
   y DOCX (lazy-load), dashboards con métricas, terminal PTY embebido.
-- **Servidor HTTP embebido** que expone la misma UI en `127.0.0.1` por defecto
-  y, opt-in, en `0.0.0.0` (LAN) con auth por bearer token.
+- **Servidor HTTP embebido en el MVP** que expone la misma UI en
+  `127.0.0.1` por defecto y, opt-in, en `0.0.0.0` (LAN) con auth
+  obligatoria por bearer token. La UI del navegador usa HTTP + SSE,
+  no APIs Tauri.
 - **Journal append-only** de cada acción del agente para replay y debug.
 - **Permisos** por workspace (matriz `allowed_tools` / `denied_paths`) con
   prompt de aprobación para acciones destructivas. Los `extra_paths` se
@@ -68,7 +70,9 @@ explícitamente autorizó.
 - ❌ Colaboración multi-usuario en tiempo real sobre el mismo workspace.
 - ❌ Marketplace de plugins o custom tools por el usuario.
 - ❌ TUI en terminal (la v1 es GUI + servidor web; TUI queda para v2 si aplica).
-- ❌ Túnel WAN (cloudflared/ngrok) para acceso externo a la LAN.
+- ❌ Túnel WAN, relay cloud o exposición pública automática en v1. El MVP
+  solo sirve en loopback/LAN; cualquier routing externo queda fuera
+  del producto.
 - ❌ Telemetría alguna enviada fuera del dispositivo (opt-in, granular, off
   por defecto).
 - ❌ Subir el contenido de los workspaces a servidores externos. Todo el
@@ -103,11 +107,14 @@ explícitamente autorizó.
   sobre ambos en una sola sesión sin configuración adicional.
 - El usuario puede cambiar entre los 3 agents default (1 primary activo, 1
   plan opcional) sin reiniciar la app.
+- El usuario puede abrir la misma UI desde un navegador en la LAN, autenticarse
+  con bearer token cuando el bind es `0.0.0.0`, y ejecutar el flujo básico de
+  workspace + chat + streaming.
 
 ## Vías de evolución (post v1)
 
-- **v1.x**: auto-updater firmado, notarización, métricas locales, tunnel WAN
-  opt-in, F03 (Python venv opt-in), editor de agentes custom en UI.
+- **v1.x**: auto-updater firmado, notarización, métricas locales,
+  F03 (Python venv opt-in), editor de agentes custom en UI.
 - **v2**: TUI mínima (ratatui) compartiendo `agentyx-core`, MCP server (la app
   como tool para otros agentes), sync básica read-only entre devices, más
   providers (OpenAI nativo, Anthropic nativo, Bedrock, Vertex).

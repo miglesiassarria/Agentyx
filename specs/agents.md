@@ -2,7 +2,7 @@
 
 **Status**: draft
 **Owner**: @miglesias
-**Last update**: 2026-06-05
+**Last update**: 2026-06-06
 **Affects**: — (los agentes son consumidos por `agent-loop.md`; no al revés).
 **Required by**: `agent-loop.md` (carga el `AgentSpec` activo), `tools.md`
 (la `tool_access` del agent filtra qué tools se exponen al provider),
@@ -11,6 +11,23 @@ heredan/overridean los del workspace), `features/F01-chat-streaming`
 (la UI muestra el agent activo, permite cycle con Tab, `@mention`).
 **Required by (v1.x)**: editor de agentes custom en UI, ciclo de vida de
 sesiones child.
+
+## Agent context
+
+- Leer primero este bloque, `Built-in agents (v1)`, `Operations`,
+  `IPC / commands / events` y `Acceptance criteria`.
+- Modelo v1: 2 primary visibles (`build`, `plan`), 1 subagent visible
+  (`general`) y hidden reservados (`compaction`, `title`, `summary`).
+  No asumir un unico agente por sesion.
+- Contratos centrales: `AgentSpec`, `AgentMode`, `AgentRegistry`,
+  `primary_ids`, `subagents`, `set_active_agent`,
+  `invoke_subagent`, `expand_at_mentions`; child sessions con
+  `parent_session_id`.
+- UI/F01 consumen: active agent por sesion, cycle entre primary,
+  `@general`, `task` tool call delegada a subagent y eventos
+  `subagent.*.v1`.
+- No exponer hidden agents en UI; custom agents y editor visual son
+  v1.x.
 
 > Modela el **sistema de agentes** de Agentyx: qué es un agente, qué
 > tipos hay (`Primary | Subagent | Hidden`), cómo se carga, cómo se
