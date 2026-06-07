@@ -1,8 +1,8 @@
 # F04 — File diffs en UI
 
-**Status**: draft
+**Status**: ready
 **Owner**: @miglesias
-**Last update**: 2026-06-06
+**Last update**: 2026-06-07
 **Affects**: [`tools`](../domains/tools.md) (`edit_file`, `apply_patch`,
 `write_file`), [`F01`](./F01-chat-streaming.md) (consume los tool
 calls que producen cambios), [`journal`](../domains/journal.md)
