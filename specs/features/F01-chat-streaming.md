@@ -638,7 +638,7 @@ CREATE INDEX idx_permission_requests_session ON permission_requests(session_id, 
   > payload del evento (sin truncar) y se journala en
   > `JournalKind::ToolCall` con `payload.args`. La UI lo
   > puede expandir on-demand.
-- [ ] **F01.AC9**: cambio de active agent con Tab (o
+- [x] **F01.AC9**: cambio de active agent con Tab (o
   `session_set_active_agent`) entre runs → el siguiente
   `session_send` usa el nuevo `AgentSpec` (system prompt,
   tools, permissions). **Test**:
@@ -906,7 +906,7 @@ tracing::error!(
 **Última sync**: 2026-06-06
 **Backend (Rust) — F01-Phase1**: **5 / 15 ACs cubiertos** (AC1, AC2, AC4, AC5, AC6) ✅
 **Backend (Rust) — F01-Phase2-core**: **10 / 15 ACs cubiertos** (AC1, AC2, AC3, AC4, AC5, AC6, AC7, AC8, AC12, AC13) ✅
-**Backend (Rust) — F01-Phase3** (multi-agent + @mention): ⏸ 0 / 15 adicional
+**Backend (Rust) — F01-Phase3** (multi-agent + @mention): **1 / 15 adicional** (AC9) ✅
 **IPC (Tauri commands) — F01-Phase1-app**: **9 / 9 commands cableados** ✅
 **IPC (Tauri commands) — F01-Phase2-core-app**: ⏸ 0 / 9 adicional (permission_*, recovery) — follow-up PR
 **UI (Svelte) — F01-Phase2-ui**: **2 / 15 ACs cubiertos** (AC1, AC2) ✅

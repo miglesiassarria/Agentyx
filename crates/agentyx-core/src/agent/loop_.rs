@@ -568,7 +568,8 @@ async fn run_loop(ctx: RunContext) {
     let tool_schemas = build_tool_schemas(&deps.tool_registry, &deps.agents, &agent_id);
 
     // Permission snapshot (workspace-root + agent overrides).
-    let perm_snap = build_permission_snapshot(&deps.workspaces, workspace_id, &agent_id);
+    let perm_snap =
+        build_permission_snapshot(&deps.workspaces, &deps.agents, workspace_id, &agent_id);
 
     // Total accumulated text across all steps. Persisted once
     // at the end of the run (F01.AC13 — one INSERT, not per
@@ -995,11 +996,13 @@ fn build_tool_schemas(
 /// Build a [`PermissionSnapshot`] for the run. Looks up the
 /// workspace from the registry; if the workspace is missing,
 /// builds a snapshot that denies all path access (the safe
-/// default).
+/// default). Applies the active agent's `AgentPermissionOverride`
+/// (typically `deny` for `plan` agent) as defense-in-depth.
 fn build_permission_snapshot(
     workspaces: &WorkspaceService,
+    agents: &AgentRegistry,
     workspace_id: WorkspaceId,
-    _agent_id: &AgentId,
+    agent_id: &AgentId,
 ) -> crate::permissions::PermissionSnapshot {
     let (root, extras) = match workspaces.get(workspace_id) {
         Some(w) => (
@@ -1008,6 +1011,13 @@ fn build_permission_snapshot(
         ),
         None => (std::path::PathBuf::from("/__no_workspace__"), Vec::new()),
     };
+
+    // Look up agent permission overrides (e.g. plan denies writes).
+    let agent_deny = agents
+        .get(agent_id)
+        .map(|spec| spec.permissions.deny.clone())
+        .unwrap_or_default();
+
     crate::permissions::PermissionSnapshot {
         workspace_root: root,
         extra_paths: extras,
@@ -1027,7 +1037,7 @@ fn build_permission_snapshot(
         always_allow: vec![],
         always_deny: vec![],
         agent_allow: vec![],
-        agent_deny: vec![],
+        agent_deny,
         agent_ask: vec![],
     }
 }
