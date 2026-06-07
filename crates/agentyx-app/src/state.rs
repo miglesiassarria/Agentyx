@@ -28,6 +28,7 @@ use agentyx_core::workspace::WorkspaceService;
 use agentyx_core::AppResult;
 
 use crate::events::EventBus;
+use crate::server::state::ServerState;
 
 /// Application-wide state.
 ///
@@ -84,6 +85,20 @@ pub struct AppState {
     /// `Ask` decisions; the `permission_respond` Tauri command
     /// (F01-Phase2-core follow-up) resolves them.
     pub permission_registry: PermissionRegistry,
+
+    /// Embedded HTTP server state (F06). Created at startup
+    /// alongside the rest of the app state; the actual listener
+    /// is started from `main.rs` after the Tauri runtime is up.
+    /// The state is shared with the Axum router so the Tauri
+    /// command handlers and the HTTP handlers see the same
+    /// configuration snapshot.
+    ///
+    /// Indirected through a `OnceLock` because `ServerState`
+    /// holds an `Arc<AppState>` and `AppState` holds an
+    /// `Arc<ServerState>` — a direct cycle would prevent either
+    /// from being constructed. The lock is filled in once by
+    /// [`AppState::attach_server`] right after `initialize`.
+    pub server: Arc<std::sync::OnceLock<Arc<ServerState>>>,
 }
 
 impl AppState {
@@ -172,7 +187,27 @@ impl AppState {
             tool_registry,
             permission_gate,
             permission_registry,
+            server: Arc::new(std::sync::OnceLock::new()),
         })
+    }
+
+    /// Attach the live `ServerState` to this `AppState`. Called
+    /// once, right after `AppState::initialize()`, from `main.rs`.
+    /// Panics if called twice (a programmer error — only one
+    /// server state is ever built per process).
+    pub fn attach_server(self: &Arc<Self>, server: Arc<ServerState>) {
+        if self.server.set(server).is_err() {
+            tracing::error!("AppState::attach_server called twice — ignoring the second call");
+        }
+    }
+
+    /// Get the live `ServerState`. Returns `None` only if
+    /// `attach_server` has not been called yet (which should not
+    /// happen in production; `main.rs` attaches the server before
+    /// the Tauri runtime starts).
+    #[must_use]
+    pub fn server(&self) -> Option<Arc<ServerState>> {
+        self.server.get().cloned()
     }
 
     /// Get or create the per-workspace runtime (Db, SessionService,

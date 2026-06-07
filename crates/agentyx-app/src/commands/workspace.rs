@@ -603,6 +603,7 @@ mod tests {
             ),
             permission_gate: agentyx_core::permissions::PermissionGate::new(),
             permission_registry: agentyx_core::permissions::PermissionRegistry::new(),
+            server: Arc::new(std::sync::OnceLock::new()),
         });
         (home, state)
     }
