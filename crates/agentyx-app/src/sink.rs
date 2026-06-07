@@ -1,32 +1,10 @@
-//! `EventSink` impl for Tauri — bridges `agentyx_core::agent::EventSink`
-//! to Tauri's `AppHandle::emit`.
+//! `EventSink` implementations — bridges `agentyx_core::agent::EventSink`
+//! to the `EventBus` for different contexts.
 //!
-//! The agent loop in `agentyx_core` emits events through the
-//! `EventSink` trait (string event name + JSON payload). The app
-//! layer implements that trait over the existing `EventBus` so
-//! the events reach the Svelte UI via `window.emit`.
-//!
-//! Usage (from a Tauri command):
-//!
-//! ```ignore
-//! #[tauri::command]
-//! pub async fn send(
-//!     state: State<'_, Arc<AppState>>,
-//!     app: AppHandle,
-//!     session_id: SessionId,
-//!     content: String,
-//! ) -> AppResult<RunHandleDto> {
-//!     let sink = Arc::new(TauriEventSink::new(state.event_bus.clone(), app));
-//!     let deps = build_deps(&state, sink)?;
-//!     let handle = spawn_run(deps, session_id, content, StartOpts::default())?;
-//!     // ...
-//! }
-//! ```
-//!
-//! `TauriEventSink` is `Send + Sync` (the `EventBus` is
-//! `Arc`-shared and the `AppHandle` is `Clone + Send + Sync`),
-//! which is the bound `AgentLoopDeps` requires for the
-//! `bus: Arc<dyn EventSink>` field.
+//! - `TauriEventSink` — used by Tauri command handlers; emits to both
+//!   Tauri windows and the broadcast channel.
+//! - `BroadcastEventSink` — used by the embedded HTTP server; emits
+//!   only to the broadcast channel (no Tauri `AppHandle` needed).
 
 use std::sync::Arc;
 
@@ -53,7 +31,6 @@ impl std::fmt::Debug for TauriEventSink {
 }
 
 impl TauriEventSink {
-    /// Build a new sink.
     #[must_use]
     pub fn new(bus: Arc<EventBus>, app: AppHandle) -> Self {
         Self { bus, app }
@@ -63,5 +40,34 @@ impl TauriEventSink {
 impl EventSink for TauriEventSink {
     fn emit(&self, event: &str, payload: Value) {
         self.bus.emit(&self.app, event, payload);
+    }
+}
+
+/// Bridges `EventSink` to the broadcast channel only (no Tauri).
+/// Used by the HTTP server's `send_message` handler so agent loop
+/// events reach SSE clients without requiring an `AppHandle`.
+#[derive(Clone)]
+pub struct BroadcastEventSink {
+    bus: Arc<EventBus>,
+}
+
+impl std::fmt::Debug for BroadcastEventSink {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BroadcastEventSink")
+            .field("bus", &self.bus)
+            .finish()
+    }
+}
+
+impl BroadcastEventSink {
+    #[must_use]
+    pub fn new(bus: Arc<EventBus>) -> Self {
+        Self { bus }
+    }
+}
+
+impl EventSink for BroadcastEventSink {
+    fn emit(&self, event: &str, payload: Value) {
+        let _ = self.bus.publish_typed(event, payload);
     }
 }

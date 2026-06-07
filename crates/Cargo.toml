@@ -106,7 +106,7 @@ tauri-build = { version = "2.0", features = [] }
 # HTTP server (F06)
 axum = { version = "0.7", features = ["macros"] }
 tower = { version = "0.5", features = ["limit", "timeout"] }
-tower-http = { version = "0.5", features = ["cors", "set-header", "trace"] }
+tower-http = { version = "0.5", features = ["cors", "set-header", "trace", "fs"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 
 # Internal crates
