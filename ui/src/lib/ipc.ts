@@ -54,7 +54,9 @@ const isBrowser = typeof window !== 'undefined' && !('__TAURI__' in window);
 // ============================================================
 
 let tauriInvoke: ((cmd: string, args?: Record<string, unknown>) => Promise<unknown>) | null = null;
-let tauriListen: ((event: string, handler: (e: { payload: unknown }) => void) => Promise<() => void>) | null = null;
+let tauriListen:
+  | ((event: string, handler: (e: { payload: unknown }) => void) => Promise<() => void>)
+  | null = null;
 
 if (!isBrowser) {
   const core = await import('@tauri-apps/api/core');
@@ -108,7 +110,7 @@ const sseListeners = new Map<string, Set<(payload: unknown) => void>>();
 function ensureSse(): EventSource {
   if (sseConnection) return sseConnection;
   sseConnection = new EventSource(`${httpBaseUrl()}/api/v1/events`);
-  sseConnection.onmessage = (e) => {
+  sseConnection.onmessage = () => {
     // Default "message" events are dispatched to all listeners with no event name.
   };
   sseConnection.addEventListener('ping', () => {}); // heartbeat, ignore
@@ -142,19 +144,10 @@ function listenSse<T>(eventName: string, handler: (payload: T) => void): () => v
 // Unified call() and listen()
 // ============================================================
 
-function normalizeArgs(args: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
-  if (!args) return args;
-  const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(args)) {
-    out[k] = v;
-  }
-  return out;
-}
-
 async function call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   if (!isBrowser && tauriInvoke) {
     try {
-      return await tauriInvoke<T>(command, args);
+      return (await tauriInvoke(command, args)) as T;
     } catch (e) {
       const err = e as { code?: string; message?: string; context?: unknown };
       const message = err.message ?? String(e);
@@ -186,11 +179,19 @@ async function httpCallBrowser<T>(command: string, args?: Record<string, unknown
     case 'abort':
       return httpCall<T>('POST', `/api/v1/sessions/${a.session_id}/abort`);
     case 'list_sessions':
-      return httpCall<T>('GET', `/api/v1/workspaces/${a.workspace_id}/sessions${a.limit ? `?limit=${a.limit}` : ''}`);
+      return httpCall<T>(
+        'GET',
+        `/api/v1/workspaces/${a.workspace_id}/sessions${a.limit ? `?limit=${a.limit}` : ''}`,
+      );
     case 'get_history':
-      return httpCall<T>('GET', `/api/v1/sessions/${a.session_id}/history${a.limit ? `?limit=${a.limit}` : ''}`);
+      return httpCall<T>(
+        'GET',
+        `/api/v1/sessions/${a.session_id}/history${a.limit ? `?limit=${a.limit}` : ''}`,
+      );
     case 'set_active_agent':
-      return httpCall<T>('POST', `/api/v1/sessions/${a.session_id}/active-agent`, { agentId: a.agent_id });
+      return httpCall<T>('POST', `/api/v1/sessions/${a.session_id}/active-agent`, {
+        agentId: a.agent_id,
+      });
     case 'get_active_agent':
       return httpCall<T>('GET', `/api/v1/sessions/${a.session_id}/active-agent`);
     // Workspace
@@ -201,13 +202,22 @@ async function httpCallBrowser<T>(command: string, args?: Record<string, unknown
     case 'get_workspace':
       return httpCall<T>('GET', `/api/v1/workspaces/${a.workspace_id}`);
     case 'delete_workspace':
-      return httpCall<T>('DELETE', `/api/v1/workspaces/${a.workspace_id}?force=${a.force ?? false}`);
+      return httpCall<T>(
+        'DELETE',
+        `/api/v1/workspaces/${a.workspace_id}?force=${a.force ?? false}`,
+      );
     case 'detect_workspace_venv':
       return httpCall<T>('GET', `/api/v1/workspaces/${a.workspace_id}/venv`);
     case 'add_extra_path':
-      return httpCall<T>('POST', `/api/v1/workspaces/${a.workspace_id}/extra-paths`, { path: a.path, label: a.label });
+      return httpCall<T>('POST', `/api/v1/workspaces/${a.workspace_id}/extra-paths`, {
+        path: a.path,
+        label: a.label,
+      });
     case 'remove_extra_path':
-      return httpCall<T>('DELETE', `/api/v1/workspaces/${a.workspace_id}/extra-paths/delete?path=${encodeURIComponent(a.path as string)}`);
+      return httpCall<T>(
+        'DELETE',
+        `/api/v1/workspaces/${a.workspace_id}/extra-paths/delete?path=${encodeURIComponent(a.path as string)}`,
+      );
     case 'list_extra_paths':
       return httpCall<T>('GET', `/api/v1/workspaces/${a.workspace_id}/extra-paths`);
     case 'effective_paths':
@@ -236,9 +246,15 @@ async function httpCallBrowser<T>(command: string, args?: Record<string, unknown
       return httpCall<T>('GET', '/api/v1/secrets/providers');
     // Permissions
     case 'get_matrix':
-      return httpCall<T>('GET', `/api/v1/permissions/matrix${a.workspace_id ? `?workspace=${a.workspace_id}` : ''}`);
+      return httpCall<T>(
+        'GET',
+        `/api/v1/permissions/matrix${a.workspace_id ? `?workspace=${a.workspace_id}` : ''}`,
+      );
     case 'set_default':
-      return httpCall<T>('POST', '/api/v1/permissions/default', { tool: a.tool, decision: a.decision });
+      return httpCall<T>('POST', '/api/v1/permissions/default', {
+        tool: a.tool,
+        decision: a.decision,
+      });
     default:
       throw new Error(`Unknown command in browser mode: ${command}`);
   }
@@ -246,7 +262,7 @@ async function httpCallBrowser<T>(command: string, args?: Record<string, unknown
 
 async function listen<T>(event: string, handler: (payload: T) => void): Promise<() => void> {
   if (!isBrowser && tauriListen) {
-    return tauriListen<T>(event, handler);
+    return tauriListen(event, (e: { payload: unknown }) => handler(e.payload as T));
   }
   // Browser mode: route to SSE.
   return listenSse<T>(event, handler);
