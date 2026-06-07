@@ -1,6 +1,6 @@
 # F06 — Web server LAN
 
-**Status**: draft
+**Status**: ready
 **Owner**: @miglesias
 **Last update**: 2026-06-07
 **Affects**: [`ipc`](../ipc.md), [`architecture`](../architecture.md),
@@ -127,13 +127,16 @@ entry.
 
 - [ ] F06.AC1: Given the desktop app starts, When server is enabled,
   Then it binds to `127.0.0.1:<port>` by default and serves the UI.
-- [ ] F06.AC2: Given LAN mode is enabled with `bind_host = "0.0.0.0"`,
-  When the app starts, Then the server listens on all interfaces and
-  requires `Authorization: Bearer <token>` for `/api/v1/*`.
-- [ ] F06.AC3: Given LAN mode is enabled without a token, When the
-  config is saved or the server starts, Then it fails loudly with
-  `invalid_input` or `forbidden` and does not expose unauthenticated
-  workspace access.
+- [ ] F06.AC2: Given LAN mode is enabled with `bind_host = "0.0.0.0"`
+  and `[server].require_token = true`, When the app starts, Then the
+  server listens on all interfaces and requires
+  `Authorization: Bearer <token>` for `/api/v1/*` (and 401s without it).
+- [ ] F06.AC3: Given LAN mode is enabled with `require_token = false`
+  (MVP default for local dogfooding), When the app starts, Then the
+  server logs a single `tracing::warn!` line ("LAN bind without bearer
+  auth — local dogfooding only") and serves `/api/v1/*` without
+  requiring a token. The middleware and token machinery are compiled
+  in; flipping `require_token = true` activates them without rebuild.
 - [ ] F06.AC4: Given a browser opens the LAN URL with a valid token,
   When it loads the app, Then it uses the HTTP adapter and can list
   workspaces without importing Tauri APIs.
@@ -160,8 +163,9 @@ entry.
 ## Test Map
 
 - `F06.AC1` -> Rust integration test: `server::tests::f06_ac1_loopback_serves_ui`.
-- `F06.AC2` -> Rust integration test: `server::tests::f06_ac2_lan_requires_bearer`.
-- `F06.AC3` -> Rust unit test: `config::tests::f06_ac3_lan_bind_requires_token`.
+- `F06.AC2` -> Rust integration test: `server::tests::f06_ac2_lan_with_require_token_blocks_without_bearer`.
+- `F06.AC3` -> Rust integration test: `server::tests::f06_ac3_lan_without_require_token_serves_with_warn` (asserts the
+  warn log is emitted once at startup and unauthenticated requests succeed against a known route like `/api/v1/health`).
 - `F06.AC4` -> Vitest: `ui/src/lib/ipc.test.ts`.
 - `F06.AC5` -> Vitest/store test for browser workspace open by path.
 - `F06.AC6` -> Rust HTTP test with `MockProvider` + SSE client.
@@ -184,6 +188,36 @@ entry.
 - No SSE replay via `Last-Event-ID` in MVP.
 - No separate web build or separate backend process.
 
+## MVP dogfooding caveats
+
+> Local dogfooding on a trusted LAN is the only supported scenario in
+> v0.1. The browser client and the desktop client are the **same app**
+> running on the **same machine**; the browser is just a remote view.
+> This section makes the deliberate MVP relaxations explicit so they
+> are not forgotten when hardening lands.
+
+1. **LAN bind is open by default.** When `[server].bind_host` is not
+   loopback, `require_token` defaults to `false`. The bearer middleware
+   is **compiled and wired** but inactive; a single `tracing::warn!` is
+   emitted at startup ("LAN bind without bearer auth — local dogfooding
+   only"). The UI shows no warning banner in v0.1.
+2. **No HTTPS.** Tokens and message bodies travel in cleartext on the
+   LAN. The user is expected to be on a trusted network (home/office
+   Wi-Fi). Public exposure requires `require_token = true` and a
+   reverse proxy in front (out of scope for v0.1).
+3. **Browser client trusts the desktop client.** There is no
+   per-browser identity, no rate-limit per client, and no lockout on
+   bad tokens. Multiple browsers on the LAN can connect concurrently
+   and observe the same sessions.
+4. **CSRF posture.** Only same-origin requests are accepted; CORS
+   allowlist is `Origin` header equals the server's own origin. Cookies
+   (if added later) would be `SameSite=Strict`.
+5. **Hardening checklist before v0.2.** Flip `require_token` default
+   to `true`, add a UI warning banner when LAN is open, add per-client
+   rate-limit, and decide whether to ship a built-in tunnel (F19) or
+   leave it to the user. Tracked under §Discovered bugs once
+   implementation lands.
+
 ## Risks / Rabbit holes
 
 - Tauri handlers that take `AppHandle` need shared inner functions or
@@ -196,7 +230,10 @@ entry.
   session. Do not put bearer tokens in URLs.
 - Serving the UI from Tauri dev mode and production `ui/dist` has
   different paths. Keep dev ergonomics explicit.
-- Binding `0.0.0.0` without auth is a category-A security bug.
+- LAN-without-auth is an MVP concession (see §MVP dogfooding caveats).
+  If a user accidentally exposes `0.0.0.0` on a public network, every
+  connected client gets full read/write to the same workspaces. The
+  default `127.0.0.1` bind mitigates this for loopback users.
 
 ## Implementation notes
 
@@ -206,10 +243,20 @@ entry.
   then call those helpers from both Tauri commands and HTTP handlers.
 - Keep the HTTP route names aligned with `specs/ipc.md`; update that
   file in the same PR as implementation if contracts change.
+- The bearer middleware and the no-auth path share the same router;
+  the only switch is the `require_token` flag in `[server]`. Tests
+  cover both code paths from day one.
+
+## Discovered bugs (post-approval)
+
+| ID | Date | Category | Resolved in | Notes |
+|---|---|---|---|---|
+| _ninguno aún_ | | | | |
 
 ## References
 
 - [`specs/project.md`](../project.md)
 - [`specs/architecture.md`](../architecture.md)
 - [`specs/ipc.md`](../ipc.md)
+- [`specs/domains/server.md`](../domains/server.md) — domain spec for the embedded HTTP server.
 - [`specs/features/ROADMAP.md`](./ROADMAP.md)

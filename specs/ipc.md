@@ -152,10 +152,16 @@ la UI (`ui/dist/`) cuando se accede desde navegador.
 ### 4.1 Bind y auth
 
 - **Por defecto**: `127.0.0.1:<random>`, **sin auth** (loopback seguro).
-- **Opt-in LAN**: `0.0.0.0:<port>`, **auth obligatoria** vía
-  `Authorization: Bearer <token>`.
-- Token generado al primer arranque, guardado en keychain del SO.
-- CORS: allowlist cerrado (solo el propio origen y `null` para file://).
+- **Opt-in LAN**: `0.0.0.0:<port>`, controlado por `[server].require_token`:
+  - `require_token = true` (recomendado fuera del dogfooding): **auth
+    obligatoria** vía `Authorization: Bearer <token>`. 401 sin token
+    o con token inválido.
+  - `require_token = false` (default MVP para dogfooding en LAN de
+    confianza): server emite un `tracing::warn!` único al arrancar y
+    sirve `/api/v1/*` sin requerir token. Ver
+    [`features/F06-web-server-lan.md`](./features/F06-web-server-lan.md) §MVP dogfooding caveats.
+- Token generado al rotar (`server_rotate_token`), guardado en keychain del SO.
+- CORS: allowlist cerrado (solo el propio origen).
 
 ### 4.2 Endpoints (request / response)
 
@@ -277,7 +283,10 @@ El resto de la UI **nunca** accede a `window.__TAURI__` ni a `fetch` directo.
   `.<vN>`.
 - [ ] AC4: la UI nunca usa `window.__TAURI__` directamente — siempre
   pasa por `lib/ipc.ts`.
-- [ ] AC5: el HTTP server exige bearer token cuando `bind != 127.0.0.1`.
+- [ ] AC5: el HTTP server exige bearer token cuando
+  `[server].require_token = true` y `bind != 127.0.0.1`; cuando
+  `require_token = false`, emite un único warning al arrancar y sirve
+  sin auth (MVP dogfooding).
 - [ ] AC6: las rutas HTTP están versionadas (`/api/v1/...`).
 - [ ] AC7: el spec de cada command nuevo o modificado referencia este
   documento (`ipc.md`).
