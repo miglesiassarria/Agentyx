@@ -2,10 +2,11 @@
 
 > Vista por features. Para vista global: [specs/README.md](../README.md).
 > Para índice de ADRs: [specs/adr/README.md](../adr/README.md).
-> Última actualización: 2026-06-07 (sincronizado tras auditoría MVP:
-> F06 tiene cerrados sus ACs automatizables; queda smoke manual real de
-> navegador/LAN. F04/F-agents-ui pasan a esqueleto parcial/post-MVP
-> salvo decisión humana).
+> Última actualización: 2026-06-08 (sincronizado tras auditoría MVP:
+> F06 tiene cerrados sus ACs automatizables y ya sirve la raíz desde
+> otro dispositivo LAN; queda smoke manual de flujos browser reales.
+> F04/F-agents-ui pasan a esqueleto parcial/post-MVP salvo decisión
+> humana).
 
 ## Agent context
 
@@ -50,9 +51,10 @@
    importa diálogos Tauri estáticamente.
 2. **P0 F06 HTTP gaps**: ✅ cerrado. Config workspace y permissions
    request/respond están cableados por HTTP + adapter `ui/src/lib/ipc.ts`.
-3. **P0 smoke web LAN**: pendiente manual. Abrir UI web en navegador real,
-   listar/abrir workspace, mandar mensaje, recibir SSE, responder
-   permission prompt y repetir desde otro dispositivo LAN.
+3. **P0 smoke web LAN**: parcial. La UI web carga desde otro
+   dispositivo LAN por `/`; queda listar/abrir workspace con path
+   prompt, mandar mensaje, recibir SSE, responder permission prompt
+   y editar Settings desde navegador real.
 4. **P1 F05 Ollama/settings**: asegurar "configurar Ollama local" y
    persistencia de settings como flujo E2E.
 5. **Corte explícito**: MVP v0.1 es read-only agent (`read_file`,

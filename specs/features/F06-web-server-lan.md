@@ -2,7 +2,7 @@
 
 **Status**: implemented (partial)
 **Owner**: @miglesias
-**Last update**: 2026-06-07
+**Last update**: 2026-06-08
 **Affects**: [`ipc`](../ipc.md), [`architecture`](../architecture.md),
 [`config`](../domains/config.md), [`session`](../domains/session.md),
 [`workspace`](../domains/workspace.md), [`permissions`](../domains/permissions.md),
@@ -22,8 +22,10 @@
   including chat→SSE (F06.AC6), event bus SSE parity (F06.AC8),
   browser path prompts (F06.AC4/AC5), HTTP permission requests
   (F06.AC7), workspace config HTTP (F06.AC9) and SPA fallback
-  (F06.AC10). The remaining gap is real manual LAN smoke in a browser:
-  PathPromptDialog UX, SSE in a tab, and access from a second device.
+  (F06.AC10). Real LAN access from a second device has been verified
+  after fixing static file path resolution and no-cache app-shell
+  headers. Remaining manual smoke: PathPromptDialog UX, chat→SSE in a
+  real browser tab, permission prompt response, and Settings over HTTP.
 - Implement one embedded Axum server in `agentyx-app`, started with
   the desktop process. It serves the same Svelte build and exposes
   REST + SSE under `/api/v1`.
@@ -220,6 +222,11 @@ entry.
 
 - Static serving and SPA fallback are implemented via `ServeDir` in
   `crates/agentyx-app/src/server/static_files.rs`.
+- Static file path resolution walks ancestors from both the process CWD
+  and current binary so dev launches from repo root, `crates/`, or
+  `target/debug` find the same `ui/dist`. HTML app-shell responses add
+  `Cache-Control: no-store, no-cache, must-revalidate` so a blank/stale
+  cached `/` cannot survive after a bad LAN smoke attempt.
 - HTTP routes currently cover workspaces, sessions, agents, global
   config, provider test, secrets, permission matrix/default, diffs
   skeleton and SSE.
@@ -356,7 +363,7 @@ entry.
 
 | ID | Date | Category | Resolved in | Notes |
 |---|---|---|---|---|
-| - | - | - | - | - |
+| F06-BUG-001 | 2026-06-08 | B. Implementation deviation | PR actual | Launching the web runner from `crates/` made `ui_dist_path()` prefer a bad relative path, so `/` and assets could return empty bodies while `/api/v1/health` was OK. Fix: resolve `ui/dist` by walking ancestors from cwd/current exe and mark HTML app-shell responses as no-cache. |
 
 ## References
 

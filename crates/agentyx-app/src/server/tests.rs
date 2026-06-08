@@ -1013,6 +1013,12 @@ async fn f06_spa_fallback_returns_index_for_unknown_routes() {
         .await
         .expect("GET deep link");
     let status = resp.status();
+    let cache_control = resp
+        .headers()
+        .get("cache-control")
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("")
+        .to_string();
     let text = resp.text().await.expect("text");
     assert_eq!(
         status,
@@ -1022,6 +1028,10 @@ async fn f06_spa_fallback_returns_index_for_unknown_routes() {
     assert!(
         text.contains("Agentyx") || text.contains("agentyx"),
         "deep link should serve the app shell; got: {text}"
+    );
+    assert!(
+        cache_control.contains("no-store"),
+        "app shell should not be cached; got: {cache_control}"
     );
 
     // 2. /api/v1/agents returns JSON (not the SPA shell)

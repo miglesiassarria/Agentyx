@@ -13,6 +13,10 @@ description = "Agentyx desktop app — Tauri 2 entrypoint."
 name = "agentyx-app"
 path = "src/main.rs"
 
+[[bin]]
+name = "agentyx-web"
+path = "src/bin/agentyx-web.rs"
+
 [build-dependencies]
 tauri-build = { workspace = true }
 
