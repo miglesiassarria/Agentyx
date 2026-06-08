@@ -18,7 +18,9 @@
 #![deny(unsafe_code)]
 #![warn(missing_docs)]
 
+use std::env;
 use std::sync::Arc;
+use std::thread;
 
 use agentyx_core::AppResult;
 use anyhow::Context;
@@ -34,7 +36,23 @@ mod state;
 mod updater;
 mod window;
 
+use server::ServerConfig;
 use state::AppState;
+
+#[derive(Debug, Clone, Default)]
+struct CliOpts {
+    lan: bool,
+}
+
+fn parse_cli_opts() -> CliOpts {
+    let mut opts = CliOpts::default();
+    for arg in env::args().skip(1) {
+        if arg == "--lan" {
+            opts.lan = true;
+        }
+    }
+    opts
+}
 
 /// Entry point for the Tauri desktop app.
 ///
@@ -46,9 +64,12 @@ use state::AppState;
 fn main() -> anyhow::Result<()> {
     init_tracing();
 
+    let cli_opts = parse_cli_opts();
+
     tracing::info!(
         version = env!("CARGO_PKG_VERSION"),
         target = tauri::utils::platform::target_triple().unwrap_or_else(|_| "unknown".to_string()),
+        lan = cli_opts.lan,
         "agentyx starting"
     );
 
@@ -64,13 +85,56 @@ fn main() -> anyhow::Result<()> {
 
     let state = Arc::new(app_state);
 
-    // F06: attach the embedded HTTP server state. We do this
-    // **before** the Tauri setup hook so the `server_*` Tauri
-    // commands can reach the server. The actual listener is
-    // started inside the setup hook (after the Tauri runtime is
-    // up and we have an `AppHandle` for the TauriSink).
+    // F06: attach the embedded HTTP server state.
     let server_state = server::lifecycle::build_state(state.clone());
     state.attach_server(server_state.clone());
+
+    // F06: start the embedded HTTP server on its own runtime.
+    // With `--lan`: bind on `0.0.0.0` with `lan_enabled=true`.
+    // Without `--lan`: loopback, no auth, random port (default).
+    // Starting before setup keeps the browser route available even if
+    // desktop webview creation fails.
+    let server_config = if cli_opts.lan {
+        ServerConfig {
+            enabled: true,
+            bind_host: "0.0.0.0".to_string(),
+            port: 0,
+            lan_enabled: true,
+            require_token: false,
+            rate_limit_per_window: 60,
+            rate_window: std::time::Duration::from_secs(10),
+        }
+    } else {
+        ServerConfig::default()
+    };
+
+    let server_state_for_thread = server_state.clone();
+    let _server_thread = thread::Builder::new()
+        .name("agentyx-http-server".to_string())
+        .spawn(move || {
+            let rt = match tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            {
+                Ok(rt) => rt,
+                Err(e) => {
+                    tracing::warn!(error = %e, "HTTP server runtime failed to start");
+                    return;
+                }
+            };
+            rt.block_on(async move {
+                match server::lifecycle::start(server_state_for_thread, server_config).await {
+                    Ok(info) => {
+                        tracing::info!(bind = %info.bind_addr, "HTTP server started");
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "HTTP server failed to start; continuing anyway");
+                    }
+                }
+                std::future::pending::<()>().await;
+            });
+        })
+        .context("spawning HTTP server thread")?;
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -94,22 +158,6 @@ fn main() -> anyhow::Result<()> {
                 .add_sink(std::sync::Arc::new(events::TauriSink::new(
                     app.handle().clone(),
                 )));
-
-            // F06: start the embedded HTTP server with the
-            // default config (loopback, no auth, random port).
-            // Errors are logged but non-fatal — the desktop app
-            // still works even if the server fails to bind.
-            let server_config = server::ServerConfig::default();
-            let server_state_for_setup = state
-                .server()
-                .ok_or_else(|| anyhow::anyhow!("server state not attached"))?;
-            tauri::async_runtime::spawn(async move {
-                if let Err(e) =
-                    server::lifecycle::start(server_state_for_setup, server_config).await
-                {
-                    tracing::warn!(error = %e, "embedded HTTP server failed to start");
-                }
-            });
 
             updater::check_on_startup(app)?;
             Ok(())
