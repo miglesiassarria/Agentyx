@@ -95,6 +95,44 @@ bun run dev
 # or: npm run dev
 ```
 
+### Build and binaries
+
+For day-to-day local checks, compile the Rust app from the Cargo
+workspace:
+
+```bash
+cd crates
+cargo build -p agentyx-app
+```
+
+Debug binaries are written to `crates/target/debug/`:
+
+| Binary | Path | Purpose |
+|---|---|---|
+| `agentyx-app` | `crates/target/debug/agentyx-app` | Tauri desktop entrypoint. Use this when you need the desktop shell binary updated after Rust backend changes. |
+| `agentix` | `crates/target/debug/agentix` | CLI/dev helper. It includes commands such as `serve` for running the embedded web server from the terminal. |
+| `agentyx-web` | `crates/target/debug/agentyx-web` | Web-server-only binary for browser/LAN flows without launching the Tauri desktop window. |
+
+Release binaries are generated with:
+
+```bash
+cd crates
+cargo build -p agentyx-app --release
+```
+
+They are written to `crates/target/release/` with the same binary
+names. For the full production desktop bundle/installable artifact, use
+the Tauri build pipeline:
+
+```bash
+bun run build
+# or: bun run tauri:build
+```
+
+Those artifacts are produced under `crates/target/release/bundle/`
+(platform-specific subdirectories such as `macos/`, `dmg/`, `msi/` or
+`deb/`, depending on the OS and Tauri configuration).
+
 ### Other scripts
 
 ```bash

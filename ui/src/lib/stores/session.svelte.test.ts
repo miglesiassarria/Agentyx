@@ -62,6 +62,7 @@ const stub = vi.hoisted(() => ({
   agentsGet: vi.fn(),
   permissionsList: vi.fn(),
   permissionsRespond: vi.fn(),
+  isBrowserMode: vi.fn(),
   lastRunHandlers: null as FakeEventsApi | null,
   lastPermissionHandler: null as EventHandler | null,
 }));
@@ -103,6 +104,7 @@ vi.mock('$lib/ipc', () => {
       list: stub.permissionsList,
       respond: stub.permissionsRespond,
     },
+    isBrowserMode: stub.isBrowserMode,
   };
 });
 
@@ -193,6 +195,7 @@ beforeEach(() => {
   stub.agentsList.mockResolvedValue(visibleAgents);
   stub.permissionsList.mockResolvedValue([]);
   stub.permissionsRespond.mockResolvedValue(undefined);
+  stub.isBrowserMode.mockReturnValue(false);
 });
 
 afterEach(() => {
@@ -386,6 +389,35 @@ describe('SessionStore — event folding', () => {
     // The optimistic user message must be removed so the user can
     // edit and retry without duplicates.
     expect(store.messages.filter((m) => m.role === 'user')).toHaveLength(0);
+  });
+
+  it('recovers in browser mode when run finished SSE is missed', async () => {
+    vi.useFakeTimers();
+    stub.isBrowserMode.mockReturnValue(true);
+    stub.sessionsList.mockResolvedValue([
+      makeSummary({ status: 'idle', updatedAt: '2026-06-06T10:00:05.000Z' }),
+    ]);
+    stub.sessionsGetHistory.mockResolvedValue([
+      makeMessage({ id: 'u1', seq: 1, role: 'user', content: 'hi' }),
+      makeMessage({
+        id: 'a1',
+        seq: 2,
+        role: 'assistant',
+        content: 'hello',
+        runId: '01HWS000000000000000000R0N',
+      }),
+    ]);
+
+    const store = new SessionStore();
+    await store.attach(WS_ID);
+    store.activeSession = makeSummary({ status: 'running' });
+    await store.send('hi');
+
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(store.runStatus).toBe('completed');
+    expect(store.runId).toBeNull();
+    expect(store.messages.find((m) => m.role === 'assistant')?.content).toBe('hello');
   });
 });
 
