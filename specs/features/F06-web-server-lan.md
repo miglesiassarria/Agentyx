@@ -17,7 +17,9 @@
 - Current code has Axum lifecycle, static serving, `/api/v1/events`,
   `POST /sessions/:id/messages`, global config/provider/secrets/
   permissions matrix endpoints, diff skeleton endpoints, and a dual
-  Tauri/HTTP `ui/src/lib/ipc.ts` adapter.
+  Tauri/HTTP `ui/src/lib/ipc.ts` adapter. The desktop binary accepts
+  `--lan` for dogfooding, and `agentyx-web` remains the headless
+  runner used by browser smoke tests.
 - Do **not** treat F06 as full yet. All automatable ACs are covered,
   including chat→SSE (F06.AC6), event bus SSE parity (F06.AC8),
   browser path prompts (F06.AC4/AC5), HTTP permission requests
@@ -228,6 +230,9 @@ entry.
   root route loads, sidebar drawer opens/closes, workspace file/chat
   panes stack, composer remains visible, settings tabs scroll
   horizontally, and path/permission dialogs fit the viewport.
+- Browser smoke coverage -> Playwright E2E:
+  `ui/e2e/smoke.spec.ts` covers F06.AC4/F06.AC5/F06.AC6/F06.AC7/
+  F06.AC9 workspace settings load/F06.AC10 against `agentyx-web`.
 
 ## Implementation notes
 
@@ -260,6 +265,8 @@ entry.
   requests, SPA fallback). The browser-only checks
   (PathPromptDialog UX, real SSE in a browser tab, LAN
   access from a second device) remain manual.
+- Playwright smoke lives in `ui/e2e/smoke.spec.ts` and starts the
+  headless `agentyx-web` runner via `ui/playwright.config.ts`.
 - Mobile web layout now uses a drawer for workspace navigation and
   phone-width stacking for workspace files/chat, settings, composer,
   and path/permission dialogs.
