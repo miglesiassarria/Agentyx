@@ -8,9 +8,10 @@
 
   interface Props {
     workspace: WorkspaceDto;
+    onselect?: () => void;
   }
 
-  let { workspace }: Props = $props();
+  let { workspace, onselect }: Props = $props();
 
   let menuOpen = $state(false);
   let confirmingDelete = $state(false);
@@ -18,6 +19,7 @@
   function handleSelect(): void {
     uiStore.showWorkspace();
     void workspaceStore.select(workspace.id);
+    onselect?.();
   }
 
   function toggleMenu(): void {

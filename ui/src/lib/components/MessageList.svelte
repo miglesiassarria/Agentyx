@@ -70,6 +70,7 @@
 
 <style>
   .list {
+    position: relative;
     flex: 1;
     min-height: 0;
     overflow-y: auto;
@@ -141,6 +142,7 @@
     font-size: var(--font-size-md);
     line-height: 1.5;
     white-space: pre-wrap;
+    overflow-wrap: anywhere;
     background: transparent;
     border: 0;
     padding: 0;
@@ -196,5 +198,33 @@
 
   .jump-latest:hover {
     background: var(--color-bg-subtle);
+  }
+
+  @media (max-width: 760px) {
+    .list {
+      padding: var(--space-3);
+      gap: var(--space-2);
+    }
+
+    .message {
+      max-width: 94%;
+    }
+
+    .message[data-role='system'],
+    .message[data-role='tool_result'] {
+      max-width: 100%;
+    }
+
+    .bubble {
+      padding: var(--space-2) var(--space-3);
+    }
+
+    .content {
+      font-size: var(--font-size-sm);
+    }
+
+    .jump-latest {
+      bottom: var(--space-3);
+    }
   }
 </style>

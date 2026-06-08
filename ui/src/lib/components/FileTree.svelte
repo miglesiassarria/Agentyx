@@ -48,4 +48,12 @@
     margin: 0;
     padding: var(--space-3);
   }
+
+  @media (max-width: 760px) {
+    .tree {
+      flex: 1;
+      min-height: 0;
+      max-height: none;
+    }
+  }
 </style>

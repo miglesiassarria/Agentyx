@@ -185,4 +185,37 @@
   .btn-deny:hover {
     background: var(--color-bg-subtle);
   }
+
+  @media (max-width: 760px) {
+    .backdrop {
+      align-items: flex-end;
+      padding: var(--space-3);
+    }
+
+    .dialog {
+      width: 100%;
+      max-width: none;
+      max-height: calc(100dvh - var(--space-6));
+      overflow: auto;
+      padding: var(--space-4);
+      border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    }
+
+    .meta {
+      grid-template-columns: 1fr;
+      gap: var(--space-1);
+    }
+
+    .meta dd {
+      margin-bottom: var(--space-2);
+    }
+
+    .actions {
+      flex-direction: column;
+    }
+
+    .btn {
+      width: 100%;
+    }
+  }
 </style>

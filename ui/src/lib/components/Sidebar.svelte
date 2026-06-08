@@ -4,8 +4,20 @@
 
   import WorkspaceListItem from './WorkspaceListItem.svelte';
 
+  interface Props {
+    onnavigate?: () => void;
+  }
+
+  let { onnavigate }: Props = $props();
+
   function handleAdd(): void {
     void workspaceStore.openViaDialog();
+    onnavigate?.();
+  }
+
+  function handleSettings(): void {
+    uiStore.showSettings();
+    onnavigate?.();
   }
 </script>
 
@@ -27,7 +39,7 @@
     type="button"
     class="settings-link"
     class:active={uiStore.activeView === 'settings'}
-    onclick={() => uiStore.showSettings()}
+    onclick={handleSettings}
   >
     Settings
   </button>
@@ -39,7 +51,7 @@
       <p class="empty-list">No workspaces yet.</p>
     {:else}
       {#each workspaceStore.list as workspace (workspace.id)}
-        <WorkspaceListItem {workspace} />
+        <WorkspaceListItem {workspace} onselect={onnavigate} />
       {/each}
     {/if}
   </div>
@@ -57,6 +69,7 @@
     display: flex;
     flex-direction: column;
     width: 280px;
+    height: 100%;
     border-right: 1px solid var(--color-border-subtle);
     background: var(--color-bg-elevated);
     overflow: hidden;
@@ -146,5 +159,12 @@
   .error-label {
     font-weight: 600;
     margin-right: var(--space-1);
+  }
+
+  @media (max-width: 760px) {
+    .sidebar {
+      width: min(84vw, 320px);
+      box-shadow: 12px 0 32px rgba(0, 0, 0, 0.35);
+    }
   }
 </style>
