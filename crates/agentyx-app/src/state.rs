@@ -426,6 +426,13 @@ impl ProviderRegistry {
         self.providers.read().get(id).cloned()
     }
 
+    /// Check if a provider id is registered.
+    #[allow(dead_code)]
+    #[must_use]
+    pub fn contains_key(&self, id: &str) -> bool {
+        self.providers.read().contains_key(id)
+    }
+
     /// List the registered provider ids.
     #[allow(dead_code)]
     #[must_use]

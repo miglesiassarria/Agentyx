@@ -373,19 +373,35 @@ pub fn spawn_run(
     // Resolve provider + model from the global config (the
     // agent's ModelRef is `default` in v1).
     let cfg = deps.config.get();
-    if !cfg.providers.contains_key(&cfg.default_provider) {
-        return Err(AppError::Internal {
-            message: format!(
-                "default provider '{}' not in providers map",
-                cfg.default_provider
-            ),
-        });
-    }
-    let provider_id = cfg.default_provider.clone();
-    let model = opts
-        .model
-        .clone()
-        .unwrap_or_else(|| cfg.default_model.clone());
+    let (provider_id, model) = if deps.providers.contains_key(&cfg.default_provider) {
+        // Use configured provider and model.
+        (
+            cfg.default_provider.clone(),
+            opts.model
+                .clone()
+                .unwrap_or_else(|| cfg.default_model.clone()),
+        )
+    } else {
+        // Default provider not registered (e.g., no API key for minimax).
+        // Fall back to the first available provider.
+        let fallback_provider_id =
+            deps.providers
+                .keys()
+                .next()
+                .cloned()
+                .ok_or_else(|| AppError::Internal {
+                    message: "no providers registered".into(),
+                })?;
+        // For the model, use the provider's default or a known Ollama model.
+        let fallback_model = if fallback_provider_id == "ollama" {
+            "gemma4:latest".to_string()
+        } else {
+            opts.model
+                .clone()
+                .unwrap_or_else(|| cfg.default_model.clone())
+        };
+        (fallback_provider_id, fallback_model)
+    };
     let provider = deps
         .providers
         .get(&provider_id)
