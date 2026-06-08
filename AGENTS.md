@@ -419,18 +419,21 @@ pub trait Provider: Send + Sync {
   base_url = "http://127.0.0.1:11434"
 
   [providers.groq]
-  api_key = "env:GROQ_API_KEY"
+  api_key = "keychain:groq"           # referencio al keychain OS
   base_url = "https://api.groq.com/openai/v1"
 
   [providers.minimax]
-  api_key = "env:MINIMAX_API_KEY"
+  api_key = "keychain:minimax"        # también soportado
   base_url = "https://api.minimax.io/v1"
 
   default_provider = "ollama"
   default_model = "llama3.1:8b"
   ```
-- **Nunca** guardar API keys en texto plano en el repo. Usar `env:VAR_NAME` o keychain del SO.
-- La app resuelve `env:...` al cargar y cachea en memoria. No loguea keys.
+- **Nunca** guardar API keys en texto plano en el repo. Opciones:
+  - `keychain:<account>` — referencio al keychain del SO (recomendado, ya implementado)
+  - `env:VAR_NAME` — variable de entorno
+- La app resuelve `keychain:...` y `env:...` al cargar y cachea en memoria. No loguea keys.
+- El keychain usa servicio `"agentyx"` (macOS Keychain, Windows Credential Manager, Linux Secret Service).
 
 ### 8.4 Streaming
 - Todos los providers streamean via SSE (o NDJSON para Ollama si no soporta SSE).
