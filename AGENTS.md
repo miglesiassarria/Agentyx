@@ -271,6 +271,127 @@ agentyx/
   dejar PRs verdes abiertas salvo que el usuario pida revisión humana.
 - Ramas: `feat/<scope>`, `fix/<scope>`, `chore/<scope>`.
 
+### 4.4 Arrancar y parar la aplicación (OBLIGATORIO)
+
+Esta regla existe porque ya dejamos procesos viejos escuchando el puerto
+correcto pero sin responder. Cada agente debe arrancar y parar Agentyx
+de forma explícita y verificable.
+
+#### Modo web/LAN (`agentix serve`) — preferido para probar en navegador
+
+1. **Antes de arrancar, comprobar el puerto estándar**:
+
+   ```bash
+   lsof -nP -iTCP:18765 -sTCP:LISTEN
+   ```
+
+2. Si no hay proceso escuchando, arrancar desde la raíz del repo:
+
+   ```bash
+   cd crates
+   cargo run --bin agentix -- serve --port 18765
+   ```
+
+   Alternativas equivalentes desde la raíz:
+
+   ```bash
+   bun run serve
+   npm run serve
+   ```
+
+   `bun` puede no estar instalado en la máquina del agente. Si falla
+   con `command not found: bun`, usar `npm run serve` o el comando
+   `cargo run` anterior. No bloquearse en `bun`.
+
+3. **No usar `0.0.0.0` como URL de navegador.** Es dirección de bind,
+   no destino. Abrir:
+
+   ```text
+   http://127.0.0.1:18765
+   ```
+
+   Para otro dispositivo en LAN, usar la IP real de la máquina, por
+   ejemplo:
+
+   ```bash
+   ipconfig getifaddr en0
+   ```
+
+   y abrir `http://<ip-lan>:18765`.
+
+4. **Después de arrancar, verificar siempre**:
+
+   ```bash
+   curl --max-time 5 -sS http://127.0.0.1:18765/api/v1/health
+   curl --max-time 5 -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18765/
+   ```
+
+   Debe devolver `{"status":"ok","version":"..."}` y HTTP `200`.
+   Si el puerto acepta conexión pero `curl` se queda colgado o timeout,
+   esa instancia está atascada: no decir que la app está arrancada.
+
+5. Si `18765` está ocupado:
+   - Si el proceso es `agentix`/`agentyx` de este repo y el health
+     responde, reutilizarlo y comunicar la URL.
+   - Si el proceso es `agentix`/`agentyx` de este repo pero el health
+     no responde, pararlo con `kill <pid>` y arrancar una instancia
+     limpia en `18765`.
+   - Si el proceso no es claramente de Agentyx, no matarlo sin
+     confirmación del usuario. En ese caso usar un puerto alternativo:
+
+     ```bash
+     cd crates
+     cargo run --bin agentix -- serve --port 18766
+     ```
+
+     y comunicar explícitamente la URL alternativa.
+
+#### Modo desktop/Tauri
+
+Usar solo cuando el usuario pida la app de escritorio o el flujo Tauri:
+
+```bash
+npm run dev
+```
+
+Si `bun` está disponible, también vale:
+
+```bash
+bun run dev
+```
+
+No confundir `npm run dev` con `agentix serve`: `dev` abre el flujo
+Tauri/Vite, mientras que `agentix serve` sirve la UI por HTTP/SSE.
+
+#### Parar la aplicación
+
+- Si el agente la arrancó en una sesión interactiva, pararla con
+  `Ctrl+C` en esa misma sesión.
+- Si quedó como proceso escuchando un puerto:
+
+  ```bash
+  lsof -nP -iTCP:18765 -sTCP:LISTEN
+  kill <pid>
+  ```
+
+- Verificar que el puerto quedó libre:
+
+  ```bash
+  lsof -nP -iTCP:18765 -sTCP:LISTEN
+  ```
+
+  Si no imprime nada, está parado.
+
+#### Regla de comunicación
+
+Cuando un agente arranque la app debe decir:
+
+- comando exacto ejecutado,
+- PID si queda escuchando,
+- URL local usable (`127.0.0.1`, no `0.0.0.0`),
+- resultado del health check,
+- si dejó la app corriendo o la paró.
+
 ---
 
 ## 5. IPC y contratos
