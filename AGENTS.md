@@ -21,8 +21,8 @@
 - **tracing** + **tracing-subscriber** para logs estructurados.
 - **anyhow** (binario/app) / **thiserror** (librerías).
 - **ulid** para identificadores ordenables.
-
-### 1.2 Frontend
+- **`gh`** (GitHub CLI): instalado via `brew`. Usar para PRs, issues,
+  releases y gestión de labels. Autenticado con `gh auth login`.
 - **Svelte 5** (runes) + **Vite**.
 - **TypeScript** estricto.
 - **CSS** plano o **Tailwind v4** (opt-in, evitar siempre que no aporte).
