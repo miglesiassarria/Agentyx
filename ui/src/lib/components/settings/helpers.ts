@@ -3,6 +3,7 @@ import type {
   PermissionMatrixDto,
   ProviderConfigDto,
   ProviderId,
+  TestConnectionResult,
   ToolId,
 } from '$lib/ipc-types';
 
@@ -16,7 +17,7 @@ export const PROVIDER_DEFAULTS: Record<ProviderId, ProviderConfigDto> = {
     enabled: true,
   },
   minimax: {
-    baseUrl: 'https://api.minimax.io/v1',
+    baseUrl: 'https://api.minimax.io/anthropic',
     enabled: true,
   },
 };
@@ -25,6 +26,21 @@ export const PROVIDER_LABELS: Record<ProviderId, string> = {
   ollama: 'Ollama',
   groq: 'Groq',
   minimax: 'Minimax',
+};
+
+export const PROVIDER_MODEL_DEFAULTS: Record<ProviderId, string[]> = {
+  ollama: ['llama3.1:8b'],
+  groq: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'mixtral-8x7b-32768'],
+  minimax: [
+    'MiniMax-M3',
+    'MiniMax-M2.7',
+    'MiniMax-M2.7-highspeed',
+    'MiniMax-M2.5',
+    'MiniMax-M2.5-highspeed',
+    'MiniMax-M2.1',
+    'MiniMax-M2.1-highspeed',
+    'MiniMax-M2',
+  ],
 };
 
 export function providerLabel(providerId: ProviderId): string {
@@ -60,6 +76,21 @@ export function emptyProviderPatch(
       ...provider,
     },
   };
+}
+
+export function availableModels(
+  providerId: ProviderId,
+  provider: ProviderConfigDto | undefined,
+  testResult: TestConnectionResult | undefined,
+  selectedModel?: string,
+): string[] {
+  const ordered = [
+    ...(testResult?.ok === true ? testResult.models : []),
+    ...(provider?.models ?? []),
+    ...(PROVIDER_MODEL_DEFAULTS[providerId] ?? []),
+    ...(selectedModel === undefined || selectedModel.trim() === '' ? [] : [selectedModel.trim()]),
+  ];
+  return [...new Set(ordered.map((model) => model.trim()).filter((model) => model.length > 0))];
 }
 
 export function parseIgnorePatterns(value: string): string[] {

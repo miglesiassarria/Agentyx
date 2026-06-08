@@ -25,6 +25,7 @@
   import ExtrasSection from '../ExtrasSection.svelte';
   import {
     PROVIDER_DEFAULTS,
+    availableModels,
     emptyProviderPatch,
     formatError,
     parseIgnorePatterns,
@@ -80,6 +81,28 @@
 
   let unlistenConfigChanged: (() => void) | null = null;
 
+  let defaultProviderModels = $derived(
+    availableModels(
+      selectedDefaultProvider,
+      globalConfig?.providers[selectedDefaultProvider],
+      testResults[selectedDefaultProvider],
+      selectedDefaultProvider === globalConfig?.defaultProvider ? selectedDefaultModel : undefined,
+    ),
+  );
+  let workspaceModelProvider = $derived(
+    resolvedConfig?.workspace?.defaultProvider ??
+      resolvedConfig?.effective.defaultProvider ??
+      selectedDefaultProvider,
+  );
+  let workspaceProviderModels = $derived(
+    availableModels(
+      workspaceModelProvider,
+      globalConfig?.providers[workspaceModelProvider],
+      testResults[workspaceModelProvider],
+      workspaceDefaultModel || resolvedConfig?.effective.defaultModel,
+    ),
+  );
+
   $effect(() => {
     if (globalConfig !== null) {
       selectedDefaultProvider = globalConfig.defaultProvider;
@@ -92,6 +115,13 @@
   $effect(() => {
     addBaseUrl = PROVIDER_DEFAULTS[addKind]?.baseUrl ?? '';
     addFailed = false;
+  });
+
+  $effect(() => {
+    if (defaultProviderModels.length === 0) return;
+    if (!defaultProviderModels.includes(selectedDefaultModel)) {
+      selectedDefaultModel = defaultProviderModels[0] ?? selectedDefaultModel;
+    }
   });
 
   $effect(() => {
@@ -496,7 +526,11 @@
         </label>
         <label>
           Default model
-          <input bind:value={selectedDefaultModel} />
+          <select bind:value={selectedDefaultModel} disabled={defaultProviderModels.length === 0}>
+            {#each defaultProviderModels as model}
+              <option value={model}>{model}</option>
+            {/each}
+          </select>
         </label>
         <button
           type="button"
@@ -510,11 +544,12 @@
       <article class="card grid">
         <label>
           Workspace model override
-          <input
-            bind:value={workspaceDefaultModel}
-            disabled={workspace === null}
-            placeholder="Inherit global model"
-          />
+          <select bind:value={workspaceDefaultModel} disabled={workspace === null}>
+            <option value="">Inherit global model</option>
+            {#each workspaceProviderModels as model}
+              <option value={model}>{model}</option>
+            {/each}
+          </select>
         </label>
         <button
           type="button"

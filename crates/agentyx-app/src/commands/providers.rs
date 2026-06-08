@@ -216,7 +216,7 @@ mod tests {
     use agentyx_core::tools::{built_in_registry, Tool};
     use std::collections::HashMap;
     use std::sync::Mutex;
-    use wiremock::matchers::{method, path};
+    use wiremock::matchers::{header, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     async fn fresh_state() -> (tempfile::TempDir, Arc<AppState>) {
@@ -314,6 +314,65 @@ mod tests {
         assert!(!result.ok);
         assert_eq!(result.error_code.as_deref(), Some("provider"));
         assert!(result.error.is_some());
+    }
+
+    #[tokio::test]
+    async fn f05_ac2_minimax_with_valid_key_returns_ok() {
+        // F05.AC2: adding Minimax with a valid API key
+        // returns TestConnectionResult { ok: true, ... }.
+        // Minimax uses the Anthropic-compatible messages endpoint.
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/messages"))
+            .and(header("authorization", "Bearer minimax_test_key"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": "msg_1",
+                "type": "message",
+                "role": "assistant",
+                "model": "MiniMax-M2.7",
+                "content": [{"type": "text", "text": "ok"}],
+                "usage": {
+                    "input_tokens": 1,
+                    "output_tokens": 1,
+                    "cache_creation_input_tokens": 0,
+                    "cache_read_input_tokens": 0
+                },
+                "stop_reason": "end_turn"
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/v1/models"))
+            .and(header("authorization", "Bearer minimax_test_key"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [
+                    {"id": "MiniMax-M3", "object": "model"},
+                    {"id": "MiniMax-M2.7", "object": "model"}
+                ]
+            })))
+            .mount(&server)
+            .await;
+
+        let (_home, state) = fresh_state().await;
+        let request = TestConnectionRequest {
+            provider_id: "minimax".into(),
+            provider: ProviderConfig {
+                base_url: server.uri(),
+                enabled: true,
+                api_key: None,
+                models: None,
+            },
+            inline_api_key: Some("minimax_test_key".into()),
+        };
+        let result = providers_test_connection_inner(&state, request)
+            .await
+            .unwrap();
+        assert!(result.ok, "expected ok=true, got: {result:?}");
+        assert!(result.latency_ms.is_some());
+        assert!(result.models.iter().any(|m| m == "MiniMax-M3"));
+        assert!(result.models.iter().any(|m| m == "MiniMax-M2.7"));
+        assert!(result.error.is_none());
+        assert!(result.error_code.is_none());
     }
 
     #[tokio::test]

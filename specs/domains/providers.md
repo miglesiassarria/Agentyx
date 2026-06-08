@@ -82,8 +82,8 @@ default_model = "llama-3.3-70b-versatile"
 
 [providers.minimax]
 api_key = "env:MINIMAX_API_KEY"
-base_url = "https://api.minimax.io/v1"        # o el proxy de opencode
-default_model = "minimax-m2.7"
+base_url = "https://api.minimax.io/anthropic"
+default_model = "MiniMax-M3"
 
 # Estado activo (se cambia en runtime desde la UI)
 default_provider = "ollama"
@@ -108,7 +108,7 @@ pub enum ChatEvent {
     /// Inicio del mensaje. Se emite una vez por turno.
     MessageStart {
         message_id: MessageId,
-        model: String,         // "llama3.1:8b" o "minimax-m2.7"
+        model: String,         // "llama3.1:8b" o "MiniMax-M3"
     },
 
     /// Delta de texto (streaming del content).
@@ -174,8 +174,9 @@ pub trait Provider: Send + Sync {
     fn id(&self) -> &'static str;
     fn name(&self) -> &'static str;
 
-    /// Lista de modelos configurados. Puede ser estática (hardcoded)
-    /// o dinámica (e.g. Ollama expone `/api/tags`).
+    /// Lista de modelos configurados. Puede ser dinámica cuando el
+    /// provider expone catálogo (Ollama `/api/tags`, MiniMax
+    /// `/v1/models`) o estática como fallback.
     async fn list_models(&self) -> Result<Vec<ModelInfo>, AppError>;
 
     /// Capabilities de un modelo concreto. Si no se conoce, se asume
@@ -266,7 +267,12 @@ pub enum ChatMessage {
 ### Minimax (cloud, Anthropic-compatible)
 
 - **Endpoint**: `POST {base_url}/v1/messages` con `stream: true`.
-- **Headers**: `x-api-key: {api_key}`, `anthropic-version: 2023-06-01`.
+- **Base URL oficial**: `https://api.minimax.io/anthropic`. Las
+  configuraciones antiguas con `https://api.minimax.io/v1` se
+  normalizan internamente al endpoint Anthropic para no romper
+  instalaciones existentes.
+- **Headers**: `Authorization: Bearer {api_key}`,
+  `anthropic-version: 2023-06-01`.
 - **Auth**: API key resuelta de `env:MINIMAX_API_KEY` o keychain.
 - **Tools**: formato Anthropic (`tools: [{ name, description,
   input_schema }]`).
@@ -276,15 +282,22 @@ pub enum ChatMessage {
 - **Normalización**: el stream tiene **bloques** (text, tool_use).
   Vamos acumulando cada bloque hasta `content_block_stop` y entonces
   emitimos el `ChatEvent` correspondiente. Más complejo que OpenAI.
-- **Modelos hardcoded** (lista inicial, alineada con la integración
-  "minimax token plan" de opencode):
-  - `minimax-m2.7` (tools: true, vision: false, context: 200k,
+- **Modelos**: dinámicos via `GET https://api.minimax.io/v1/models`
+  con `Authorization: Bearer {api_key}`. Para `base_url` custom se
+  deriva el root del provider: `.../anthropic` y `.../anthropic/v1`
+  consultan `.../v1/models`.
+- **Fallback estático**: si el catálogo no está disponible por error
+  de red, 404/5xx o respuesta vacía, `list_models` devuelve esta lista
+  local; si el error es 401/403 se propaga para no ocultar una key
+  inválida:
+  - `MiniMax-M3` (tools: true, vision: false en v0.1 UI, context:
+    hasta 1M, output: 8k, soporta prompt caching)
+  - `MiniMax-M2.7` (tools: true, vision: false, context: 204.8k,
     output: 8k, soporta prompt caching)
-  - `minimax-m2.5` (tools: true, vision: false, context: 200k,
+  - `MiniMax-M2.5` (tools: true, vision: false, context: 204.8k,
     output: 8k, soporta prompt caching)
-- **Base URL por defecto**: `https://api.minimax.io/v1`. El usuario
-  puede cambiar a `https://opencode.ai/zen/go/v1/messages` para
-  usar el proxy de opencode.
+  - `MiniMax-M2.1` y variantes highspeed (tools: true, vision:
+    false, context: 204.8k, output: 8k)
 - **API key**: se obtiene en `https://platform.minimax.io/login`.
 
 ## Operations (del dominio)
@@ -316,7 +329,7 @@ Actualiza `default_provider` y `default_model` en
 | Command | Notas |
 |---|---|
 | `providers_list() -> ProviderInfo[]` | Solo los enabled. |
-| `providers_list_models(provider_id) -> ModelInfo[]` | Dinámicos para Ollama; hardcoded para Groq/Minimax. |
+| `providers_list_models(provider_id) -> ModelInfo[]` | Dinámicos para Ollama y MiniMax; hardcoded para Groq y fallback MiniMax. |
 | `providers_get_capabilities(provider_id, model_id) -> ModelCapabilities` | |
 | `providers_set_default(id, model) -> ()` | |
 | `providers_set_api_key(id, env_or_keychain_ref) -> ()` | UI para meter keys. |

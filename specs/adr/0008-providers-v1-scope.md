@@ -62,13 +62,11 @@ Los **3 providers de v1** son:
   - **Anthropic-compatible**: implementación ligeramente
     más compleja (bloques de content en el stream, no deltas
     simples), pero el código ya está validado en opencode.
-  - Modelos `minimax-m2.7`, `minimax-m2.5` ya integrados en
+  - Modelos `MiniMax-M3`, `MiniMax-M2.7`, `MiniMax-M2.5` integrados en
     opencode como "minimax token plan"; API key se obtiene
     en `platform.minimax.io/login`.
-  - Por defecto `base_url` apunta a `https://api.minimax.io/v1`
-    (Anthropic-compatible); el usuario puede cambiar a
-    `https://opencode.ai/zen/go/v1/messages` para usar el
-    proxy de opencode.
+  - Por defecto `base_url` apunta a
+    `https://api.minimax.io/anthropic` (Anthropic-compatible).
   - **Opción de razonamiento** cuando Groq/Ollama no dan la
     talla.
 
@@ -202,4 +200,5 @@ reescribe en PR 3 de la reforma de scope.
   - Minimax (token plan): `@ai-sdk/anthropic` con
     `https://opencode.ai/zen/go/v1/messages`, API key de
     `platform.minimax.io/login`.
-  - Modelos actuales de minimax: `minimax-m2.7`, `minimax-m2.5`.
+  - Modelos actuales de minimax: `MiniMax-M3`, `MiniMax-M2.7`,
+    `MiniMax-M2.5`.

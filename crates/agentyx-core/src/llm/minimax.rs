@@ -1,8 +1,9 @@
 //! `MinimaxProvider` — Anthropic-compatible cloud provider.
 //!
 //! Minimax follows the Anthropic Messages API:
-//! `POST {base_url}/v1/messages` with `x-api-key` and
-//! `anthropic-version: 2023-06-01`. Streaming is SSE with
+//! `POST {base_url}/v1/messages` with bearer auth and
+//! `anthropic-version: 2023-06-01`. The official base URL is
+//! `https://api.minimax.io/anthropic`. Streaming is SSE with
 //! typed events:
 //!
 //! ```text
@@ -43,7 +44,7 @@ use futures::stream::{Stream, StreamExt};
 use reqwest::Client;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::llm::types::{
     ChatEvent, ChatMessage, ChatRequest, ChatStream, FinishReason, ModelCapabilities, ModelInfo,
@@ -52,8 +53,12 @@ use crate::llm::types::{
 use crate::llm::Provider;
 use crate::{AppError, AppResult};
 
-/// Default Minimax endpoint.
-pub const DEFAULT_BASE_URL: &str = "https://api.minimax.io/v1";
+/// Default Minimax Anthropic-compatible endpoint.
+pub const DEFAULT_BASE_URL: &str = "https://api.minimax.io/anthropic";
+
+/// Previous default shipped by early builds. Keep this compatible
+/// so existing configs continue to work after upgrading.
+const LEGACY_OPENAI_BASE_URL: &str = "https://api.minimax.io/v1";
 
 /// Default request timeout.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
@@ -61,12 +66,33 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
 /// Anthropic API version header value.
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 
-/// Hardcoded model list for v1. Both models support prompt
-/// caching and tools.
+/// Fallback model list for v1. MiniMax exposes `GET /v1/models`;
+/// this list is used only when that endpoint is unavailable.
 const MODELS: &[(&str, &str, u32, u32)] = &[
     // (id, display name, context_window, max_output_tokens)
-    ("minimax-m2.7", "Minimax M2.7", 200_000, 8_192),
-    ("minimax-m2.5", "Minimax M2.5", 200_000, 8_192),
+    ("MiniMax-M3", "MiniMax M3", 1_000_000, 8_192),
+    ("MiniMax-M2.7", "MiniMax M2.7", 204_800, 8_192),
+    (
+        "MiniMax-M2.7-highspeed",
+        "MiniMax M2.7 Highspeed",
+        204_800,
+        8_192,
+    ),
+    ("MiniMax-M2.5", "MiniMax M2.5", 204_800, 8_192),
+    (
+        "MiniMax-M2.5-highspeed",
+        "MiniMax M2.5 Highspeed",
+        204_800,
+        8_192,
+    ),
+    ("MiniMax-M2.1", "MiniMax M2.1", 204_800, 8_192),
+    (
+        "MiniMax-M2.1-highspeed",
+        "MiniMax M2.1 Highspeed",
+        204_800,
+        8_192,
+    ),
+    ("MiniMax-M2", "MiniMax M2", 204_800, 8_192),
 ];
 
 /// Minimax provider. Anthropic-compatible.
@@ -139,28 +165,34 @@ impl Provider for MinimaxProvider {
     }
 
     async fn list_models(&self) -> AppResult<Vec<ModelInfo>> {
-        Ok(MODELS
-            .iter()
-            .map(|(id, name, ctx, out)| ModelInfo {
-                id: (*id).to_string(),
-                name: (*name).to_string(),
-                context_window: *ctx,
-                max_output_tokens: *out,
-                supports_tools: true,
-                supports_vision: false,
-            })
-            .collect())
+        match self.fetch_models().await {
+            Ok(models) if !models.is_empty() => Ok(models),
+            Ok(_) => Ok(static_models()),
+            Err(AppError::Provider {
+                retryable: false,
+                message,
+                ..
+            }) if message.contains("401") || message.contains("403") => Err(AppError::Provider {
+                provider_id: "minimax".into(),
+                message,
+                retryable: false,
+            }),
+            Err(e) => {
+                warn!(error = %e, "minimax: list_models failed; using static fallback");
+                Ok(static_models())
+            }
+        }
     }
 
     async fn chat(&self, req: ChatRequest) -> Result<ChatStream, AppError> {
         let body = build_request_body(&req);
-        let url = format!("{}/v1/messages", self.inner.base_url);
+        let url = messages_url(&self.inner.base_url);
 
         let resp = self
             .inner
             .client
             .post(&url)
-            .header("x-api-key", &self.inner.api_key)
+            .bearer_auth(&self.inner.api_key)
             .header("anthropic-version", ANTHROPIC_VERSION)
             .json(&body)
             .send()
@@ -194,17 +226,15 @@ impl Provider for MinimaxProvider {
     }
 
     async fn health(&self) -> AppResult<u64> {
-        // Anthropic-compat: there's no public /models endpoint.
-        // We send a tiny 1-token request and time it. If the
-        // provider is unreachable or the key is invalid, the
-        // error is surfaced.
-        let url = format!("{}/v1/messages", self.inner.base_url);
+        // A tiny 1-token request verifies that the Anthropic
+        // messages endpoint is reachable and the key is valid.
+        let url = messages_url(&self.inner.base_url);
         let start = Instant::now();
         let resp = self
             .inner
             .client
             .post(&url)
-            .header("x-api-key", &self.inner.api_key)
+            .bearer_auth(&self.inner.api_key)
             .header("anthropic-version", ANTHROPIC_VERSION)
             .header("content-type", "application/json")
             .body(
@@ -236,6 +266,128 @@ impl Provider for MinimaxProvider {
             retryable: false,
         })?;
         Ok(start.elapsed().as_millis() as u64)
+    }
+}
+
+impl MinimaxProvider {
+    async fn fetch_models(&self) -> AppResult<Vec<ModelInfo>> {
+        let url = models_url(&self.inner.base_url);
+        let resp = self
+            .inner
+            .client
+            .get(&url)
+            .bearer_auth(&self.inner.api_key)
+            .send()
+            .await
+            .map_err(|e| AppError::Provider {
+                provider_id: "minimax".into(),
+                message: format!("list_models: {e}"),
+                retryable: e.is_timeout() || e.is_connect() || e.is_request(),
+            })?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            return Err(AppError::Provider {
+                provider_id: "minimax".into(),
+                message: format!("list_models: http {}", status.as_u16()),
+                retryable: status.is_server_error(),
+            });
+        }
+
+        let payload = resp
+            .json::<ModelListResponse>()
+            .await
+            .map_err(|e| AppError::Provider {
+                provider_id: "minimax".into(),
+                message: format!("list_models decode: {e}"),
+                retryable: false,
+            })?;
+
+        Ok(payload
+            .data
+            .into_iter()
+            .map(|model| model_info_for_id(&model.id))
+            .collect())
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct ModelListResponse {
+    #[serde(default)]
+    data: Vec<ModelListItem>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ModelListItem {
+    id: String,
+}
+
+fn messages_url(base_url: &str) -> String {
+    let base = base_url.trim_end_matches('/');
+    if base == LEGACY_OPENAI_BASE_URL {
+        return format!("{DEFAULT_BASE_URL}/v1/messages");
+    }
+    if base.ends_with("/v1") {
+        format!("{base}/messages")
+    } else {
+        format!("{base}/v1/messages")
+    }
+}
+
+fn models_url(base_url: &str) -> String {
+    let base = base_url.trim_end_matches('/');
+    if base == DEFAULT_BASE_URL || base == "https://api.minimax.io/anthropic/v1" {
+        return format!("{LEGACY_OPENAI_BASE_URL}/models");
+    }
+    if base == LEGACY_OPENAI_BASE_URL {
+        return format!("{base}/models");
+    }
+    if let Some(prefix) = base.strip_suffix("/anthropic/v1") {
+        return format!("{prefix}/v1/models");
+    }
+    if let Some(prefix) = base.strip_suffix("/anthropic") {
+        return format!("{prefix}/v1/models");
+    }
+    if base.ends_with("/v1") {
+        format!("{base}/models")
+    } else {
+        format!("{base}/v1/models")
+    }
+}
+
+fn static_models() -> Vec<ModelInfo> {
+    MODELS
+        .iter()
+        .map(|(id, name, ctx, out)| ModelInfo {
+            id: (*id).to_string(),
+            name: (*name).to_string(),
+            context_window: *ctx,
+            max_output_tokens: *out,
+            supports_tools: true,
+            supports_vision: false,
+        })
+        .collect()
+}
+
+fn model_info_for_id(id: &str) -> ModelInfo {
+    if let Some((_, name, ctx, out)) = MODELS.iter().find(|(known, _, _, _)| *known == id) {
+        ModelInfo {
+            id: id.to_string(),
+            name: (*name).to_string(),
+            context_window: *ctx,
+            max_output_tokens: *out,
+            supports_tools: true,
+            supports_vision: false,
+        }
+    } else {
+        ModelInfo {
+            id: id.to_string(),
+            name: id.to_string(),
+            context_window: 4096,
+            max_output_tokens: 1024,
+            supports_tools: false,
+            supports_vision: false,
+        }
     }
 }
 
@@ -578,7 +730,7 @@ struct AnthropicErrorInner {
 mod tests {
     use super::*;
     use serde_json::json;
-    use wiremock::matchers::{method, path};
+    use wiremock::matchers::{header, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     fn chat_request(model: &str, msgs: Vec<ChatMessage>) -> ChatRequest {
@@ -600,19 +752,72 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn list_models_returns_hardcoded_set() {
-        let p = MinimaxProvider::new("fake").unwrap();
+    async fn list_models_discovers_models_from_api() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/models"))
+            .and(header("authorization", "Bearer fake-key"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "application/json")
+                    .set_body_json(json!({
+                        "data": [
+                            {"id": "MiniMax-M3", "object": "model"},
+                            {"id": "MiniMax-Custom-X", "object": "model"}
+                        ]
+                    })),
+            )
+            .mount(&server)
+            .await;
+
+        let p = MinimaxProvider::with_base_url(server.uri(), "fake-key").unwrap();
         let models = p.list_models().await.unwrap();
-        assert!(models.iter().any(|m| m.id == "minimax-m2.7"));
+        assert_eq!(models.first().map(|m| m.id.as_str()), Some("MiniMax-M3"));
+        assert!(models.iter().any(|m| m.id == "MiniMax-Custom-X"));
+        assert!(models
+            .iter()
+            .any(|m| m.id == "MiniMax-M3" && m.supports_tools));
+    }
+
+    #[tokio::test]
+    async fn list_models_falls_back_to_static_set_when_endpoint_is_unavailable() {
+        let server = MockServer::start().await;
+        let p = MinimaxProvider::with_base_url(server.uri(), "fake-key").unwrap();
+        let models = p.list_models().await.unwrap();
+        assert_eq!(models.first().map(|m| m.id.as_str()), Some("MiniMax-M3"));
+        assert!(models.iter().any(|m| m.id == "MiniMax-M2.7"));
         assert!(models.iter().all(|m| m.supports_tools));
+    }
+
+    #[tokio::test]
+    async fn list_models_does_not_fallback_on_auth_failure() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/models"))
+            .and(header("authorization", "Bearer bad-key"))
+            .respond_with(ResponseTemplate::new(401))
+            .mount(&server)
+            .await;
+
+        let p = MinimaxProvider::with_base_url(server.uri(), "bad-key").unwrap();
+        let err = p.list_models().await.unwrap_err();
+        match err {
+            AppError::Provider {
+                message, retryable, ..
+            } => {
+                assert!(!retryable);
+                assert!(message.contains("401"));
+            }
+            other => panic!("expected Provider error, got {other:?}"),
+        }
     }
 
     #[test]
     fn capabilities_known_model_has_tools() {
         let p = MinimaxProvider::new("fake").unwrap();
-        let caps = p.capabilities("minimax-m2.5");
+        let caps = p.capabilities("MiniMax-M3");
         assert!(caps.tools);
-        assert_eq!(caps.context_window, 200_000);
+        assert_eq!(caps.context_window, 1_000_000);
     }
 
     #[test]
@@ -622,11 +827,60 @@ mod tests {
         assert!(!caps.tools);
     }
 
+    #[test]
+    fn messages_url_uses_official_anthropic_default() {
+        assert_eq!(
+            messages_url(DEFAULT_BASE_URL),
+            "https://api.minimax.io/anthropic/v1/messages"
+        );
+    }
+
+    #[test]
+    fn messages_url_maps_legacy_openai_default_to_anthropic_endpoint() {
+        assert_eq!(
+            messages_url("https://api.minimax.io/v1"),
+            "https://api.minimax.io/anthropic/v1/messages"
+        );
+    }
+
+    #[test]
+    fn messages_url_preserves_custom_anthropic_v1_base() {
+        assert_eq!(
+            messages_url("https://example.test/anthropic/v1"),
+            "https://example.test/anthropic/v1/messages"
+        );
+    }
+
+    #[test]
+    fn models_url_uses_official_models_endpoint_for_default() {
+        assert_eq!(
+            models_url(DEFAULT_BASE_URL),
+            "https://api.minimax.io/v1/models"
+        );
+    }
+
+    #[test]
+    fn models_url_preserves_legacy_openai_default() {
+        assert_eq!(
+            models_url("https://api.minimax.io/v1"),
+            "https://api.minimax.io/v1/models"
+        );
+    }
+
+    #[test]
+    fn models_url_maps_custom_anthropic_base_to_provider_root() {
+        assert_eq!(
+            models_url("https://example.test/anthropic/v1"),
+            "https://example.test/v1/models"
+        );
+    }
+
     #[tokio::test]
     async fn health_against_wiremock_ok() {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/v1/messages"))
+            .and(header("authorization", "Bearer fake-key"))
             .respond_with(
                 ResponseTemplate::new(200)
                     .insert_header("content-type", "application/json")
@@ -635,7 +889,7 @@ mod tests {
                         "type": "message",
                         "role": "assistant",
                         "content": [{"type": "text", "text": "ok"}],
-                        "model": "minimax-m2.7",
+                        "model": "MiniMax-M2.7",
                         "stop_reason": "end_turn",
                         "usage": {"input_tokens": 1, "output_tokens": 1}
                     })),
@@ -653,6 +907,7 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/v1/messages"))
+            .and(header("authorization", "Bearer bad-key"))
             .respond_with(ResponseTemplate::new(401))
             .mount(&server)
             .await;
@@ -672,14 +927,14 @@ mod tests {
 
     #[test]
     fn parse_sse_event_message_start_emits_message_start() {
-        let sse = "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"model\":\"minimax-m2.7\"}}\n\n";
+        let sse = "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"model\":\"MiniMax-M2.7\"}}\n\n";
         let mut state = MinimaxParserState::default();
         let events = parse_sse_event(sse, &mut state);
         assert_eq!(events.len(), 1);
         match &events[0] {
             ChatEvent::MessageStart { message_id, model } => {
                 assert_eq!(message_id, "msg_1");
-                assert_eq!(model, "minimax-m2.7");
+                assert_eq!(model, "MiniMax-M2.7");
             }
             other => panic!("expected MessageStart, got {other:?}"),
         }
@@ -762,7 +1017,7 @@ mod tests {
     #[test]
     fn build_request_body_separates_system_message() {
         let req = chat_request(
-            "minimax-m2.7",
+            "MiniMax-M2.7",
             vec![
                 ChatMessage::System {
                     content: "be helpful".into(),

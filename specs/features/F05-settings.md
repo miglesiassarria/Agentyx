@@ -2,7 +2,7 @@
 
 **Status**: draft
 **Owner**: @miglesias
-**Last update**: 2026-06-08 (backend ACs AC2-AC13 cubiertos por tests; UI modelo sigue siendo text input, no dropdown)
+**Last update**: 2026-06-08 (backend ACs AC2-AC13 cubiertos por tests; Models UI usa selector por provider)
 **Affects**: [`providers`](../domains/providers.md), [`permissions`](../domains/permissions.md),
 [`config`](../domains/config.md), [`workspace`](../domains/workspace.md).
 **Depends on**: [`F02`](./F02-multi-workspace.md) (workspaces existen
@@ -480,6 +480,12 @@ PATCH  /api/v1/permissions/default (body: { tool, decision }) → {}
 - Tests UI actuales cubren helpers/seguridad de presencia de secrets y
   confirmación de update channel (`helpers.test.ts`); no se añade
   `@testing-library/svelte` en esta PR.
+- `ModelsTab` usa un selector para `default_model` y el override de
+  workspace. Las opciones se derivan del último `Test connection`,
+  `ProviderConfig.models` y el catálogo built-in de fallback; en
+  MiniMax, `Test connection` autodetecta modelos con `GET /v1/models`
+  antes de caer al catálogo local. El usuario ya no tiene que escribir
+  el nombre del modelo a mano.
 
 - `feat(f05-permission-matrix-and-config-event)` cierra F05.AC9 +
   F05.AC15. Cambios:
