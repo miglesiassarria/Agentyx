@@ -14,9 +14,7 @@
     <p class="loading">Loading files…</p>
   {:else if root === null}
     <p class="empty">No files to show.</p>
-  {:else if root.error !== null}
-    <p class="error" role="alert">Couldn't list directory: {root.error}</p>
-  {:else if root.children.length === 0}
+  {:else if root.children.length === 0 && root.error === null}
     <p class="empty">This workspace is empty. Drop some files in to get started.</p>
   {:else}
     <FileTreeNode node={root} depth={0} />
@@ -40,13 +38,6 @@
     margin: 0;
     padding: var(--space-3);
     text-align: center;
-  }
-
-  .error {
-    color: var(--color-danger);
-    font-size: var(--font-size-sm);
-    margin: 0;
-    padding: var(--space-3);
   }
 
   @media (max-width: 760px) {

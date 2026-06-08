@@ -83,10 +83,9 @@ pub struct EffectivePathsDto {
 /// Consumed by the UI `FileTree` component. The `path` is canonical
 /// and guaranteed to be within the workspace's effective paths
 /// (root ∪ extras). Symlinks are reported via `is_symlink` so the
-/// UI can render a different icon, but the `is_dir` flag reflects
-/// the symlink's *target*, not the link itself (per Unix
-/// `metadata()` semantics). Callers that need to refuse loops
-/// must canonicalize and re-check on traversal.
+/// UI can render a different icon. Directory listing intentionally
+/// avoids per-entry `metadata()` calls because a single slow/cloud
+/// filesystem entry can freeze the file tree.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileEntryDto {
@@ -94,14 +93,14 @@ pub struct FileEntryDto {
     pub name: String,
     /// Absolute canonical path of this entry.
     pub path: PathBuf,
-    /// Whether the entry is a directory (resolved through symlinks).
+    /// Whether the entry is a directory according to `DirEntry::file_type`.
     pub is_dir: bool,
     /// Whether the entry is itself a symbolic link.
     pub is_symlink: bool,
-    /// File size in bytes (0 for directories and on stat failure).
+    /// File size in bytes when cheaply available (0 in the v0.1 file tree).
     #[serde(default)]
     pub size: u64,
-    /// Last-modified time in epoch milliseconds (0 if unavailable).
+    /// Last-modified time in epoch milliseconds (0 in the v0.1 file tree).
     #[serde(default)]
     pub modified_at: i64,
 }
@@ -370,37 +369,19 @@ fn list_dir_sync(
             if name.is_empty() {
                 return None;
             }
+            let file_type = ent.file_type().ok();
             let path = ent.path();
-            let file_meta = ent.metadata().ok();
-            let is_symlink = file_meta.as_ref().is_some_and(|m| m.is_symlink());
-            let (is_dir, size, modified_at) = match file_meta {
-                Some(m) => {
-                    let resolved = if is_symlink {
-                        std::fs::metadata(&path).ok()
-                    } else {
-                        Some(m.clone())
-                    };
-                    match resolved {
-                        Some(rm) => (
-                            rm.is_dir(),
-                            if rm.is_dir() { 0 } else { rm.len() },
-                            rm.modified()
-                                .ok()
-                                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                                .map_or(0, |d| d.as_millis() as i64),
-                        ),
-                        None => (false, 0, 0),
-                    }
-                }
-                None => (false, 0, 0),
-            };
+            let is_dir = file_type.as_ref().is_some_and(std::fs::FileType::is_dir);
+            let is_symlink = file_type
+                .as_ref()
+                .is_some_and(std::fs::FileType::is_symlink);
             Some(FileEntryDto {
                 name,
                 path,
                 is_dir,
                 is_symlink,
-                size,
-                modified_at,
+                size: 0,
+                modified_at: 0,
             })
         })
         .collect();
@@ -1168,7 +1149,6 @@ mod tests {
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].name, "photo.png");
         assert!(!out[0].is_dir);
-        assert_eq!(out[0].size, 16);
     }
 
     #[tokio::test]
