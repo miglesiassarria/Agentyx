@@ -4,14 +4,17 @@
 > Para roadmap de features: [features/ROADMAP.md](./features/ROADMAP.md).
 > Para índice de ADRs: [adr/README.md](./adr/README.md).
 >
-> Última actualización: 2026-06-07 (orden de MVP tras auditoría local):
-> `cargo test --workspace` pasa (274 tests), `npm run typecheck`,
-> `npm test` y `npm run build` pasan. F06 tiene infraestructura web
-> usable (Axum + ServeDir + REST parcial + SSE + adapter HTTP), pero
-> sigue bloqueado para MVP web por gaps de UX/browser y endpoints HTTP
-> faltantes: path manual para abrir workspace/extra paths, config
-> workspace HTTP, `permissions.list/respond` HTTP. F04/F-agents-ui
-> tienen UI parcial, pero no cierran comportamiento completo.
+> Última actualización: 2026-06-08 (orden de MVP tras auditoría local +
+> smoke LAN parcial):
+> `cargo test --workspace` pasa (276 tests: 71 app + 205 core), vitest
+> pasa (44 tests), `npx tsc --noEmit` pasa. F06 tiene todos sus ACs
+> automatizables cerrados: browser path prompts, HTTP config workspace,
+> HTTP permission requests, chat→SSE, event bus SSE y SPA fallback. Queda
+> pendiente solo el smoke manual real en navegador/LAN de PathPromptDialog
+> UX, SSE en un tab real, permission prompt y settings. El acceso desde
+> otro dispositivo por la raíz LAN ya fue verificado tras corregir la
+> resolución de `ui/dist` y el caché del app shell. F04 y F-agents-ui
+> siguen parciales (no cierran comportamiento completo).
 >
 > **Disciplina de status**: este archivo se actualiza en el mismo PR
 > que cambia el estado real de cualquier pitch/spec o deja el board
@@ -63,7 +66,7 @@
 - **ADR-0008** (nuevo, PR 3): scope de providers v1 (Ollama / Groq / Minimax).
 
 ## ✅ Implemented / Partially Implemented (código en main)
-- **features/F06-web-server-lan.md** — `ready` → `implemented (partial)`. PRs:
+- **features/F06-web-server-lan.md** — `ready` → `implemented (partial: automated ACs complete, manual LAN smoke pending)`. PRs:
    Axum skeleton (#26): `server` module con `router/events_sse/auth/lifecycle`,
    `AuthLayer` + `BearerGuard`, `axum_extra` typed extractor.
    EventBus upgrade: `tokio::sync::broadcast` + `EventSink` trait,
@@ -76,10 +79,44 @@
    `BroadcastEventSink`, browser IPC adapter dual-mode.
    F06.AC10 (#TBD): SPA fallback ahora retorna 200 (no 404) en deep-links;
    integración test verifica app shell + API JSON.
-   Pendiente para `implemented (full)`: browser-safe manual path open/add
-   extra path, `GET/PATCH /config/workspaces/:id`, `GET
-   /permissions/requests`, `POST /permissions/requests/:id/respond`, y
-   smoke LAN completo.
+   F06.AC4/AC5 (PR `feat/f06-browser-workspace-paths`):
+   `PathPromptDialog.svelte` + `path-prompt.svelte.ts` +
+   `PathPromptHost.svelte` (montado en `app.svelte`); el workspace
+   store ahora enruta por `isBrowserMode()` y carga el plugin de
+   diálogo Tauri solo en desktop mode. Tests:
+   `f06_ac4_http_open_workspace_via_typed_path` y
+   `f06_ac5_http_add_extra_path_via_typed_path` (Rust HTTP) +
+   `ac5_browser_open_via_typed_path`,
+   `ac5_browser_add_extra_via_typed_path`,
+   `openViaDialog_returns_null_and_does_not_call_IPC_when_the_user_cancels`
+   en `workspace.svelte.test.ts`.
+   F06.AC7 + F06.AC9 workspace-config (PR
+   `feat/f06-http-config-permissions-gap`): handlers HTTP
+   `get_workspace_config`, `update_workspace_config`,
+   `list_permission_requests`, `respond_permission_request`;
+   `config_get_workspace_impl`/`config_update_workspace_impl`/
+   `list_impl`/`respond_impl` extraídos de los Tauri commands;
+   el adapter HTTP de `ui/src/lib/ipc.ts` ahora enruta
+   `config_get_workspace`, `config_update_workspace`,
+   `permissions.list` y `permissions.respond` por HTTP. Tests:
+   `f06_ac7_http_permission_request_list_and_respond` y
+   `f06_ac9_http_workspace_config_get_and_patch` (Rust HTTP).
+   F06.AC6 + F06.AC8 (PR `feat/f06-web-smoke`): tests
+   `f06_ac6_chat_send_publishes_events_to_sse` (inyecta un
+   `MockProvider` bajo `ollama` via el nuevo
+   `ProviderRegistry::register`, suscribe un cliente SSE, y
+   verifica que `chat.run.started.v1`,
+   `chat.content.delta.v1`, y `chat.run.finished.v1` llegan al
+   SSE con el contenido del mock) y
+   `f06_ac8_sse_delivers_published_event` (parity del bus).
+   `scripts/web-smoke.sh` automatiza la verificación curl-able
+   (health, workspaces, config GET/PATCH, permissions,
+   SPA fallback).
+   Pendiente para `implemented (full)`: smoke manual en
+   navegador real (PathPromptDialog UX, SSE en el tab, permission
+   prompt y settings) más allá de `scripts/web-smoke.sh`. El acceso
+   desde otro dispositivo por `/` queda verificado en el PR actual,
+   que además corrige `ui/dist` resolution + no-cache app shell.
 - **features/F02-multi-workspace.md** — `approved` → `implemented (full)`.
   PRs: UI (#12) 9/9 ACs UI + AC3, AC9 backend con `list_dir`; **AC7
   cerrado en PR `fix/f02-ac7-delete-workspace-with-active-runs`**
@@ -189,30 +226,33 @@ _(ninguno)_
 ## Orden de continuidad para agentes
 
 > Para MVP, trabajar de arriba abajo. No abrir F04 write tools ni
-> subagents reales hasta cerrar P0 web, salvo instrucción humana.
+> subagents reales hasta validar el smoke manual LAN y cerrar F05,
+> salvo instrucción humana.
 
 ### P0 — cerrar MVP web funcional
 
-1. **F06-browser-workspace-paths**: en browser mode, reemplazar los
-   diálogos OS por inputs de path absoluto para:
-   - abrir workspace (`workspace.open(rootPath)`);
-   - añadir extra path (`workspace.addExtraPath(workspaceId, path)`).
-   Mantener `@tauri-apps/plugin-dialog` solo en desktop mode.
-   Tests esperados: UI/store tests para browser path flow y smoke manual
-   `http://127.0.0.1:<port>` abre workspace.
-2. **F06-http-config-permissions-gap**: completar router + handlers +
-   `ui/src/lib/ipc.ts` browser adapter para:
-   - `GET /api/v1/config/workspaces/:id`;
-   - `PATCH /api/v1/config/workspaces/:id`;
-   - `GET /api/v1/permissions/requests`;
-   - `POST /api/v1/permissions/requests/:id/respond`.
-   Tests esperados: Rust HTTP tests y Vitest del adapter.
-3. **F06/F05 web smoke**: verificar en navegador LAN:
-   - listar/abrir workspace;
-   - configurar/testear Ollama local;
-   - mandar mensaje y recibir `chat.content.delta.v1` por SSE;
-   - recibir y responder un `permission.requested.v1`;
-   - refresh/deep-link conserva app shell.
+1. **F06-browser-workspace-paths**: ✅ cerrado en PR
+   `feat/f06-browser-workspace-paths`. `PathPromptDialog` +
+   `pathPromptStore` cubren `openViaDialog` y `addExtraPathViaDialog`
+   en browser mode; tests HTTP `f06_ac4_*` y `f06_ac5_*` + UI store
+   tests `ac5_browser_*` pasan.
+2. **F06-http-config-permissions-gap**: ✅ cerrado en PR
+   `feat/f06-http-config-permissions-gap`. Router + handlers +
+   `ui/src/lib/ipc.ts` browser adapter para
+   `GET /api/v1/config/workspaces/:id`,
+   `PATCH /api/v1/config/workspaces/:id`,
+   `GET /api/v1/permissions/requests`, y
+   `POST /api/v1/permissions/requests/:id/respond` están
+   cableados. Tests `f06_ac7_*` y `f06_ac9_*` pasan; el PATCH
+   valida el id contra `WorkspaceService` y rechaza con 404.
+3. **F06/F05 web smoke**: ✅ parcialmente automatizado; pendiente manual.
+   - `scripts/web-smoke.sh` arranca el binario en un AGENTYX_HOME
+     temporal y verifica con curl: health, workspaces (list +
+     open), config GET/PATCH, permission matrix, permission
+     requests, SPA fallback. Pendiente: smoke con un browser
+     real (PathPromptDialog UX, SSE en el tab, LAN desde otro
+     dispositivo). Tests Rust `f06_ac6_*` y `f06_ac8_*` ya
+     verifican la parte SSE end-to-end con `MockProvider`.
 
 ### P1 — cerrar MVP desktop/read-only
 
@@ -239,12 +279,13 @@ _(ninguno)_
 > Nota de contexto: las specs MVP activas (`F01`, `F02`, `F04`, `F05`,
 > `F-agents-ui`, `agents.md`, `domains/config.md`,
 > `domains/journal.md`) ya tienen `## Agent context` para lectura
-> rápida. F06 está parcialmente implementada; el siguiente trabajo es
-> cerrar P0 web funcional antes de retomar F04 o subagents reales.
+> rápida. F06 tiene cerrados sus ACs automatizables; el siguiente
+> trabajo es validar smoke manual LAN y cerrar F05 antes de retomar
+> F04 o subagents reales.
 
 ### Para el MVP (v0.1)
 
-1. Cerrar P0 web funcional (ver arriba).
+1. Validar smoke manual LAN de F06 (ver arriba).
 2. Cerrar F05 al menos para Ollama local + persistencia settings.
 3. Confirmar corte read-only del agente: `read_file`, `list_dir`,
    `search` son las tools MVP; escritura/diffs quedan v0.1.x salvo
@@ -258,13 +299,12 @@ _(ninguno)_
 
 ### Gaps conocidos
 
-- **F06 fue corregida a partial**: los gaps operativos siguen siendo
-  path manual en browser, HTTP `permissions.respond/list`, config
-  workspace y smoke LAN.
-- **ROADMAP acceptance estaba obsoleto**: algunos checks web siguen sin
-  marcar aunque parte de F06 ya existe; usar la sección "Orden de
-  continuidad" como fuente operativa hasta que cada PR sincronice su
-  spec afectada.
+- **F06 sigue en partial solo por verificación manual**: los gaps HTTP
+  (`permissions.respond/list` y config workspace) y browser path prompt
+  ya están cubiertos por tests. Falta smoke en navegador real/LAN.
+- **ROADMAP acceptance sincronizado**: los checks web automatizables ya
+  están marcados; los checks que implican navegador/LAN real quedan como
+  verificación manual pendiente.
 - **`agents.md` sigue en `draft`** aunque parte del modelo built-in ya
   existe en core; `@mention` real sigue pendiente.
 - **F04 depende de tools de escritura inexistentes**: el registry MVP

@@ -2,6 +2,7 @@
   import { onDestroy, onMount } from 'svelte';
 
   import EmptyState from './lib/components/EmptyState.svelte';
+  import PathPromptHost from './lib/components/PathPromptHost.svelte';
   import SettingsView from './lib/components/settings/SettingsView.svelte';
   import Sidebar from './lib/components/Sidebar.svelte';
   import WorkspaceView from './lib/components/WorkspaceView.svelte';
@@ -48,6 +49,8 @@
     {/if}
   </section>
 </div>
+
+<PathPromptHost />
 
 <style>
   .app-shell {

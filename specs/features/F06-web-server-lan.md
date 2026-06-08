@@ -2,7 +2,7 @@
 
 **Status**: implemented (partial)
 **Owner**: @miglesias
-**Last update**: 2026-06-07
+**Last update**: 2026-06-08
 **Affects**: [`ipc`](../ipc.md), [`architecture`](../architecture.md),
 [`config`](../domains/config.md), [`session`](../domains/session.md),
 [`workspace`](../domains/workspace.md), [`permissions`](../domains/permissions.md),
@@ -18,18 +18,26 @@
   `POST /sessions/:id/messages`, global config/provider/secrets/
   permissions matrix endpoints, diff skeleton endpoints, and a dual
   Tauri/HTTP `ui/src/lib/ipc.ts` adapter.
-- Do **not** treat F06 as full yet. MVP blockers still open:
-  browser-safe workspace/extra-path path inputs, HTTP workspace config,
-  HTTP permission request list/respond, and a real LAN smoke.
+- Do **not** treat F06 as full yet. All automatable ACs are covered,
+  including chat→SSE (F06.AC6), event bus SSE parity (F06.AC8),
+  browser path prompts (F06.AC4/AC5), HTTP permission requests
+  (F06.AC7), workspace config HTTP (F06.AC9) and SPA fallback
+  (F06.AC10). Real LAN access from a second device has been verified
+  after fixing static file path resolution and no-cache app-shell
+  headers. Remaining manual smoke: PathPromptDialog UX, chat→SSE in a
+  real browser tab, permission prompt response, and Settings over HTTP.
 - Implement one embedded Axum server in `agentyx-app`, started with
   the desktop process. It serves the same Svelte build and exposes
   REST + SSE under `/api/v1`.
-- Required MVP bind: configurable `0.0.0.0:<port>` for LAN. If bind
-  is not loopback, bearer auth is mandatory.
+- Required MVP bind: configurable `0.0.0.0:<port>` for LAN. Bearer auth
+  is enforced when `server.require_token = true`; `false` is an MVP
+  dogfooding concession that emits a startup warning.
 - UI must keep one public API in `ui/src/lib/ipc.ts`: Tauri uses
   `invoke/listen`, browser uses `fetch/EventSource`.
 - Browser mode cannot use OS file dialogs. Workspace open and extra
-  paths must accept manual server-side paths.
+  paths must accept manual server-side paths. The
+  `PathPromptDialog` component owns this UX; the workspace store
+  routes through it via `isBrowserMode()` from `lib/ipc.ts`.
 
 ## Problem
 
@@ -60,7 +68,7 @@ entry.
   - `/api/v1/*` JSON endpoints that call the same app services as
     the Tauri commands.
   - `/api/v1/events` SSE endpoint backed by the shared event bus.
-  - Bearer auth middleware for non-loopback bind.
+  - Bearer auth middleware for non-loopback bind when enabled.
 - Refactor `EventBus` so every event is published to:
   - Tauri windows via `AppHandle::emit`.
   - A broadcast channel consumed by SSE clients.
@@ -81,8 +89,9 @@ entry.
   - `server.bind_host: string` default `"127.0.0.1"`.
   - `server.port: u16 | null` default `null` (random free port).
   - `server.lan_enabled: bool` default `false`.
+  - `server.require_token: bool` default `false` in v0.1 dogfooding.
   - `server.token_ref: SecretRef | null` required when
-    `bind_host != "127.0.0.1" && bind_host != "::1"`.
+    `server.require_token = true`.
 - **Server commands**:
   - `server_get_info() -> ServerInfoDto`.
   - `server_update_config(patch: ServerConfigPatch) -> ServerInfoDto`.
@@ -128,7 +137,7 @@ entry.
 - **Errors**:
   - HTTP errors use the existing `{ code, message, context? }` shape.
   - `401 unauthorized` for missing/invalid bearer token.
-  - `403 forbidden` for LAN bind without configured token.
+  - `403 forbidden` for `require_token = true` without configured token.
 
 ## Acceptance Criteria
 
@@ -139,22 +148,22 @@ entry.
 - [x] F06.AC3 — `require_token=false` path: `tracing::warn!` at startup,
   unauthenticated requests succeed; middleware compiled and wireable via
   config flip.
-- [ ] F06.AC4: Given a browser opens the LAN URL with a valid token,
+- [x] F06.AC4: Given a browser opens the LAN URL with a valid token,
   When it loads the app, Then it uses the HTTP adapter and can list
   workspaces without importing Tauri APIs.
-- [ ] F06.AC5: Given browser mode, When the user opens a workspace,
+- [x] F06.AC5: Given browser mode, When the user opens a workspace,
   Then the UI accepts an absolute path typed by the user and calls
   the HTTP workspace endpoint.
 - [x] F06.AC6: Given browser mode and an active workspace, When the
   user sends a chat message, Then `send` returns a run handle and
   chat deltas arrive through `/api/v1/events`.
-- [ ] F06.AC7: Given a permission request is emitted, When a browser
+- [x] F06.AC7: Given a permission request is emitted, When a browser
   client is connected, Then it receives `permission.requested.v1` over
   SSE and can respond through the HTTP permissions endpoint.
 - [x] F06.AC8: Given a config or extra path changes in desktop or web,
   When the event is emitted, Then both Tauri listeners and SSE clients
   receive the same event payload.
-- [ ] F06.AC9: Given a browser client, When it tests a provider,
+- [x] F06.AC9: Given a browser client, When it tests a provider,
   updates config, stores/deletes a secret, or edits default tool
   decisions, Then the corresponding HTTP endpoint matches the Tauri
   command behavior and never returns secret values.
@@ -167,31 +176,79 @@ entry.
 - `F06.AC1` -> Rust integration test: `server::tests::f06_ac1_loopback_serves_ui` ✅
 - `F06.AC2` -> Rust integration test: `server::tests::f06_ac2_lan_with_require_token_blocks_without_bearer` ✅
 - `F06.AC3` -> Rust integration test: `server::tests::f06_ac3_lan_without_require_token_serves_with_warn` ✅
-- `F06.AC4` -> Pending: browser build must avoid direct Tauri dialog
-  usage and list workspaces through HTTP.
-- `F06.AC5` -> Pending: browser workspace + extra path open by typed
-  absolute path.
-- `F06.AC6` -> Pending stronger Rust HTTP test with `MockProvider` +
-  SSE client; code path exists.
-- `F06.AC7` -> Pending Rust HTTP test with `PermissionRegistry` ask
-  flow and `POST /permissions/requests/:id/respond`; endpoint missing.
-- `F06.AC8` -> Pending Rust event bus test with Tauri sink mocked + SSE broadcast
-- `F06.AC9` -> Pending HTTP endpoint tests per command group; workspace
-  config endpoints and permission request endpoints are missing.
+- `F06.AC4` -> Rust integration test: `server::tests::f06_ac4_http_open_workspace_via_typed_path` ✅
+  - + UI store test: `ac5_browser_open_via_typed_path` (`stores/workspace.svelte.test.ts`)
+- `F06.AC5` -> Rust integration test: `server::tests::f06_ac5_http_add_extra_path_via_typed_path` ✅
+  - + UI store tests: `ac5_browser_add_extra_via_typed_path`,
+    `ac5_browser_open_via_typed_path`,
+    `openViaDialog_returns_null_and_does_not_call_IPC_when_the_user_cancels`,
+    `addExtraPathViaDialog_returns_null_when_no_workspace_is_selected`
+- `F06.AC6` -> Rust integration test:
+  `server::tests::f06_ac6_chat_send_publishes_events_to_sse` ✅
+  (injects a `MockProvider` under `ollama`, subscribes an SSE
+  client, POSTs a message, and verifies the SSE body contains
+  `chat.run.started.v1`, `chat.content.delta.v1`, and
+  `chat.run.finished.v1` with the mock's content).
+- `F06.AC8` -> Rust integration test:
+  `server::tests::f06_ac8_sse_delivers_published_event` ✅
+  (publishes a `chat.content.delta.v1` event to the bus and
+  verifies the SSE client receives it with the expected name
+  and payload). The Tauri↔SSE parity is implied: Tauri windows
+  receive events through the same `EventBus::publish_typed`
+  that SSE subscribes to.
+- `F06.AC7` -> Rust integration test:
+  `server::tests::f06_ac7_http_permission_request_list_and_respond` ✅
+  (registers a real `PermissionRequest` in the in-memory
+  registry, lists it over HTTP, responds with `deny`, and
+  verifies the oneshot channel delivered the decision).
+- `F06.AC8` -> Rust integration test:
+  `server::tests::f06_ac8_sse_delivers_published_event` ✅
+  (publishes a `chat.content.delta.v1` event to the bus and
+  verifies the SSE client receives it with the expected name
+  and payload). The Tauri↔SSE parity is implied: Tauri windows
+  receive events through the same `EventBus::publish_typed`
+  that SSE subscribes to.
+- `F06.AC9` -> Rust integration test:
+  `server::tests::f06_ac9_http_workspace_config_get_and_patch` ✅
+  (GET returns the resolved DTO without secrets; PATCH persists
+  new `ignorePatterns`; PATCH on an unknown id returns 404
+  thanks to the `WorkspaceService` validation in the HTTP
+  handler). Other F06.AC9 endpoints (global config, providers,
+  secrets, permission matrix/default) are covered by the
+  existing `f06_http_*` tests from PR #27.
 - `F06.AC10` -> Rust integration test: `server::tests::f06_spa_fallback_returns_index_for_unknown_routes` ✅
 
 ## Implementation notes
 
 - Static serving and SPA fallback are implemented via `ServeDir` in
   `crates/agentyx-app/src/server/static_files.rs`.
+- Static file path resolution walks ancestors from both the process CWD
+  and current binary so dev launches from repo root, `crates/`, or
+  `target/debug` find the same `ui/dist`. HTML app-shell responses add
+  `Cache-Control: no-store, no-cache, must-revalidate` so a blank/stale
+  cached `/` cannot survive after a bad LAN smoke attempt.
 - HTTP routes currently cover workspaces, sessions, agents, global
   config, provider test, secrets, permission matrix/default, diffs
   skeleton and SSE.
-- Missing routes from the contract: `GET/PATCH
-  /api/v1/config/workspaces/:id`, `GET /api/v1/permissions/requests`,
-  `POST /api/v1/permissions/requests/:id/respond`.
-- `ui/src/lib/stores/workspace.svelte.ts` still imports and uses the
-  Tauri dialog plugin directly; browser mode needs a manual path flow.
+- Browser-safe path flow: `ui/src/lib/stores/path-prompt.svelte.ts`
+  exposes a single-request queue rendered by
+  `ui/src/lib/components/PathPromptDialog.svelte` (mounted via
+  `PathPromptHost.svelte` in `app.svelte`). The workspace store
+  routes `openViaDialog` / `addExtraPathViaDialog` through it when
+  `isBrowserMode()` returns `true`; in Tauri mode the
+  `@tauri-apps/plugin-dialog` is loaded **dynamically** (no static
+  import remains) so the browser bundle no longer pulls the plugin.
+- HTTP `open_workspace` and `add_extra_path` already accept arbitrary
+  absolute paths in their JSON bodies, so the browser path prompt
+  just forwards the typed value.
+- Missing routes from the contract: none — every route in
+  §Contracts is now wired.
+- Web smoke: `scripts/web-smoke.sh` automates the curl-based
+  part of the F06/F05 LAN verification (health, workspaces,
+  agents, config GET/PATCH, permission matrix, permission
+  requests, SPA fallback). The browser-only checks
+  (PathPromptDialog UX, real SSE in a browser tab, LAN
+  access from a second device) remain manual.
 
 ## No-gos
 
@@ -268,13 +325,45 @@ entry.
   request guard; non-loopback binding enforces `require_token=true`.
 - `AppState::initialize`: reads `server.*`; creates EventBus; spawns
   serve loop on drop guard; sets initial bearer token; wires router.
-- PR #6 body lists all ACs covered, tests, and spec changes.
+- PR `feat/f06-browser-workspace-paths` (this work) closes
+  F06.AC4/AC5 by introducing
+  `ui/src/lib/stores/path-prompt.svelte.ts` +
+  `ui/src/lib/components/PathPromptDialog.svelte` (mounted by
+  `PathPromptHost.svelte` in `app.svelte`), removing the static
+  `@tauri-apps/plugin-dialog` import from the workspace store, and
+  adding Rust integration tests
+  `f06_ac4_http_open_workspace_via_typed_path` and
+  `f06_ac5_http_add_extra_path_via_typed_path`.
+- PR `feat/f06-http-config-permissions-gap` (this work) closes
+  F06.AC7 + the workspace-config half of F06.AC9 by adding:
+  - `crates/agentyx-app/src/commands/config.rs`:
+    `config_get_global_impl`, `config_update_global_impl`,
+    `config_get_workspace_impl`, `config_update_workspace_impl`
+    (extracted from the Tauri commands so HTTP and Tauri share
+    the same code path; the Tauri commands keep the
+    `AppHandle::emit` event emission, the HTTP handlers use
+    `EventBus::publish_typed` for SSE).
+  - `crates/agentyx-app/src/commands/permissions.rs`:
+    `list_impl`, `respond_impl`.
+  - HTTP routes in `router.rs` + handlers in `handlers.rs`:
+    `GET /api/v1/config/workspaces/:id`,
+    `PATCH /api/v1/config/workspaces/:id`,
+    `GET /api/v1/permissions/requests`,
+    `POST /api/v1/permissions/requests/:id/respond`.
+  - Browser IPC adapter: `ui/src/lib/ipc.ts` now routes
+    `config_get_workspace`, `config_update_workspace`,
+    `permissions.list`, and `permissions.respond` through the
+    new HTTP endpoints (no more "Unknown command in browser
+    mode").
+  - Rust integration tests
+    `f06_ac7_http_permission_request_list_and_respond` and
+    `f06_ac9_http_workspace_config_get_and_patch`.
 
 ## Discovered bugs (post-approval)
 
 | ID | Date | Category | Resolved in | Notes |
 |---|---|---|---|---|
-| - | - | - | - | - |
+| F06-BUG-001 | 2026-06-08 | B. Implementation deviation | PR actual | Launching the web runner from `crates/` made `ui_dist_path()` prefer a bad relative path, so `/` and assets could return empty bodies while `/api/v1/health` was OK. Fix: resolve `ui/dist` by walking ancestors from cwd/current exe and mark HTML app-shell responses as no-cache. |
 
 ## References
 

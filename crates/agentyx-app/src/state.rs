@@ -441,6 +441,15 @@ impl ProviderRegistry {
     pub fn to_hashmap(&self) -> HashMap<String, Arc<dyn Provider>> {
         self.providers.read().clone()
     }
+
+    /// Register or replace a provider by id. Used by tests to
+    /// inject a `MockProvider` (see
+    /// `crates/agentyx-core/src/llm/mock.rs`) so chat/SSE
+    /// integration tests don't need a live LLM. Idempotent.
+    #[allow(dead_code)]
+    pub fn register(&self, id: &str, provider: Arc<dyn Provider>) {
+        self.providers.write().insert(id.to_string(), provider);
+    }
 }
 
 /// Returns the path to the user's Agentyx home directory

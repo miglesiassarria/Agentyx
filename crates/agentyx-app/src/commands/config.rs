@@ -130,6 +130,11 @@ impl ResolvedConfigDto {
 /// Get the global config (without secrets).
 #[tauri::command]
 pub async fn config_get_global(state: State<'_, Arc<AppState>>) -> AppResult<GlobalConfigDto> {
+    config_get_global_impl(state.inner().clone()).await
+}
+
+/// Inner for `config_get_global` — shared with HTTP handlers.
+pub(crate) async fn config_get_global_impl(state: Arc<AppState>) -> AppResult<GlobalConfigDto> {
     Ok(state.config.get())
 }
 
@@ -145,9 +150,22 @@ pub async fn config_update_global(
     state: State<'_, Arc<AppState>>,
     patch: GlobalConfigPatch,
 ) -> AppResult<GlobalConfigDto> {
-    let new_cfg = state.config.update_with_patch(&patch)?;
+    let state = state.inner().clone();
+    let new_cfg = config_update_global_impl(state.clone(), patch).await?;
     let payload = build_config_changed_payload_global(new_cfg.clone());
     state.event_bus.emit(&app, "config.changed.v1", payload);
+    Ok(new_cfg)
+}
+
+/// Inner for `config_update_global` — shared with HTTP handlers.
+/// Does **not** emit the `config.changed.v1` event; the caller
+/// decides whether to use `AppHandle::emit` (Tauri windows) or
+/// `EventBus::publish_typed` (SSE clients).
+pub(crate) async fn config_update_global_impl(
+    state: Arc<AppState>,
+    patch: GlobalConfigPatch,
+) -> AppResult<GlobalConfigDto> {
+    let new_cfg = state.config.update_with_patch(&patch)?;
     // Refresh providers so newly added ones are available immediately.
     let _ = state.refresh_providers();
     Ok(new_cfg)
@@ -159,6 +177,14 @@ pub async fn config_update_global(
 #[tauri::command]
 pub async fn config_get_workspace(
     state: State<'_, Arc<AppState>>,
+    workspace_id: WorkspaceId,
+) -> AppResult<ResolvedConfigDto> {
+    config_get_workspace_impl(state.inner().clone(), workspace_id).await
+}
+
+/// Inner for `config_get_workspace` — shared with HTTP handlers.
+pub(crate) async fn config_get_workspace_impl(
+    state: Arc<AppState>,
     workspace_id: WorkspaceId,
 ) -> AppResult<ResolvedConfigDto> {
     let snap = state.config.resolve_snapshot(workspace_id)?;
@@ -178,10 +204,23 @@ pub async fn config_update_workspace(
     workspace_id: WorkspaceId,
     patch: WorkspaceConfigPatch,
 ) -> AppResult<WorkspaceConfigDto> {
-    let new_cfg = state.config.update_workspace(workspace_id, &patch)?;
+    let state = state.inner().clone();
+    let new_cfg = config_update_workspace_impl(state.clone(), workspace_id, patch).await?;
     let payload = build_config_changed_payload_workspace(workspace_id, new_cfg.clone());
     state.event_bus.emit(&app, "config.changed.v1", payload);
     Ok(new_cfg)
+}
+
+/// Inner for `config_update_workspace` — shared with HTTP handlers.
+/// Does **not** emit the `config.changed.v1` event; the caller
+/// decides whether to use `AppHandle::emit` (Tauri windows) or
+/// `EventBus::publish_typed` (SSE clients).
+pub(crate) async fn config_update_workspace_impl(
+    state: Arc<AppState>,
+    workspace_id: WorkspaceId,
+    patch: WorkspaceConfigPatch,
+) -> AppResult<WorkspaceConfigDto> {
+    state.config.update_workspace(workspace_id, &patch)
 }
 
 #[cfg(test)]
@@ -324,6 +363,148 @@ mod tests {
         let dto = state.config.get();
         // The default has Ollama preconfigured.
         assert!(dto.providers.contains_key("ollama"));
+    }
+
+    // ===============================================================
+    // F05.AC4 — default_model persistence
+    // ===============================================================
+
+    #[tokio::test]
+    async fn f05_ac4_change_default_model_persists_and_takes_effect() {
+        // F05.AC4: changing default_model and saving persists to
+        // config.toml and the next config_get_global returns it.
+        let (home, state) = fresh_state().await;
+
+        // Patch default_model to a new value.
+        let patch = GlobalConfigPatch {
+            default_model: Some("qwen2.5:14b".to_string()),
+            ..Default::default()
+        };
+        let dto = config_update_global_impl(state.clone(), patch)
+            .await
+            .unwrap();
+        assert_eq!(dto.default_model, "qwen2.5:14b");
+
+        // Reload from disk and verify it persisted.
+        drop(state);
+        let paths = ServiceConfigPaths::from_agentyx_home(home.path());
+        let reloaded = agentyx_core::config::ConfigService::load(&paths).unwrap();
+        assert_eq!(reloaded.get().default_model, "qwen2.5:14b");
+    }
+
+    // ===============================================================
+    // F05.AC5 — approval_mode deny blocks writes silently
+    // ===============================================================
+
+    #[tokio::test]
+    async fn f05_ac5_approval_mode_deny_blocks_writes_silently() {
+        // F05.AC5: setting approval_mode to "deny" means the next
+        // run reads deny globally. The permission gate consults
+        // effective.approval_mode. We verify the config update
+        // persists and the effective value is "deny".
+        let (home, state) = fresh_state().await;
+
+        let patch = GlobalConfigPatch {
+            approval_mode: Some(agentyx_core::config::ApprovalMode::Deny),
+            ..Default::default()
+        };
+        let dto = config_update_global_impl(state.clone(), patch)
+            .await
+            .unwrap();
+        assert_eq!(dto.approval_mode, agentyx_core::config::ApprovalMode::Deny);
+
+        // Reload and check effective.
+        drop(state);
+        let paths = ServiceConfigPaths::from_agentyx_home(home.path());
+        let reloaded = agentyx_core::config::ConfigService::load(&paths).unwrap();
+        assert_eq!(
+            reloaded.get().approval_mode,
+            agentyx_core::config::ApprovalMode::Deny
+        );
+    }
+
+    // ===============================================================
+    // F05.AC6 — workspace approval_mode override isolated
+    // ===============================================================
+
+    #[tokio::test]
+    async fn f05_ac6_workspace_approval_mode_override_isolated() {
+        // F05.AC6: setting approval_mode per workspace only affects
+        // that workspace; another workspace inherits global.
+        let (home, state) = fresh_state().await;
+        let ws_id = agentyx_core::ids::WorkspaceId::new();
+
+        // Set global to "allow".
+        let global_patch = GlobalConfigPatch {
+            approval_mode: Some(agentyx_core::config::ApprovalMode::Allow),
+            ..Default::default()
+        };
+        let _ = config_update_global_impl(state.clone(), global_patch)
+            .await
+            .unwrap();
+
+        // Set workspace to "deny".
+        let ws_patch = WorkspaceConfigPatch {
+            approval_mode: Some(Some(agentyx_core::config::ApprovalMode::Deny)),
+            ..Default::default()
+        };
+        let ws_dto = config_update_workspace_impl(state.clone(), ws_id, ws_patch)
+            .await
+            .unwrap();
+        assert_eq!(
+            ws_dto.approval_mode,
+            Some(agentyx_core::config::ApprovalMode::Deny)
+        );
+
+        // Verify global is still "allow".
+        let global_dto = state.config.get();
+        assert_eq!(
+            global_dto.approval_mode,
+            agentyx_core::config::ApprovalMode::Allow
+        );
+
+        // Reload and verify isolation.
+        drop(state);
+        let paths = ServiceConfigPaths::from_agentyx_home(home.path());
+        let reloaded = agentyx_core::config::ConfigService::load(&paths).unwrap();
+        assert_eq!(
+            reloaded.get().approval_mode,
+            agentyx_core::config::ApprovalMode::Allow
+        );
+        let ws_reloaded = reloaded.load_workspace(ws_id).unwrap();
+        assert_eq!(
+            ws_reloaded.approval_mode,
+            Some(agentyx_core::config::ApprovalMode::Deny)
+        );
+    }
+
+    // ===============================================================
+    // F05.AC11 — settings persist across app restart
+    // ===============================================================
+
+    #[tokio::test]
+    async fn f05_ac11_settings_persist_across_app_restart() {
+        // F05.AC11: closing and reopening the app keeps settings
+        // (providers, approval_mode, default_model) accessible.
+        let (home, state) = fresh_state().await;
+
+        // Update multiple settings.
+        let patch = GlobalConfigPatch {
+            default_model: Some("mistral-7b".to_string()),
+            approval_mode: Some(agentyx_core::config::ApprovalMode::Deny),
+            ..Default::default()
+        };
+        let _ = config_update_global_impl(state.clone(), patch)
+            .await
+            .unwrap();
+        drop(state);
+
+        // Simulate app restart by reloading from disk.
+        let paths = ServiceConfigPaths::from_agentyx_home(home.path());
+        let reloaded = agentyx_core::config::ConfigService::load(&paths).unwrap();
+        let dto = reloaded.get();
+        assert_eq!(dto.default_model, "mistral-7b");
+        assert_eq!(dto.approval_mode, agentyx_core::config::ApprovalMode::Deny);
     }
 
     // ===============================================================

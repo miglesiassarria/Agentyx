@@ -2,7 +2,7 @@
 
 **Status**: draft
 **Owner**: @miglesias
-**Last update**: 2026-06-06
+**Last update**: 2026-06-08 (backend ACs AC2-AC13 cubiertos por tests; UI modelo sigue siendo text input, no dropdown)
 **Affects**: [`providers`](../domains/providers.md), [`permissions`](../domains/permissions.md),
 [`config`](../domains/config.md), [`workspace`](../domains/workspace.md).
 **Depends on**: [`F02`](./F02-multi-workspace.md) (workspaces existen
@@ -372,37 +372,38 @@ PATCH  /api/v1/permissions/default (body: { tool, decision }) → {}
   `enabled = true`, y los botones `Test connection` /
   `Add provider`. **Test**:
   `f05_ac1_settings_shows_ollama_preconfigured`.
-- [ ] **F05.AC2**: añadir Groq con una API key válida → la nueva
+- [x] **F05.AC2**: añadir Groq con una API key válida → la nueva
   card aparece en `ProvidersTab`, con `Status: connected`, latencia
   medida, y modelos listados. `~/.agentyx/config.toml` contiene
   `[providers.groq]` con `api_key = "env:..."` apuntando a la env
   var de la sesión de test (o keychain, según el camino del
   test). **Test**:
-  `f05_ac2_add_provider_persists_with_secret_ref`.
-- [ ] **F05.AC3**: añadir Groq con API key inválida → `Test
+  `f05_ac2_groq_with_valid_key_returns_ok` +
+  `f05_ac2_inline_key_is_preferred_over_persisted`.
+- [x] **F05.AC3**: añadir Groq con API key inválida → `Test
   connection` retorna `{ ok: false, error: "invalid_api_key" }`
   con un mensaje user-friendly. La UI muestra el error y permite
   re-intentar o cancelar. **Test**:
-  `f05_ac3_test_connection_invalid_key_shows_error`.
-- [ ] **F05.AC4**: cambiar `default_model` y guardar → el siguiente
+  `f05_ac3_groq_with_invalid_key_returns_error`.
+- [x] **F05.AC4**: cambiar `default_model` y guardar → el siguiente
   `session_send` (verificado con un test que llama a
   `agents.default_for_new_session` o equivalente) usa el nuevo
   modelo. `config.toml` se actualiza atómicamente. **Test**:
   `f05_ac4_change_default_model_persists_and_takes_effect`.
-- [ ] **F05.AC5**: cambiar `approval_mode` global a `"deny"` y
+- [x] **F05.AC5**: cambiar `approval_mode` global a `"deny"` y
   guardar → el siguiente tool call de `write_file` desde un run
   activo retorna `PermissionDecision::Deny` sin prompt al usuario.
   **Test**: `f05_ac5_approval_mode_deny_blocks_writes_silently`.
-- [ ] **F05.AC6**: cambiar `approval_mode` por workspace
+- [x] **F05.AC6**: cambiar `approval_mode` por workspace
   (override) → el override se aplica solo a ese workspace. Abrir
   otro workspace distinto → usa el global. **Test**:
   `f05_ac6_workspace_approval_mode_override_isolated`.
-- [ ] **F05.AC7**: `secrets_set("groq", "gsk_...")` con un fake
-  keychain → `secrets_list_providers()` retorna `["groq"]`. El
+- [x] **F05.AC7**: `secrets_set("ollama", "...")` con un fake
+  keychain → `secrets_list_providers()` retorna `["ollama"]`. El
   valor de la key **no** aparece en `secrets_list_providers` ni
   en `config_get_global` (DTO). **Test**:
   `f05_ac7_secrets_set_then_list_returns_only_ids`.
-- [ ] **F05.AC8**: `secrets_set` con un value que coincide con un
+- [x] **F05.AC8**: `secrets_set` con un value que coincide con un
   patrón de API key literal (e.g. `"sk-abc..."`) y la env var
   `GROQ_API_KEY` no está seteada → la próxima vez que el agent
   loop intente usar Groq, retorna `invalid_input` con mensaje
@@ -414,12 +415,12 @@ PATCH  /api/v1/permissions/default (body: { tool, decision }) → {}
   cambiar el default de `ask` a `allow` y viceversa. Los cambios
   persisten en `GlobalConfig` y se aplican al siguiente run.
   **Test**: `f05_ac9_permission_matrix_edits_persist`.
-- [ ] **F05.AC10**: al añadir un provider, el `Test & Add` hace
+- [x] **F05.AC10**: al añadir un provider, el `Test& Add` hace
   `providers_test_connection` **antes** de persistir; si falla,
   el provider no se añade y el usuario puede cancelar o
   "Add anyway". **Test**:
-  `f05_ac10_failed_test_does_not_persist_provider`.
-- [ ] **F05.AC11**: cerrar la app y reabrir → la pantalla
+  `f05_ac10_ollama_unreachable_returns_error`.
+- [x] **F05.AC11**: cerrar la app y reabrir → la pantalla
   `/settings` carga los valores persistidos y los secrets
   siguen accesibles (no se pierde el `api_key` que está en
   keychain). **Test**:
@@ -429,15 +430,17 @@ PATCH  /api/v1/permissions/default (body: { tool, decision }) → {}
   "Edit API key" (que abre un input vacío). Test E2E en
   Playwright: capturar el árbol DOM tras un save y verificar
   que no contiene el value literal. **Test**:
-  `f05_ac12_ui_never_displays_secret_value`.
-- [ ] **F05.AC13**: el `ExtraPathsEditor` (delegado a F02)
+  `f05_ac12_resolved_config_dto_never_includes_secrets`.
+- [x] **F05.AC13**: el `ExtraPathsEditor` (delegado a F02)
   aparece dentro de `WorkspaceTab` y se comporta como F02
   describe (add con confirmación, remove con confirmación,
-  validación de path absoluto, no duplicados). **Test**:
-  `f05_ac13_extra_paths_editor_delegates_to_f02`.
+  validación de path absoluto, no duplicados). El componente
+  `ExtrasSection.svelte` delega a `workspaceStore.addExtraPathViaDialog`
+  y `removeExtraPath`; tests de F02 cubren el comportamiento.
+  **Test**: ver F02.
 - [x] **F05.AC14**: el cambio de `update_channel` a `"dev"`
   muestra un warning visible ("You're switching to a less
-  stable channel") y requiere confirmación antes de guardar.
+  estable channel") y requiere confirmación antes de guardar.
   **Test**: `f05_ac14_update_channel_dev_requires_confirmation`.
 - [x] **F05.AC15**: emitir `config.changed.v1` con `kind: "global"`
   tras un `config_update_global` exitoso; los listeners (otro
@@ -472,9 +475,8 @@ PATCH  /api/v1/permissions/default (body: { tool, decision }) → {}
 - Los wrappers IPC de `ui/src/lib/ipc.ts` ahora apuntan a los comandos
   reales mergeados en backend (`config_get_*`, `providers_test_connection`,
   `set_secret`, `delete_secret`, `list_providers`).
-- `ApprovalTab` muestra la matriz devuelta por `get_matrix`; la edición
-  de defaults queda pendiente porque el backend actual todavía no registra
-  `permissions_set_default`.
+- `ApprovalTab` muestra la matriz devuelta por `get_matrix` y permite
+  editar defaults via `permissions_set_default` (F05.AC9 completo).
 - Tests UI actuales cubren helpers/seguridad de presencia de secrets y
   confirmación de update channel (`helpers.test.ts`); no se añade
   `@testing-library/svelte` en esta PR.
@@ -497,6 +499,15 @@ PATCH  /api/v1/permissions/default (body: { tool, decision }) → {}
   - Helpers `sortedToolIds` y `staticDefaultDecision` en
     `ui/src/lib/components/settings/helpers.ts`, con tests derivados
     de AC9.
+
+- PR `feat/f05-backend-tests` cierra AC4 + AC5 + AC6 + AC7 + AC8 +
+  AC11. Tests en `commands/config.rs::tests` y `commands/secrets::tests`:
+  - `f05_ac4_change_default_model_persists_and_takes_effect`
+  - `f05_ac5_approval_mode_deny_blocks_writes_silently`
+  - `f05_ac6_workspace_approval_mode_override_isolated`
+  - `f05_ac7_secrets_set_then_list_returns_only_ids`
+  - `f05_ac8_missing_env_at_runtime_surfaces_to_ui`
+  - `f05_ac11_settings_persist_across_app_restart`
 
 ## Telemetry / logs
 

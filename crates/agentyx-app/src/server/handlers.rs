@@ -480,13 +480,58 @@ pub async fn update_config_global(
     if let Some(providers_val) = req.providers {
         patch.providers = serde_json::from_value(providers_val).ok();
     }
-    match app.config.update_with_patch(&patch) {
+    match crate::commands::config::config_update_global_impl(app.clone(), patch).await {
         Ok(new_cfg) => {
             let payload =
                 crate::commands::config::build_config_changed_payload_global(new_cfg.clone());
             let _ = app.event_bus.publish_typed("config.changed.v1", payload);
-            // Refresh providers so newly added ones are available immediately.
-            let _ = app.refresh_providers();
+            Json(new_cfg).into_response()
+        }
+        Err(e) => app_error_to_response(e),
+    }
+}
+
+// ===== Workspace config (F06 AC9) =====
+
+/// `GET /api/v1/config/workspaces/:id` — resolved config for a
+/// workspace. Mirrors the `config_get_workspace` Tauri command.
+pub async fn get_workspace_config(
+    State(server): State<Arc<ServerState>>,
+    Path(id): Path<WorkspaceId>,
+) -> impl IntoResponse {
+    let app = app_state(&server);
+    match crate::commands::config::config_get_workspace_impl(app, id).await {
+        Ok(dto) => Json(dto).into_response(),
+        Err(e) => app_error_to_response(e),
+    }
+}
+
+/// `PATCH /api/v1/config/workspaces/:id` — patch and persist a
+/// workspace's config. Mirrors `config_update_workspace`. The
+/// response includes the new workspace DTO; on success the
+/// `config.changed.v1` event is broadcast to SSE clients.
+pub async fn update_workspace_config(
+    State(server): State<Arc<ServerState>>,
+    Path(id): Path<WorkspaceId>,
+    Json(req): Json<agentyx_core::config::WorkspaceConfigPatch>,
+) -> impl IntoResponse {
+    let app = app_state(&server);
+    // Reject unknown workspace ids so a malicious client can't
+    // create stray config files via PATCH. The Tauri command
+    // skips this check because its caller is the trusted UI.
+    if app.workspaces.get(id).is_none() {
+        return app_error_to_response(agentyx_core::AppError::NotFound {
+            kind: "workspace".into(),
+            id: id.to_string(),
+        });
+    }
+    match crate::commands::config::config_update_workspace_impl(app.clone(), id, req).await {
+        Ok(new_cfg) => {
+            let payload = crate::commands::config::build_config_changed_payload_workspace(
+                id,
+                new_cfg.clone(),
+            );
+            let _ = app.event_bus.publish_typed("config.changed.v1", payload);
             Json(new_cfg).into_response()
         }
         Err(e) => app_error_to_response(e),
@@ -641,6 +686,34 @@ pub async fn set_default_permission(
         .set_default_tool_decision(&req.tool, req.decision)
     {
         Ok(_new_cfg) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => app_error_to_response(e),
+    }
+}
+
+// ===== Permission requests (F06 AC7) =====
+
+/// `GET /api/v1/permissions/requests` — list pending permission
+/// requests. Mirrors the `permissions.list` Tauri command.
+pub async fn list_permission_requests(State(server): State<Arc<ServerState>>) -> impl IntoResponse {
+    let app = app_state(&server);
+    match crate::commands::permissions::list_impl(app).await {
+        Ok(dtos) => Json(dtos).into_response(),
+        Err(e) => app_error_to_response(e),
+    }
+}
+
+/// `POST /api/v1/permissions/requests/:id/respond` — respond to a
+/// pending permission request. Mirrors the `permissions.respond`
+/// Tauri command. The wire shape matches `PermissionResponse`:
+/// `{ kind: "allowOnce" | "allowSession" | "allowAlways" | "deny", tool? }`.
+pub async fn respond_permission_request(
+    State(server): State<Arc<ServerState>>,
+    Path(request_id): Path<agentyx_core::ids::PermissionRequestId>,
+    Json(req): Json<crate::commands::permissions::PermissionResponse>,
+) -> impl IntoResponse {
+    let app = app_state(&server);
+    match crate::commands::permissions::respond_impl(app, request_id, req).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => app_error_to_response(e),
     }
 }
