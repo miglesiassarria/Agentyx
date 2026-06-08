@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 
+use serde::de::Error;
 use serde::{Deserialize, Serialize};
 
 /// Provider id (e.g. `"ollama"`, `"groq"`). Newtype around `String`
@@ -37,7 +38,7 @@ impl Default for ProviderConfig {
 
 /// Reference to a secret (API key, bearer token). Serialized as
 /// a string in TOML: `env:VAR_NAME` or `keychain:account`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum SecretRef {
     /// Variable in the process environment.
@@ -47,6 +48,16 @@ pub enum SecretRef {
         /// Account (provider id).
         account: String,
     },
+}
+
+impl<'de> Deserialize<'de> for SecretRef {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        SecretRef::parse(&s).map_err(D::Error::custom)
+    }
 }
 
 impl SecretRef {

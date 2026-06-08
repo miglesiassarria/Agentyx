@@ -841,8 +841,16 @@ async fn f06_ac6_chat_send_publishes_events_to_sse() {
         "SSE must include the mock's content; got: {body}"
     );
     assert!(
+        body.contains(r#""messageId":"msg-1""#),
+        "SSE delta must include the provider messageId; got: {body}"
+    );
+    assert!(
         body.contains("chat.run.finished.v1"),
         "SSE must include chat.run.finished.v1; got: {body}"
+    );
+    assert!(
+        body.contains(r#""status":"completed""#),
+        "SSE run finished status must use the UI contract; got: {body}"
     );
 
     // The mock provider was hit exactly once.

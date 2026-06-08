@@ -14,7 +14,13 @@
 /// See `../../../specs/features/F01-chat-streaming.md` and
 /// `../../../specs/domains/agent-loop.md` for the full contract.
 
-import { events, session as sessionIpc, agents as agentsIpc, permissions } from '$lib/ipc';
+import {
+  events,
+  session as sessionIpc,
+  agents as agentsIpc,
+  permissions,
+  isBrowserMode,
+} from '$lib/ipc';
 import type {
   AgentId,
   AgentInfoDto,
@@ -111,6 +117,8 @@ class SessionStore {
   #unbindPermission: (() => void) | null = null;
   /** AbortController for in-flight loaders (so we can cancel on switch). */
   #abortCtl: AbortController | null = null;
+  /** Browser SSE is best-effort; this reconciles if early events are missed. */
+  #reconcileTimer: ReturnType<typeof setTimeout> | null = null;
 
   // === Derived ===
 
@@ -188,6 +196,7 @@ class SessionStore {
       this.#unbindPermission();
       this.#unbindPermission = null;
     }
+    this.#clearRunReconcile();
     this.runId = null;
     this.runStatus = 'idle';
     this.starting = false;
@@ -302,6 +311,7 @@ class SessionStore {
     this.runId = handle.runId;
     this.runStatus = 'running';
     this.#bindRunEvents(handle.runId);
+    this.#scheduleRunReconcile(handle.runId);
   }
 
   /**
@@ -473,6 +483,7 @@ class SessionStore {
 
   #onRunFinished(p: ChatRunFinishedPayload): void {
     if (this.runId !== p.runId) return;
+    this.#clearRunReconcile();
     this.#unbindRun?.();
     this.#unbindRun = null;
     this.runId = null;
@@ -496,6 +507,7 @@ class SessionStore {
 
   #onRunError(p: ChatRunErrorPayload): void {
     if (this.runId !== p.runId) return;
+    this.#clearRunReconcile();
     this.lastError = {
       code: p.code,
       message: p.message,
@@ -509,6 +521,60 @@ class SessionStore {
     });
     // The run may still emit a `finished` event afterwards; the
     // unbind happens there.
+  }
+
+  #scheduleRunReconcile(runId: RunId): void {
+    if (!isBrowserMode()) return;
+    this.#clearRunReconcile();
+    let attempts = 0;
+    const tick = async (): Promise<void> => {
+      if (this.runId !== runId || this.workspaceId === null || this.activeSession === null) {
+        this.#clearRunReconcile();
+        return;
+      }
+      attempts += 1;
+      try {
+        const sessions = await sessionIpc.list(this.workspaceId, 100);
+        const current = sessions.find((s) => s.id === this.activeSession?.id);
+        if (current !== undefined) {
+          this.activeSession = current;
+        }
+        if (current !== undefined && current.status !== 'running') {
+          this.#unbindRun?.();
+          this.#unbindRun = null;
+          this.runId = null;
+          this.runStatus =
+            current.status === 'idle' ? 'completed' : mapSessionStatus(current.status);
+          if (current.status === 'errored') {
+            this.lastError = {
+              code: 'run_failed',
+              message: 'Run finished with an error. Check server logs for details.',
+              retryable: true,
+              at: new Date().toISOString(),
+            };
+          }
+          await this.loadHistory(current.id);
+          this.#clearRunReconcile();
+          return;
+        }
+      } catch (e) {
+        console.warn('run reconcile failed:', e);
+      }
+
+      if (attempts >= 120) {
+        this.#clearRunReconcile();
+        return;
+      }
+      this.#reconcileTimer = setTimeout(() => void tick(), 1000);
+    };
+    this.#reconcileTimer = setTimeout(() => void tick(), 1000);
+  }
+
+  #clearRunReconcile(): void {
+    if (this.#reconcileTimer !== null) {
+      clearTimeout(this.#reconcileTimer);
+      this.#reconcileTimer = null;
+    }
   }
 
   // === Helpers ===
@@ -583,6 +649,19 @@ function normalizeError(e: unknown): UiError {
     retryable: false,
     at: new Date().toISOString(),
   };
+}
+
+function mapSessionStatus(status: SessionSummaryDto['status']): UiRunStatus {
+  switch (status) {
+    case 'idle':
+      return 'completed';
+    case 'running':
+      return 'running';
+    case 'aborted':
+      return 'aborted';
+    case 'errored':
+      return 'error';
+  }
 }
 
 // Re-export for tests

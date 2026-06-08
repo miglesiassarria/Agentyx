@@ -373,19 +373,35 @@ pub fn spawn_run(
     // Resolve provider + model from the global config (the
     // agent's ModelRef is `default` in v1).
     let cfg = deps.config.get();
-    if !cfg.providers.contains_key(&cfg.default_provider) {
-        return Err(AppError::Internal {
-            message: format!(
-                "default provider '{}' not in providers map",
-                cfg.default_provider
-            ),
-        });
-    }
-    let provider_id = cfg.default_provider.clone();
-    let model = opts
-        .model
-        .clone()
-        .unwrap_or_else(|| cfg.default_model.clone());
+    let (provider_id, model) = if deps.providers.contains_key(&cfg.default_provider) {
+        // Use configured provider and model.
+        (
+            cfg.default_provider.clone(),
+            opts.model
+                .clone()
+                .unwrap_or_else(|| cfg.default_model.clone()),
+        )
+    } else {
+        // Default provider not registered (e.g., no API key for minimax).
+        // Fall back to the first available provider.
+        let fallback_provider_id =
+            deps.providers
+                .keys()
+                .next()
+                .cloned()
+                .ok_or_else(|| AppError::Internal {
+                    message: "no providers registered".into(),
+                })?;
+        // For the model, use the provider's default or a known Ollama model.
+        let fallback_model = if fallback_provider_id == "ollama" {
+            "gemma4:latest".to_string()
+        } else {
+            opts.model
+                .clone()
+                .unwrap_or_else(|| cfg.default_model.clone())
+        };
+        (fallback_provider_id, fallback_model)
+    };
     let provider = deps
         .providers
         .get(&provider_id)
@@ -651,6 +667,7 @@ async fn run_loop(ctx: RunContext) {
         let mut step_fr: FinishReason = FinishReason::Stop;
         let mut provider_err: Option<AppError> = None;
         let mut batcher = DeltaBatcher::new(BatcherConfig::default());
+        let mut current_message_id: Option<String> = None;
 
         use futures::StreamExt;
         loop {
@@ -665,12 +682,15 @@ async fn run_loop(ctx: RunContext) {
                     model: m,
                 })) => {
                     debug!(run_id = %run_id, message_id, model = m, "message_start");
+                    current_message_id = Some(message_id.clone());
                     deps.bus.emit(
                         "chat.message_start.v1",
                         json!({
+                            "sessionId": session_id.to_string(),
                             "runId": run_id.to_string(),
                             "messageId": message_id,
                             "model": m,
+                            "role": "assistant",
                         }),
                     );
                 }
@@ -684,6 +704,7 @@ async fn run_loop(ctx: RunContext) {
                                 json!({
                                     "runId": run_id.to_string(),
                                     "sessionId": session_id.to_string(),
+                                    "messageId": current_message_id.as_deref().unwrap_or(""),
                                     "text": buf,
                                 }),
                             );
@@ -731,6 +752,7 @@ async fn run_loop(ctx: RunContext) {
                 json!({
                     "runId": run_id.to_string(),
                     "sessionId": session_id.to_string(),
+                    "messageId": current_message_id.as_deref().unwrap_or(""),
                     "text": buf,
                 }),
             );
@@ -744,6 +766,7 @@ async fn run_loop(ctx: RunContext) {
                 json!({
                     "runId": run_id.to_string(),
                     "sessionId": session_id.to_string(),
+                    "messageId": current_message_id.as_deref().unwrap_or(""),
                     "finishReason": step_fr,
                     "step": step_idx,
                 }),
@@ -864,9 +887,10 @@ async fn run_loop(ctx: RunContext) {
         json!({
             "runId": run_id.to_string(),
             "sessionId": session_id.to_string(),
-            "status": final_status,
+            "status": ui_run_status(final_status),
             "usage": last_usage,
             "finishReason": finish_reason_str,
+            "durationMs": started.elapsed().as_millis() as u64,
         }),
     );
 
@@ -940,6 +964,7 @@ fn finish_with_error(
             "sessionId": session_id.to_string(),
             "code": code,
             "message": message,
+            "retryable": app_error_retryable(&err),
         }),
     );
     error!(
@@ -948,6 +973,25 @@ fn finish_with_error(
         duration_ms = started.elapsed().as_millis() as u64,
         "run errored"
     );
+}
+
+fn ui_run_status(status: RunStatus) -> &'static str {
+    match status {
+        RunStatus::Running => "running",
+        RunStatus::Finished => "completed",
+        RunStatus::Aborted => "aborted",
+        RunStatus::Errored => "error",
+    }
+}
+
+fn app_error_retryable(err: &AppError) -> bool {
+    matches!(
+        err,
+        AppError::Provider {
+            retryable: true,
+            ..
+        }
+    )
 }
 
 /// Build the list of `ToolSchema`s the agent exposes to the LLM,
