@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { GlobalConfigDto, PermissionMatrixDto } from '$lib/ipc-types';
 
 import {
+  availableModels,
   emptyProviderPatch,
   parseIgnorePatterns,
   providerHasSecret,
@@ -59,6 +60,41 @@ describe('settings helpers', () => {
         enabled: false,
       },
     });
+  });
+
+  it('f05_models_selector_uses_detected_configured_and_default_models', () => {
+    expect(
+      availableModels(
+        'groq',
+        {
+          baseUrl: 'https://api.groq.com/openai/v1',
+          enabled: true,
+          models: ['configured-model', 'llama-3.3-70b-versatile'],
+        },
+        {
+          ok: true,
+          models: ['detected-model', 'configured-model'],
+          latencyMs: 12,
+        },
+      ),
+    ).toEqual([
+      'detected-model',
+      'configured-model',
+      'llama-3.3-70b-versatile',
+      'llama-3.1-8b-instant',
+      'mixtral-8x7b-32768',
+    ]);
+  });
+
+  it('f05_models_selector_keeps_existing_custom_model_when_requested', () => {
+    expect(availableModels('ollama', undefined, undefined, 'custom-local:latest')).toEqual([
+      'llama3.1:8b',
+      'custom-local:latest',
+    ]);
+  });
+
+  it('f05_models_selector_includes_minimax_m3_first', () => {
+    expect(availableModels('minimax', undefined, undefined)[0]).toBe('MiniMax-M3');
   });
 
   it('parses ignore patterns from textarea content', () => {

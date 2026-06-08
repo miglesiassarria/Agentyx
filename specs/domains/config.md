@@ -142,10 +142,10 @@ api_key = "env:GROQ_API_KEY"     # requerido
 models = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
 
 [providers.minimax]
-base_url = "https://api.minimax.io/v1"
+base_url = "https://api.minimax.io/anthropic"
 enabled = true
 api_key = "env:MINIMAX_API_KEY"   # requerido
-models = ["MiniMax-Text-01"]
+models = ["MiniMax-M3", "MiniMax-M2.7", "MiniMax-M2.5"]
 
 # --- UI ---
 
