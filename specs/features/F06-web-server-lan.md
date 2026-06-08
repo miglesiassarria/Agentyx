@@ -247,6 +247,10 @@ entry.
 - HTTP routes currently cover workspaces, sessions, agents, global
   config, provider test, secrets, permission matrix/default, diffs
   skeleton and SSE.
+- HTTP `POST /workspaces/:id/list-dir` must not run filesystem
+  traversal on the async runtime worker. It delegates to the shared
+  `list_dir_impl`, which uses `spawn_blocking`, and the HTTP wrapper
+  returns `504 timeout` after 5s if the directory blocks or is too slow.
 - Browser-safe path flow: `ui/src/lib/stores/path-prompt.svelte.ts`
   exposes a single-request queue rendered by
   `ui/src/lib/components/PathPromptDialog.svelte` (mounted via
@@ -389,6 +393,7 @@ entry.
 | ID | Date | Category | Resolved in | Notes |
 |---|---|---|---|---|
 | F06-BUG-001 | 2026-06-08 | B. Implementation deviation | PR actual | Launching the web runner from `crates/` made `ui_dist_path()` prefer a bad relative path, so `/` and assets could return empty bodies while `/api/v1/health` was OK. Fix: resolve `ui/dist` by walking ancestors from cwd/current exe and mark HTML app-shell responses as no-cache. |
+| F06-BUG-002 | 2026-06-08 | B. Implementation bug | PR actual | `POST /api/v1/workspaces/:id/list-dir` could block the Axum runtime on slow filesystem reads, causing unrelated routes like `/health` and `POST /sessions/:id/messages` to appear frozen. Fix: isolate the shared list-dir filesystem work with `spawn_blocking` and return HTTP `504 timeout` after 5s. |
 
 ## References
 

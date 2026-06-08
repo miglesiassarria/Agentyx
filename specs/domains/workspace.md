@@ -369,6 +369,7 @@ operar: `{ root: PathBuf, extras: Vec<PathBuf> }`. Lo consume
 | `workspace_remove_extra_path(id, path) -> ()` | **Nuevo**. |
 | `workspace_list_extra_paths(id) -> ExtraPathSpec[]` | **Nuevo**. |
 | `workspace_effective_paths(id) -> EffectivePaths` | **Nuevo**. |
+| `workspace_list_dir(id, path) -> FileEntry[]` | Lista una carpeta dentro de `root_path ∪ extra_paths`; en HTTP puede devolver `504 timeout` si el filesystem no responde en 5s. |
 
 ### HTTP endpoints
 
@@ -383,6 +384,7 @@ operar: `{ root: PathBuf, extras: Vec<PathBuf> }`. Lo consume
 `GET  /api/v1/workspaces/:id/extra-paths` → `ExtraPathSpec[]`
 `POST /api/v1/workspaces/:id/extra-paths` (body: `{ path, label? }`) → `ExtraPathSpec`
 `DELETE /api/v1/workspaces/:id/extra-paths` (body: `{ path }`) → `{}`
+`POST /api/v1/workspaces/:id/list-dir` (body: `{ path }`) → `FileEntry[]` or `504 timeout`
 
 ### Eventos
 
@@ -531,7 +533,7 @@ Cada AC → test con nombre derivado `ac<n>_<short>`.
 
 | ID | Date | Category | Resolved in | Notes |
 |---|---|---|---|---|
-| _ninguno aún_ | | | | |
+| W-BUG-001 | 2026-06-08 | B. Implementation bug | PR actual | `list_dir` hacía I/O de filesystem síncrono en un worker async. Fix: ejecutar el listado en `spawn_blocking`; el endpoint HTTP devuelve `timeout` si la operación supera 5s. |
 
 ## Open questions
 

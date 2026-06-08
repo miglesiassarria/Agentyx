@@ -9,8 +9,10 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use agentyx_core::ids::WorkspaceId;
+use agentyx_core::AppError;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
@@ -19,6 +21,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::commands::workspace as ws;
 use crate::server::state::ServerState;
+
+const LIST_DIR_TIMEOUT: Duration = Duration::from_secs(5);
 
 // Helper: map an `AppError` to an HTTP response with the
 // `{code, message, context?}` shape. We centralize this so every
@@ -197,9 +201,18 @@ pub async fn list_dir(
     Json(req): Json<ListDirRequest>,
 ) -> impl IntoResponse {
     let app = app_state(&server);
-    match ws::list_dir_impl(&app.workspaces, id, &req.path).await {
-        Ok(entries) => Json(entries).into_response(),
-        Err(e) => app_error_to_response(e),
+    match tokio::time::timeout(
+        LIST_DIR_TIMEOUT,
+        ws::list_dir_impl(&app.workspaces, id, &req.path),
+    )
+    .await
+    {
+        Ok(Ok(entries)) => Json(entries).into_response(),
+        Ok(Err(e)) => app_error_to_response(e),
+        Err(_) => app_error_to_response(AppError::Timeout {
+            op: "list_dir".into(),
+            ms: LIST_DIR_TIMEOUT.as_millis() as u64,
+        }),
     }
 }
 

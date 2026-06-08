@@ -15,7 +15,7 @@ use std::sync::Arc;
 use agentyx_core::agent::RunRegistry;
 use agentyx_core::ids::WorkspaceId;
 use agentyx_core::workspace::{detect_venv, VenvSpec, Workspace, WorkspaceService};
-use agentyx_core::AppResult;
+use agentyx_core::{AppError, AppResult};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tauri::{AppHandle, State};
@@ -319,8 +319,21 @@ pub(crate) async fn effective_paths_impl(
 ///   sandbox (after canonicalization).
 /// - `io` — the path does not exist, is not a directory, or cannot
 ///   be read.
-#[allow(clippy::unused_async)]
 pub(crate) async fn list_dir_impl(
+    svc: &WorkspaceService,
+    id: WorkspaceId,
+    path: &Path,
+) -> AppResult<Vec<FileEntryDto>> {
+    let svc = svc.clone();
+    let path = path.to_path_buf();
+    tokio::task::spawn_blocking(move || list_dir_sync(&svc, id, &path))
+        .await
+        .map_err(|e| AppError::Internal {
+            message: format!("list_dir worker failed: {e}"),
+        })?
+}
+
+fn list_dir_sync(
     svc: &WorkspaceService,
     id: WorkspaceId,
     path: &Path,
