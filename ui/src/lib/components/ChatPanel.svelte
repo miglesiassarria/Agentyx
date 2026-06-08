@@ -98,6 +98,9 @@
   }
 
   .actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
     flex-shrink: 0;
   }
 
@@ -123,5 +126,31 @@
   }
   .status[data-status='aborted'] {
     color: var(--color-warning);
+  }
+
+  @media (max-width: 760px) {
+    .header {
+      align-items: flex-start;
+      flex-direction: column;
+      gap: var(--space-2);
+      padding: var(--space-2) var(--space-3);
+    }
+
+    .title-block,
+    .actions {
+      width: 100%;
+    }
+
+    .actions {
+      justify-content: space-between;
+    }
+
+    .title {
+      font-size: var(--font-size-sm);
+    }
+
+    .status {
+      letter-spacing: 0;
+    }
   }
 </style>

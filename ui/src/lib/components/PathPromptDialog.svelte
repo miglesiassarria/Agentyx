@@ -248,4 +248,32 @@
     opacity: 0.5;
     cursor: not-allowed;
   }
+
+  @media (max-width: 760px) {
+    .backdrop {
+      align-items: flex-end;
+      padding: var(--space-3);
+    }
+
+    .dialog {
+      width: 100%;
+      max-width: none;
+      max-height: calc(100dvh - var(--space-6));
+      overflow: auto;
+      padding: var(--space-4);
+      border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    }
+
+    input[type='text'] {
+      font-size: 16px;
+    }
+
+    .actions {
+      flex-direction: column-reverse;
+    }
+
+    .btn {
+      width: 100%;
+    }
+  }
 </style>

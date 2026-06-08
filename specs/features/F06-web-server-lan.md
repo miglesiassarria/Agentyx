@@ -38,6 +38,9 @@
   paths must accept manual server-side paths. The
   `PathPromptDialog` component owns this UX; the workspace store
   routes through it via `isBrowserMode()` from `lib/ipc.ts`.
+- The LAN web client must be usable from a phone during dogfooding:
+  workspace navigation collapses into a drawer, workspace file/chat
+  panes stack, and prompts/settings avoid desktop-only fixed widths.
 
 ## Problem
 
@@ -170,6 +173,10 @@ entry.
 - [x] F06.AC10: Given the UI is built for production, When served from
   the embedded server, Then refresh/deep-link fallback returns the app
   shell and API routes still return JSON.
+- [x] F06.AC11: Given the LAN web client is opened on a phone-width
+  viewport, When the user navigates workspaces, opens settings, reads
+  files, chats, or sees path/permission prompts, Then controls remain
+  reachable without horizontal page scrolling.
 
 ## Test Map
 
@@ -217,6 +224,10 @@ entry.
   secrets, permission matrix/default) are covered by the
   existing `f06_http_*` tests from PR #27.
 - `F06.AC10` -> Rust integration test: `server::tests::f06_spa_fallback_returns_index_for_unknown_routes` ✅
+- `F06.AC11` -> Manual browser smoke at phone viewport after UI build:
+  root route loads, sidebar drawer opens/closes, workspace file/chat
+  panes stack, composer remains visible, settings tabs scroll
+  horizontally, and path/permission dialogs fit the viewport.
 
 ## Implementation notes
 
@@ -249,6 +260,9 @@ entry.
   requests, SPA fallback). The browser-only checks
   (PathPromptDialog UX, real SSE in a browser tab, LAN
   access from a second device) remain manual.
+- Mobile web layout now uses a drawer for workspace navigation and
+  phone-width stacking for workspace files/chat, settings, composer,
+  and path/permission dialogs.
 
 ## No-gos
 

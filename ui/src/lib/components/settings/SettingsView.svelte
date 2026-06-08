@@ -889,4 +889,78 @@
     color: var(--color-fg-subtle);
     font-size: var(--font-size-sm);
   }
+
+  @media (max-width: 760px) {
+    .settings {
+      padding: var(--space-3);
+      background: var(--color-bg);
+    }
+
+    .hero,
+    .section-head,
+    .card-title,
+    .actions,
+    .meta-row {
+      align-items: stretch;
+      flex-direction: column;
+    }
+
+    .hero {
+      gap: var(--space-3);
+    }
+
+    h1 {
+      font-size: var(--font-size-xl);
+    }
+
+    .tabs {
+      overflow-x: auto;
+      padding-bottom: var(--space-1);
+      scrollbar-width: thin;
+    }
+
+    .tabs button {
+      flex: 0 0 auto;
+    }
+
+    .panel,
+    .card {
+      border-radius: var(--radius-md);
+    }
+
+    .panel,
+    .card {
+      padding: var(--space-3);
+    }
+
+    .grid {
+      grid-template-columns: 1fr;
+      gap: var(--space-3);
+    }
+
+    input,
+    select,
+    textarea {
+      font-size: 16px;
+    }
+
+    .align-end {
+      align-self: stretch;
+    }
+
+    .primary,
+    .ghost {
+      width: 100%;
+    }
+
+    table {
+      display: block;
+      overflow-x: auto;
+      white-space: nowrap;
+    }
+
+    .radio-row {
+      gap: var(--space-2);
+    }
+  }
 </style>

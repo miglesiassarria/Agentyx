@@ -230,6 +230,7 @@
     flex: 1;
     position: relative;
     display: flex;
+    min-width: 0;
   }
 
   textarea {
@@ -293,5 +294,33 @@
 
   .stop:hover {
     background: var(--color-bg-subtle);
+  }
+
+  @media (max-width: 760px) {
+    .composer {
+      padding: var(--space-2) var(--space-3) calc(var(--space-2) + env(safe-area-inset-bottom));
+    }
+
+    .row {
+      align-items: stretch;
+    }
+
+    textarea {
+      min-height: 42px;
+      max-height: 32dvh;
+      font-size: 16px;
+    }
+
+    .send,
+    .stop {
+      height: auto;
+      min-height: 42px;
+      padding: 0 var(--space-3);
+    }
+
+    .error {
+      align-items: flex-start;
+      font-size: var(--font-size-xs);
+    }
   }
 </style>
