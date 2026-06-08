@@ -15,6 +15,9 @@
 > otro dispositivo por la raíz LAN ya fue verificado tras corregir la
 > resolución de `ui/dist` y el caché del app shell. F04 y F-agents-ui
 > siguen parciales (no cierran comportamiento completo).
+> Última actualización: 2026-06-06 (sync post-PR1: F05 backend wiring
+> de config + secrets; `domains/config.md` promoted a `ready` con 13/18
+> ACs backend cubiertos)
 >
 > **Disciplina de status**: este archivo se actualiza en el mismo PR
 > que cambia el estado real de cualquier pitch/spec o deja el board
@@ -31,6 +34,13 @@
 - domains/journal.md.
 - features/F05-settings.md (UI y backend avanzados; quedan E2E/HTTP de
   workspace config y cierre de ACs abiertos).
+- agents.md
+- domains/providers.md
+- domains/journal.md
+- features/F05-settings.md (UI pendiente; backend promovido a `ready`
+  en este PR)
+- features/F04-file-diffs.md
+- features/F-agents-ui.md
 
 ## 🟢 Ready (AC + contratos listos, pendiente implementación)
 - features/F-agents-ui.md (UI parcial en código: `AgentChip`,
@@ -126,6 +136,11 @@
   auxiliares: `RunHandle::is_aborted` y `RunHandle::new` se hicieron
   `pub` para que los tests de `agentyx-app` puedan fabricar runs
   sintéticos. 18/18 ACs backend cubiertos.
+## ✅ Implemented (código en main, ACs cumplidos, tests pasando)
+- **features/F02-multi-workspace.md** — `approved` → `implemented`
+  (PR de UI: 9 ACs UI + AC3, AC9 backend cubiertos con `list_dir`
+  command; AC7 sigue parcial: el check de runs activos llega con
+  el PR de `agent-loop`).
 - **features/F01-chat-streaming.md** — `approved` →
   `implemented (partial — Phase 1 backend + UI + Phase 2-core + Phase 2-app)`. PRs:
   - `feat(core): F01-Phase1 backends` (PR #13): 5/15 ACs
@@ -219,6 +234,9 @@
     - UI tests: `f05_ac9_permission_matrix_edits_persist helper returns
       stable order` y `f05_ac9_static_default_decision_matches_known_tools`
       en `helpers.test.ts`.
+  Pendientes para `ready` → `implemented` (cubierto por PR3
+  F05 UI + PR2 providers): AC3 (invalid key test connection),
+  AC9 (permission matrix), AC10 (test & add con UI).
 
 ## ⚫ Deprecated
 _(ninguno)_
