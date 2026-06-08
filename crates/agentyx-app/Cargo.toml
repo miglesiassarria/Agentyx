@@ -17,6 +17,10 @@ path = "src/main.rs"
 name = "agentyx-web"
 path = "src/bin/agentyx-web.rs"
 
+[[bin]]
+name = "agentix"
+path = "src/bin/agentix.rs"
+
 [build-dependencies]
 tauri-build = { workspace = true }
 

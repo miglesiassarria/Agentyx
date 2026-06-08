@@ -18,8 +18,9 @@
   `POST /sessions/:id/messages`, global config/provider/secrets/
   permissions matrix endpoints, diff skeleton endpoints, and a dual
   Tauri/HTTP `ui/src/lib/ipc.ts` adapter. The desktop binary accepts
-  `--lan` for dogfooding, and `agentyx-web` remains the headless
-  runner used by browser smoke tests.
+  `--lan` for dogfooding. The canonical headless server command is
+  `agentix serve`; `agentyx-web` remains as a legacy/internal runner
+  used by browser smoke tests.
 - Do **not** treat F06 as full yet. All automatable ACs are covered,
   including chat→SSE (F06.AC6), event bus SSE parity (F06.AC8),
   browser path prompts (F06.AC4/AC5), HTTP permission requests
@@ -336,6 +337,9 @@ entry.
 - Axum server lives in `crates/agentyx-app/src/server/` with modules
   `mod.rs`, `router.rs`, `events_sse.rs`, `auth.rs`, `lifecycle.rs` +
   `tests.rs` (5 integration tests).
+- Headless LAN startup is exposed as `agentix serve`, defaulting to
+  `0.0.0.0:18765` with `require_token = false` for MVP dogfooding.
+  Optional overrides: `--host`, `--port`, `--require-token`.
 - EventBus upgraded: `tokio::sync::broadcast` channel with `EventSink`
   trait; Tauri windows + SSE share the same bus.
 - Tauri commands `server_get_info`, `server_update_config`,
