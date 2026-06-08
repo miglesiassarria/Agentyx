@@ -116,13 +116,13 @@
 - [x] Arrancar servidor HTTP embebido y servir la misma UI en loopback.
 - [x] Habilitar bind LAN `0.0.0.0:<port>` con `[server].lan_enabled`.
 - [x] Activar `[server].require_token = true` y verificar 401 sin bearer.
-- [ ] Smoke manual: abrir la UI desde navegador LAN y listar workspaces
+- [x] Smoke manual: abrir la UI desde navegador LAN y listar workspaces
   vía HTTP sin usar diálogos Tauri.
-- [ ] Smoke manual: en navegador LAN, enviar un mensaje y recibir
+- [x] Smoke manual: en navegador LAN, enviar un mensaje y recibir
   streaming vía SSE.
-- [ ] Smoke manual: en navegador LAN, responder un
+- [x] Smoke manual: en navegador LAN, responder un
   `permission.requested.v1`.
-- [ ] Smoke manual: en navegador LAN, editar config de workspace desde
+- [x] Smoke manual: en navegador LAN, editar config de workspace desde
   Settings.
 
 ### Fuera del corte MVP salvo decisión explícita

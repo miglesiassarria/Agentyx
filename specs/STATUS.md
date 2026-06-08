@@ -4,20 +4,14 @@
 > Para roadmap de features: [features/ROADMAP.md](./features/ROADMAP.md).
 > Para índice de ADRs: [adr/README.md](./adr/README.md).
 >
-> Última actualización: 2026-06-08 (orden de MVP tras auditoría local +
-> smoke LAN parcial):
+> Última actualización: 2026-06-08 (F06 smoke manual LAN completo;
+> todos los checks de acceptance v0.1 marcados; F05 y F01 siguen
+> como siguiente paso según orden P0/P1):
 > `cargo test --workspace` pasa (276 tests: 71 app + 205 core), vitest
 > pasa (44 tests), `npx tsc --noEmit` pasa. F06 tiene todos sus ACs
-> automatizables cerrados: browser path prompts, HTTP config workspace,
-> HTTP permission requests, chat→SSE, event bus SSE y SPA fallback. Queda
-> pendiente solo el smoke manual real en navegador/LAN de PathPromptDialog
-> UX, SSE en un tab real, permission prompt y settings. El acceso desde
-> otro dispositivo por la raíz LAN ya fue verificado tras corregir la
-> resolución de `ui/dist` y el caché del app shell. F04 y F-agents-ui
-> siguen parciales (no cierran comportamiento completo).
-> Última actualización: 2026-06-06 (sync post-PR1: F05 backend wiring
-> de config + secrets; `domains/config.md` promoted a `ready` con 13/18
-> ACs backend cubiertos)
+> automatizables cerrados y smoke manual LAN completo (PathPromptDialog
+> UX ✓, SSE real ✓, permission prompt ✓, settings workspace config ✓).
+> F04 y F-agents-ui siguen parciales (no cierran comportamiento completo).
 >
 > **Disciplina de status**: este archivo se actualiza en el mismo PR
 > que cambia el estado real de cualquier pitch/spec o deja el board
@@ -76,7 +70,7 @@
 - **ADR-0008** (nuevo, PR 3): scope de providers v1 (Ollama / Groq / Minimax).
 
 ## ✅ Implemented / Partially Implemented (código en main)
-- **features/F06-web-server-lan.md** — `ready` → `implemented (partial: automated ACs complete, manual LAN smoke pending)`. PRs:
+- **features/F06-web-server-lan.md** — `ready` → `implemented (full: automated ACs + manual LAN smoke all complete)`. PRs:
    Axum skeleton (#26): `server` module con `router/events_sse/auth/lifecycle`,
    `AuthLayer` + `BearerGuard`, `axum_extra` typed extractor.
    EventBus upgrade: `tokio::sync::broadcast` + `EventSink` trait,
@@ -122,11 +116,11 @@
    `scripts/web-smoke.sh` automatiza la verificación curl-able
    (health, workspaces, config GET/PATCH, permissions,
    SPA fallback).
-   Pendiente para `implemented (full)`: smoke manual en
-   navegador real (PathPromptDialog UX, SSE en el tab, permission
-   prompt y settings) más allá de `scripts/web-smoke.sh`. El acceso
-   desde otro dispositivo por `/` queda verificado en el PR actual,
-   que además corrige `ui/dist` resolution + no-cache app shell.
+   Smoke manual LAN completo (2026-06-08): PathPromptDialog UX ✓,
+   chat + SSE en navegador real ✓, permission prompt response ✓,
+   Settings edición workspace config ✓. Acceso desde otro
+   dispositivo por `/` verificado; `ui/dist` resolution y no-cache
+   app shell corregidos.
 - **features/F02-multi-workspace.md** — `approved` → `implemented (full)`.
   PRs: UI (#12) 9/9 ACs UI + AC3, AC9 backend con `list_dir`; **AC7
   cerrado en PR `fix/f02-ac7-delete-workspace-with-active-runs`**
