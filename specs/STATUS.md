@@ -4,9 +4,12 @@
 > Para roadmap de features: [features/ROADMAP.md](./features/ROADMAP.md).
 > Para índice de ADRs: [adr/README.md](./adr/README.md).
 >
-> Última actualización: 2026-06-08 (F06 smoke manual LAN completo;
-> todos los checks de acceptance v0.1 marcados; F05 y F01 siguen
-> como siguiente paso según orden P0/P1):
+> Última actualización: 2026-06-13 (`agents.md` promovido de
+> `draft` → `ready`; ACs 1–12 cubiertos por tests en
+> `crates/agentyx-core/src/{agents,session}/`, ACs 13–20 difieren
+> a v0.1.x con `F-agents-ui`. Sigue todo lo de 2026-06-08: F06
+> smoke manual LAN completo, F02 implementado, F01/F05/F04/F-agents-ui
+> con su status previo):
 > `cargo test --workspace` pasa (276 tests: 71 app + 205 core), vitest
 > pasa (44 tests), `npx tsc --noEmit` pasa. F06 tiene todos sus ACs
 > automatizables cerrados y smoke manual LAN completo (PathPromptDialog
@@ -22,13 +25,10 @@
 > `approved` e `implemented` siguen aceptados para specs existentes.
 
 ## 🟡 Draft (en construcción)
-- agents.md (modelo built-in existe; subagent real vía `@mention` sigue
-  pendiente).
 - domains/providers.md.
 - domains/journal.md.
 - features/F05-settings.md (UI y backend avanzados; quedan E2E/HTTP de
   workspace config y cierre de ACs abiertos).
-- agents.md
 - domains/providers.md
 - domains/journal.md
 - features/F05-settings.md (UI pendiente; backend promovido a `ready`
@@ -37,6 +37,14 @@
 - features/F-agents-ui.md
 
 ## 🟢 Ready (AC + contratos listos, pendiente implementación)
+- `agents.md` (promovido `draft → ready` en este PR): 12/20 ACs
+  cubiertos con tests en `crates/agentyx-core/src/agents/mod.rs`
+  y `crates/agentyx-core/src/session/service.rs`. Pendientes
+  AC13–AC20 (subagent runtime: `invoke_subagent`,
+  `expand_at_mentions`, child sessions, `subagent.*.v1`),
+  difieren a v0.1.x con `F-agents-ui`. Hardening menor: renombrar
+  tests al patrón `ac<n>_<short>` y añadir tests dedicados para
+  AC10/AC11.
 - features/F-agents-ui.md (UI parcial en código: `AgentChip`,
   `AgentPickerMenu`, `AtMentionPopover`, shortcut cycle. Falta backend
   de `@mention`/child sessions y SessionTree para cerrar ACs).

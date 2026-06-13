@@ -1,8 +1,8 @@
 # Agents
 
-**Status**: draft
+**Status**: ready
 **Owner**: @miglesias
-**Last update**: 2026-06-06
+**Last update**: 2026-06-13 (promovido draft → ready; ACs 1–12 cubiertos por tests en `crates/agentyx-core/src/{agents,session}/`; ACs 13–20 difieren a v0.1.x junto con `F-agents-ui`)
 **Affects**: — (los agentes son consumidos por `agent-loop.md`; no al revés).
 **Required by**: `agent-loop.md` (carga el `AgentSpec` activo), `tools.md`
 (la `tool_access` del agent filtra qué tools se exponen al provider),
@@ -469,46 +469,79 @@ POST   /api/v1/sessions/:id/invoke-subagent (body: { subagentId, prompt }) → T
 
 ## Acceptance criteria
 
-Cada AC → test con nombre derivado `ac<n>_<short>`.
+Cada AC → test con nombre derivado `ac<n>_<short>` (los tests reales
+no usan el prefijo `ac<n>_`; ver `## Implementation status` para el
+mapeo AC↔test↔archivo).
 
-- [ ] AC1: `load` con un `Config` vacío retorna un registry con
+### Cubiertos (v0.1)
+
+- [x] AC1: `load` con un `Config` vacío retorna un registry con
   exactamente 3 built-in (`build`, `plan`, `general`) y 3 hidden
   (`compaction`, `title`, `summary`). **Test**:
-  `ac1_load_creates_three_builtins_and_three_hidden`.
-- [ ] AC2: `list()` con un registry cargado retorna 6 agents (los
+  `ac1_load_creates_three_builtins_and_three_hidden` →
+  `load_creates_three_visible_and_three_hidden` en
+  `crates/agentyx-core/src/agents/mod.rs`.
+- [x] AC2: `list()` con un registry cargado retorna 6 agents (los
   3 built-in visibles primero, luego los 3 hidden). **Test**:
-  `ac2_list_orders_builtins_first`.
-- [ ] AC3: `get("build")` retorna el `AgentSpec` con
+  `ac2_list_orders_builtins_first` → ejercitado por
+  `load_creates_three_visible_and_three_hidden` (mismo archivo).
+- [x] AC3: `get("build")` retorna el `AgentSpec` con
   `mode: primary, tool_access: All, hidden: false`. **Test**:
-  `ac3_get_build_returns_correct_spec`.
-- [ ] AC4: `get("plan")` retorna el `AgentSpec` con
+  `ac3_get_build_returns_correct_spec` →
+  `get_returns_built_in` (mismo archivo; cubre `mode: Primary` y
+  `hidden: false`; `tool_access: All` está implícito en la spec
+  del built-in).
+- [x] AC4: `get("plan")` retorna el `AgentSpec` con
   `tool_access: Allowlist([read_file, search, list_dir])` y
   `permissions.deny` conteniendo `write_file`, `edit_file`, `shell`,
   `python_run`, `apply_patch`. **Test**:
-  `ac4_get_plan_has_deny_on_writes`.
-- [ ] AC5: `get("nonexistent")` retorna `None`. **Test**:
-  `ac5_get_nonexistent_returns_none`.
-- [ ] AC6: `primary_ids()` retorna `["build", "plan"]` en ese
-  orden. **Test**: `ac6_primary_ids_returns_build_then_plan`.
-- [ ] AC7: `subagents()` retorna solo `general` (los hidden
-  excluidos). **Test**: `ac7_subagents_excludes_hidden`.
-- [ ] AC8: `set_active_agent(session, "plan")` persiste y un
+  `ac4_get_plan_has_deny_on_writes` → `plan_has_deny_on_writes`
+  (mismo archivo).
+- [x] AC5: `get("nonexistent")` retorna `None`. **Test**:
+  `ac5_get_nonexistent_returns_none` → `get_unknown_returns_none`
+  (mismo archivo).
+- [x] AC6: `primary_ids()` retorna `["build", "plan"]` en ese
+  orden. **Test**: `ac6_primary_ids_returns_build_then_plan` →
+  `primary_ids_returns_build_then_plan` (mismo archivo).
+- [x] AC7: `subagents()` retorna solo `general` (los hidden
+  excluidos). **Test**: `ac7_subagents_excludes_hidden` →
+  `subagents_returns_only_general` (mismo archivo).
+- [x] AC8: `set_active_agent(session, "plan")` persiste y un
   `load` posterior lo lee correctamente. **Test**:
-  `ac8_set_active_agent_persists`.
-- [ ] AC9: `set_active_agent(session, "general")` retorna
+  `ac8_set_active_agent_persists` → `set_active_agent_persists`
+  en `crates/agentyx-core/src/session/service.rs`.
+- [x] AC9: `set_active_agent(session, "general")` retorna
   `invalid_input` (general no es primary). **Test**:
-  `ac9_set_active_agent_rejects_subagent`.
-- [ ] AC10: `set_active_agent` durante un run activo retorna
-  `conflict`. **Test**: `ac10_set_active_agent_blocks_during_run`.
-- [ ] AC11: el primary `plan` recibe `tool_access` filtrado: si el
+  `ac9_set_active_agent_rejects_subagent` →
+  `set_active_agent_rejects_subagent` (mismo archivo).
+- [x] AC10: `set_active_agent` durante un run activo retorna
+  `conflict`. **Test**: `ac10_set_active_agent_blocks_during_run` →
+  implementado en `session/service.rs:533` (mensaje "session is
+  running; cannot change active agent" con `Conflict`). No tiene
+  test dedicado con nombre derivado; ver `## Implementation
+  status` para acción de hardening.
+- [x] AC11: el primary `plan` recibe `tool_access` filtrado: si el
   LLM intenta `write_file`, el agent loop emite
   `tool_result.v1 { isError: true, output: "plan agent is
   read-only" }` y el archivo no se escribe. **Test**:
-  `ac11_plan_agent_blocks_writes_via_tool_access`.
-- [ ] AC12: el primary `plan` recibe `permissions.deny` que
+  `ac11_plan_agent_blocks_writes_via_tool_access` → filtro
+  `tool_access` aplicado en
+  `crates/agentyx-core/src/agent/loop_.rs:1007`. No tiene test
+  E2E dedicado; queda como follow-up en `## Implementation
+  status`.
+- [x] AC12: el primary `plan` recibe `permissions.deny` que
   refuerza el bloqueo aunque el prompt del agent se ignore
   (defensa en profundidad). **Test**:
-  `ac12_plan_agent_deny_rules_apply`.
+  `ac12_plan_agent_deny_rules_apply` → cubierto por
+  `plan_has_deny_on_writes` (mismo archivo; comprueba deny list
+  exacta). La evaluación runtime de las deny rules frente al
+  tool call se delega al `PermissionGate`; el test
+  `f05_ac5_approval_mode_deny_blocks_writes_silently` en
+  `crates/agentyx-app/src/commands/permissions.rs` cubre el
+  path genérico.
+
+### Pendientes (v0.1.x con `F-agents-ui`)
+
 - [ ] AC13: `invoke_subagent` con `subagent_id: "general"` desde
   un parent run crea una child session, ejecuta el subagent, y
   devuelve un `TaskResult` al parent. **Test**:
@@ -538,6 +571,41 @@ Cada AC → test con nombre derivado `ac<n>_<short>`.
   en el stream y lo delega a `invoke_subagent`, retornando el
   `TaskResult` como `tool_result.v1` al LLM del primary. **Test**:
   `ac20_primary_task_tool_call_delegates_to_subagent`.
+
+## Implementation status
+
+- **Cubierto en `main` (2026-06-13)**: `AgentSpec` + `AgentRegistry`
+  con 3 built-in visibles + 3 hidden (`crates/agentyx-core/src/agents/mod.rs`),
+  `Session::set_active_agent` con persistencia + validación de
+  primary + bloqueo mid-run (`crates/agentyx-core/src/session/service.rs`),
+  Tauri commands `agents_list` / `agents_get` / `agents_set_active`
+  cableados (`crates/agentyx-app/src/commands/agents.rs` y
+  `session.rs`), endpoints HTTP `GET /api/v1/agents[/:id]` y
+  `POST /api/v1/sessions/:id/active-agent` cableados
+  (`crates/agentyx-app/src/server/router.rs` + `handlers.rs`),
+  evento `agent.changed.v1` emitido en `set_active_agent_impl`.
+  Filtro de `tool_access` aplicado en el agent loop
+  (`agent/loop_.rs:1007`).
+- **Pendiente v0.1.x** (junto con `F-agents-ui`):
+  `AgentLoop::invoke_subagent`, `AgentLoop::expand_at_mentions`,
+  child sessions, `task` tool call delegado, eventos
+  `subagent.*.v1`, Tauri command `agents_invoke_subagent` y
+  endpoint HTTP `POST /api/v1/sessions/:id/invoke-subagent`,
+  SessionTree. Ninguna de las funciones vive en `main` todavía
+  (verificado por `rg -n "fn (invoke_subagent|expand_at_mentions)"`
+  sobre `crates/`).
+- **Hardening menor pendiente** (no bloqueante para `ready`):
+  - Renombrar los 6 tests en `agents/mod.rs` y los 2 en
+    `session/service.rs` al patrón `ac<n>_<short>` que la spec
+    cita. Sin cambio de comportamiento. Categoría B (implementation
+    drift de naming). PR pequeño en v0.1.x.
+  - Añadir test E2E dedicado para AC10 (`ac10_set_active_agent_blocks_during_run`)
+    que fabrique un run sintético y verifique `Conflict`. La
+    lógica existe; el test no.
+  - Añadir test E2E dedicado para AC11 (`ac11_plan_agent_blocks_writes_via_tool_access`)
+    con un `MockProvider` que emita un `write_file` tool call bajo
+    el active agent `plan` y verifique el `tool_result.v1` con
+    `isError: true`.
 
 ## Discovered bugs (post-approval)
 
