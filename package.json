@@ -12,7 +12,7 @@
     "ui"
   ],
   "scripts": {
-    "dev": "bun run scripts/dev.ts",
+    "dev": "bash scripts/dev.sh",
     "dev:core": "cargo watch -w crates -x 'run --bin agentyx-app'",
     "dev:ui": "cd ui && bun run dev",
     "serve": "cd crates && cargo run --bin agentix -- serve",

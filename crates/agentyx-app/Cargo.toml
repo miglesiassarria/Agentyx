@@ -8,6 +8,7 @@ repository.workspace = true
 authors.workspace = true
 publish.workspace = true
 description = "Agentyx desktop app — Tauri 2 entrypoint."
+default-run = "agentyx-app"
 
 [[bin]]
 name = "agentyx-app"
