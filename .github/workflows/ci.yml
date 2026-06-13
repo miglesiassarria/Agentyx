@@ -42,13 +42,10 @@ jobs:
         with:
           components: clippy
       - name: Cache Rust deps
-        uses: actions/cache@v4
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            crates/target
-          key: ${{ runner.os }}-rust-${{ hashFiles('crates/Cargo.lock') }}
+          cache-on-failure: true
+          workspaces: crates
       - name: Install Tauri system deps (Linux)
         run: |
           sudo apt-get update
@@ -75,14 +72,10 @@ jobs:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache Rust deps
-        if: runner.os != 'Windows'
-        uses: actions/cache@v4
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            crates/target
-          key: ${{ runner.os }}-rust-${{ hashFiles('crates/Cargo.lock') }}
+          cache-on-failure: true
+          workspaces: crates
       - name: Install system deps (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -107,13 +100,10 @@ jobs:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache Rust deps
-        uses: actions/cache@v4
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            crates/target
-          key: ${{ runner.os }}-rust-${{ hashFiles('crates/Cargo.lock') }}
+          cache-on-failure: true
+          workspaces: crates
       - name: Install cargo-deny
         run: cargo install --locked cargo-deny
       - name: cargo deny
@@ -127,13 +117,10 @@ jobs:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache Rust deps
-        uses: actions/cache@v4
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            crates/target
-          key: ${{ runner.os }}-rust-${{ hashFiles('crates/Cargo.lock') }}
+          cache-on-failure: true
+          workspaces: crates
       - name: Install cargo-audit
         run: cargo install --locked cargo-audit
       - name: cargo audit
