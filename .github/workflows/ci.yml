@@ -46,6 +46,8 @@ jobs:
         with:
           cache-on-failure: true
           workspaces: crates
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.7
       - name: Install Tauri system deps (Linux)
         run: |
           sudo apt-get update
@@ -59,6 +61,8 @@ jobs:
             libssl-dev
       - name: clippy
         working-directory: crates
+        env:
+          RUSTC_WRAPPER: sccache
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
   rust-test:
@@ -76,6 +80,8 @@ jobs:
         with:
           cache-on-failure: true
           workspaces: crates
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.7
       - name: Install system deps (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -91,6 +97,8 @@ jobs:
             libsqlite3-dev
       - name: cargo test
         working-directory: crates
+        env:
+          RUSTC_WRAPPER: sccache
         run: cargo test --workspace --all-features
 
   rust-deny:
@@ -104,6 +112,8 @@ jobs:
         with:
           cache-on-failure: true
           workspaces: crates
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.7
       - name: Install cargo-deny
         run: cargo install --locked cargo-deny
       - name: cargo deny
@@ -121,6 +131,8 @@ jobs:
         with:
           cache-on-failure: true
           workspaces: crates
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.7
       - name: Install cargo-audit
         run: cargo install --locked cargo-audit
       - name: cargo audit
