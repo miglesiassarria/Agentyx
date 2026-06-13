@@ -1,8 +1,8 @@
 /// IPC bridge — typed wrapper around Tauri `invoke()` and `listen()`.
 ///
 /// All UI ↔ Rust communication goes through this file. The UI
-/// never calls `window.__TAURI__` directly; if you find yourself
-/// reaching for the global, add a function here instead.
+/// never calls Tauri internals directly; if you find yourself
+/// reaching for them, add a function here instead.
 ///
 /// In browser mode (no Tauri), calls are routed to the embedded
 /// HTTP server via fetch + SSE. Detection is automatic.
@@ -47,7 +47,14 @@ type UnlistenFn = () => void;
 // Environment detection
 // ============================================================
 
-const isBrowser = typeof window !== 'undefined' && !('__TAURI__' in window);
+// Tauri 2 sets `__TAURI_INTERNALS__` on the webview window when the
+// runtime is present. We deliberately do NOT use `window.__TAURI__`,
+// because `app.withGlobalTauri` is `false` in `tauri.conf.json` (the
+// global is intentionally not injected). The previous check
+// (`'__TAURI__' in window`) misclassified the desktop app as
+// browser mode and tried to hit `/api/v1/*` from the WebView.
+const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+const isBrowser = !isTauri;
 
 /**
  * True when the UI is running inside a browser (no Tauri runtime).
@@ -151,17 +158,78 @@ function listenSse<T>(eventName: string, handler: (payload: T) => void): () => v
 // Unified call() and listen()
 // ============================================================
 
+interface TauriErrorShape {
+  code?: string;
+  message?: unknown;
+  context?: { message?: unknown } & Record<string, unknown>;
+}
+
+/**
+ * Extract a stable `(code, message)` tuple from whatever Tauri 2
+ * surfaces when a `#[tauri::command]` returns an `AppError`.
+ *
+ * Contract (see `specs/ipc.md` §4.4 and `crates/agentyx-core/src/error.rs`):
+ *   `{ "code": "<snake_case>", "message": "<human readable>", "context": { ... } }`
+ *
+ * Tauri 2 forwards the serialized error as a plain JS object, but
+ * historically Rust used `#[serde(tag = "code", content = "context")]`
+ * which nested every variant's fields under `context`, so `message`
+ * was unreachable and the UI ended up rendering
+ * `conflict: [object Object]`. We unwrap defensively in three steps:
+ *
+ *   1. Prefer `err.message` when it is a string (new wire format).
+ *   2. Fall back to `err.context.message` (legacy wire format).
+ *   3. Last resort: stringify whatever we got so the user at least
+ *      sees *something* actionable instead of `[object Object]`.
+ */
+function unwrapTauriError(e: unknown): { code: string; message: string; context: unknown } {
+  if (typeof e === 'string') {
+    return { code: 'unknown', message: e, context: undefined };
+  }
+  if (e instanceof Error) {
+    // `Error` objects thrown by hand carry a `code` property (set
+    // by this file when forwarding HTTP/parse errors). Re-use it.
+    const code = (e as Error & { code?: string }).code;
+    return {
+      code: code ?? 'unknown',
+      message: e.message || String(e),
+      context: undefined,
+    };
+  }
+  if (e !== null && typeof e === 'object') {
+    const err = e as TauriErrorShape;
+    const code = typeof err.code === 'string' ? err.code : 'unknown';
+    let message: string;
+    if (typeof err.message === 'string' && err.message.length > 0) {
+      message = err.message;
+    } else if (
+      err.context !== undefined &&
+      err.context !== null &&
+      typeof err.context === 'object' &&
+      typeof (err.context as { message?: unknown }).message === 'string'
+    ) {
+      message = (err.context as { message: string }).message;
+    } else {
+      try {
+        message = JSON.stringify(e);
+      } catch {
+        message = String(e);
+      }
+    }
+    return { code, message, context: err.context };
+  }
+  return { code: 'unknown', message: String(e), context: undefined };
+}
+
 async function call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   if (!isBrowser && tauriInvoke) {
     try {
       return (await tauriInvoke(command, args)) as T;
     } catch (e) {
-      const err = e as { code?: string; message?: string; context?: unknown };
-      const message = err.message ?? String(e);
-      const code = err.code ?? 'unknown';
+      const { code, message, context } = unwrapTauriError(e);
       const error = new Error(`${code}: ${message}`);
-      (error as Error & { code: string; context?: unknown }).code = code;
-      (error as Error & { code: string; context?: unknown }).context = err.context;
+      (error as Error & { code: string; context: unknown }).code = code;
+      (error as Error & { code: string; context: unknown }).context = context;
       throw error;
     }
   }
@@ -174,63 +242,63 @@ async function httpCallBrowser<T>(command: string, args?: Record<string, unknown
   switch (command) {
     // Session
     case 'create_session':
-      return httpCall<T>('POST', `/api/v1/workspaces/${a.workspace_id}/sessions`, {
-        agentId: a.agent_id,
+      return httpCall<T>('POST', `/api/v1/workspaces/${a.workspaceId}/sessions`, {
+        agentId: a.agentId,
         title: a.title,
       });
     case 'send':
-      return httpCall<T>('POST', `/api/v1/sessions/${a.session_id}/messages`, {
+      return httpCall<T>('POST', `/api/v1/sessions/${a.sessionId}/messages`, {
         content: a.content,
         mentions: a.mentions ?? [],
       });
     case 'abort':
-      return httpCall<T>('POST', `/api/v1/sessions/${a.session_id}/abort`);
+      return httpCall<T>('POST', `/api/v1/sessions/${a.sessionId}/abort`);
     case 'list_sessions':
       return httpCall<T>(
         'GET',
-        `/api/v1/workspaces/${a.workspace_id}/sessions${a.limit ? `?limit=${a.limit}` : ''}`,
+        `/api/v1/workspaces/${a.workspaceId}/sessions${a.limit ? `?limit=${a.limit}` : ''}`,
       );
     case 'get_history':
       return httpCall<T>(
         'GET',
-        `/api/v1/sessions/${a.session_id}/history${a.limit ? `?limit=${a.limit}` : ''}`,
+        `/api/v1/sessions/${a.sessionId}/history${a.limit ? `?limit=${a.limit}` : ''}`,
       );
     case 'set_active_agent':
-      return httpCall<T>('POST', `/api/v1/sessions/${a.session_id}/active-agent`, {
-        agentId: a.agent_id,
+      return httpCall<T>('POST', `/api/v1/sessions/${a.sessionId}/active-agent`, {
+        agentId: a.agentId,
       });
     case 'get_active_agent':
-      return httpCall<T>('GET', `/api/v1/sessions/${a.session_id}/active-agent`);
+      return httpCall<T>('GET', `/api/v1/sessions/${a.sessionId}/active-agent`);
     // Workspace
     case 'list_workspaces':
       return httpCall<T>('GET', '/api/v1/workspaces');
     case 'open':
-      return httpCall<T>('POST', '/api/v1/workspaces', { rootPath: a.root_path, name: a.name });
+      return httpCall<T>('POST', '/api/v1/workspaces', { rootPath: a.rootPath, name: a.name });
     case 'get_workspace':
-      return httpCall<T>('GET', `/api/v1/workspaces/${a.workspace_id}`);
+      return httpCall<T>('GET', `/api/v1/workspaces/${a.workspaceId}`);
     case 'delete_workspace':
       return httpCall<T>(
         'DELETE',
-        `/api/v1/workspaces/${a.workspace_id}?force=${a.force ?? false}`,
+        `/api/v1/workspaces/${a.workspaceId}?force=${a.force ?? false}`,
       );
     case 'detect_workspace_venv':
-      return httpCall<T>('GET', `/api/v1/workspaces/${a.workspace_id}/venv`);
+      return httpCall<T>('GET', `/api/v1/workspaces/${a.workspaceId}/venv`);
     case 'add_extra_path':
-      return httpCall<T>('POST', `/api/v1/workspaces/${a.workspace_id}/extra-paths`, {
+      return httpCall<T>('POST', `/api/v1/workspaces/${a.workspaceId}/extra-paths`, {
         path: a.path,
         label: a.label,
       });
     case 'remove_extra_path':
       return httpCall<T>(
         'DELETE',
-        `/api/v1/workspaces/${a.workspace_id}/extra-paths/delete?path=${encodeURIComponent(a.path as string)}`,
+        `/api/v1/workspaces/${a.workspaceId}/extra-paths/delete?path=${encodeURIComponent(a.path as string)}`,
       );
     case 'list_extra_paths':
-      return httpCall<T>('GET', `/api/v1/workspaces/${a.workspace_id}/extra-paths`);
+      return httpCall<T>('GET', `/api/v1/workspaces/${a.workspaceId}/extra-paths`);
     case 'effective_paths':
-      return httpCall<T>('GET', `/api/v1/workspaces/${a.workspace_id}/effective-paths`);
+      return httpCall<T>('GET', `/api/v1/workspaces/${a.workspaceId}/effective-paths`);
     case 'list_dir':
-      return httpCall<T>('POST', `/api/v1/workspaces/${a.workspace_id}/list-dir`, { path: a.path });
+      return httpCall<T>('POST', `/api/v1/workspaces/${a.workspaceId}/list-dir`, { path: a.path });
     // Agents
     case 'list_agents':
       return httpCall<T>('GET', '/api/v1/agents');
@@ -242,24 +310,24 @@ async function httpCallBrowser<T>(command: string, args?: Record<string, unknown
     case 'config_update_global':
       return httpCall<T>('PATCH', '/api/v1/config/global', a.patch);
     case 'config_get_workspace':
-      return httpCall<T>('GET', `/api/v1/config/workspaces/${a.workspace_id}`);
+      return httpCall<T>('GET', `/api/v1/config/workspaces/${a.workspaceId}`);
     case 'config_update_workspace':
-      return httpCall<T>('PATCH', `/api/v1/config/workspaces/${a.workspace_id}`, a.patch);
+      return httpCall<T>('PATCH', `/api/v1/config/workspaces/${a.workspaceId}`, a.patch);
     // Providers
     case 'providers_test_connection':
       return httpCall<T>('POST', '/api/v1/providers/test-connection', a.request);
     // Secrets
     case 'set_secret':
-      return httpCall<T>('POST', `/api/v1/secrets/${a.provider_id}`, { value: a.value });
+      return httpCall<T>('POST', `/api/v1/secrets/${a.providerId}`, { value: a.value });
     case 'delete_secret':
-      return httpCall<T>('DELETE', `/api/v1/secrets/${a.provider_id}`);
+      return httpCall<T>('DELETE', `/api/v1/secrets/${a.providerId}`);
     case 'list_providers':
       return httpCall<T>('GET', '/api/v1/secrets/providers');
     // Permissions
     case 'get_matrix':
       return httpCall<T>(
         'GET',
-        `/api/v1/permissions/matrix${a.workspace_id ? `?workspace=${a.workspace_id}` : ''}`,
+        `/api/v1/permissions/matrix${a.workspaceId ? `?workspace=${a.workspaceId}` : ''}`,
       );
     case 'set_default':
       return httpCall<T>('POST', '/api/v1/permissions/default', {
@@ -277,15 +345,15 @@ async function httpCallBrowser<T>(command: string, args?: Record<string, unknown
       // permission request respond — the `permissions.respond` API.
       return httpCall<T>(
         'POST',
-        `/api/v1/permissions/requests/${a.request_id}/respond`,
+        `/api/v1/permissions/requests/${a.requestId}/respond`,
         a.response,
       );
     }
     // Diffs (F04)
     case 'diff_list_pending':
-      return httpCall<T>('GET', `/api/v1/sessions/${a.session_id}/diffs`);
+      return httpCall<T>('GET', `/api/v1/sessions/${a.sessionId}/diffs`);
     case 'diff_get_full':
-      return httpCall<T>('GET', `/api/v1/diffs/${a.tool_call_id}`);
+      return httpCall<T>('GET', `/api/v1/diffs/${a.toolCallId}`);
     default:
       throw new Error(`Unknown command in browser mode: ${command}`);
   }
@@ -302,6 +370,13 @@ async function listen<T>(event: string, handler: (payload: T) => void): Promise<
 // === Session commands (F01) ===
 // Tauri command names: create_session, send, abort, list_sessions,
 // get_history, set_active_agent, get_active_agent.
+//
+// All arg keys are camelCase: per `specs/ipc.md` §1, Rust uses
+// snake_case and the wire format is camelCase. Tauri 2 with
+// positional `#[tauri::command]` arguments also deserializes the
+// payload with `rename_all = "camelCase"`, so the JS side MUST send
+// `workspaceId`, `sessionId`, `agentId`, etc. — not the snake_case
+// versions.
 
 export const session = {
   create: (
@@ -310,8 +385,8 @@ export const session = {
     title?: string,
   ): Promise<SessionSummaryDto> =>
     call('create_session', {
-      workspace_id: workspaceId,
-      agent_id: agentId,
+      workspaceId,
+      agentId,
       title,
     }),
 
@@ -321,24 +396,24 @@ export const session = {
     mentions: AtMention[] = [],
   ): Promise<RunHandleDto> =>
     call('send', {
-      session_id: sessionId,
+      sessionId,
       content,
       mentions,
     }),
 
-  abort: (sessionId: SessionId): Promise<void> => call('abort', { session_id: sessionId }),
+  abort: (sessionId: SessionId): Promise<void> => call('abort', { sessionId }),
 
   list: (workspaceId: WorkspaceId, limit?: number): Promise<SessionSummaryDto[]> =>
-    call('list_sessions', { workspace_id: workspaceId, limit }),
+    call('list_sessions', { workspaceId, limit }),
 
   getHistory: (sessionId: SessionId, limit?: number): Promise<MessageDto[]> =>
-    call('get_history', { session_id: sessionId, limit }),
+    call('get_history', { sessionId, limit }),
 
   setActiveAgent: (sessionId: SessionId, agentId: AgentId): Promise<void> =>
-    call('set_active_agent', { session_id: sessionId, agent_id: agentId }),
+    call('set_active_agent', { sessionId, agentId }),
 
   getActiveAgent: (sessionId: SessionId): Promise<AgentId> =>
-    call('get_active_agent', { session_id: sessionId }),
+    call('get_active_agent', { sessionId }),
 };
 
 // === Workspace commands (F02) ===
@@ -347,34 +422,34 @@ export const workspace = {
   list: (): Promise<WorkspaceDto[]> => call('list_workspaces'),
 
   open: (rootPath: string, name?: string): Promise<WorkspaceDto> =>
-    call('open', { root_path: rootPath, name }),
+    call('open', { rootPath, name }),
 
   get: (workspaceId: WorkspaceId): Promise<WorkspaceDto> =>
-    call('get_workspace', { workspace_id: workspaceId }),
+    call('get_workspace', { workspaceId }),
 
   delete: (workspaceId: WorkspaceId, force = false): Promise<void> =>
-    call('delete_workspace', { workspace_id: workspaceId, force }),
+    call('delete_workspace', { workspaceId, force }),
 
   detectVenv: (workspaceId: WorkspaceId): Promise<VenvSpec | null> =>
-    call('detect_workspace_venv', { workspace_id: workspaceId }),
+    call('detect_workspace_venv', { workspaceId }),
 
   addExtraPath: (
     workspaceId: WorkspaceId,
     path: string,
     label?: string | null,
-  ): Promise<ExtraPathDto> => call('add_extra_path', { workspace_id: workspaceId, path, label }),
+  ): Promise<ExtraPathDto> => call('add_extra_path', { workspaceId, path, label }),
 
   removeExtraPath: (workspaceId: WorkspaceId, path: string): Promise<void> =>
-    call('remove_extra_path', { workspace_id: workspaceId, path }),
+    call('remove_extra_path', { workspaceId, path }),
 
   listExtraPaths: (workspaceId: WorkspaceId): Promise<ExtraPathDto[]> =>
-    call('list_extra_paths', { workspace_id: workspaceId }),
+    call('list_extra_paths', { workspaceId }),
 
   effectivePaths: (workspaceId: WorkspaceId): Promise<EffectivePathsDto> =>
-    call('effective_paths', { workspace_id: workspaceId }),
+    call('effective_paths', { workspaceId }),
 
   listDir: (workspaceId: WorkspaceId, path: string): Promise<FileEntryDto[]> =>
-    call('list_dir', { workspace_id: workspaceId, path }),
+    call('list_dir', { workspaceId, path }),
 };
 
 // === Agents (multi-agent) ===
@@ -391,12 +466,12 @@ export const config = {
   updateGlobal: (patch: GlobalConfigPatchDto): Promise<GlobalConfigDto> =>
     call('config_update_global', { patch }),
   getWorkspace: (workspaceId: WorkspaceId): Promise<ResolvedConfigDto> =>
-    call('config_get_workspace', { workspace_id: workspaceId }),
+    call('config_get_workspace', { workspaceId }),
   updateWorkspace: (
     workspaceId: WorkspaceId,
     patch: WorkspaceConfigPatchDto,
   ): Promise<WorkspaceConfigDto> =>
-    call('config_update_workspace', { workspace_id: workspaceId, patch }),
+    call('config_update_workspace', { workspaceId, patch }),
 };
 
 // === Providers (F05 test connection) ===
@@ -410,8 +485,8 @@ export const providers = {
 
 export const secrets = {
   set: (providerId: string, value: string): Promise<void> =>
-    call('set_secret', { provider_id: providerId, value }),
-  delete: (providerId: string): Promise<void> => call('delete_secret', { provider_id: providerId }),
+    call('set_secret', { providerId, value }),
+  delete: (providerId: string): Promise<void> => call('delete_secret', { providerId }),
   listProviders: (): Promise<string[]> => call('list_providers'),
 };
 
@@ -419,7 +494,7 @@ export const secrets = {
 
 export const permissions = {
   getMatrix: (workspaceId?: WorkspaceId): Promise<PermissionMatrixDto> =>
-    call('get_matrix', { workspace_id: workspaceId }),
+    call('get_matrix', { workspaceId }),
   setDefault: (tool: string, decision: 'allow' | 'ask' | 'deny'): Promise<void> =>
     call('set_default', { tool, decision }),
   list: (): Promise<PermissionRequestDto[]> => call('list'),
@@ -430,7 +505,7 @@ export const permissions = {
       | { kind: 'allowSession' }
       | { kind: 'allowAlways'; tool: string }
       | { kind: 'deny' },
-  ): Promise<void> => call('respond', { request_id: requestId, response }),
+  ): Promise<void> => call('respond', { requestId, response }),
 };
 
 // === Streaming events (F01) ===
@@ -539,7 +614,7 @@ import type { DiffSummaryDto, DiffPayload } from './ipc-types';
 
 export const diffs = {
   listPending: (sessionId: SessionId): Promise<DiffSummaryDto[]> =>
-    call('diff_list_pending', { session_id: sessionId }),
+    call('diff_list_pending', { sessionId }),
   getFull: (toolCallId: string): Promise<DiffPayload> =>
-    call('diff_get_full', { tool_call_id: toolCallId }),
+    call('diff_get_full', { toolCallId }),
 };

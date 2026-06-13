@@ -29,12 +29,24 @@ pub type AppResult<T> = std::result::Result<T, AppError>;
 /// All errors surfaced from `agentyx-core` to the rest of the app
 /// (the Tauri command layer, the HTTP layer, the UI, the journal).
 ///
-/// The `Serialize + Deserialize` impls produce camelCase JSON
-/// suitable for crossing the IPC boundary; the UI is expected to
-/// pattern-match on `code` (a string) and use `message` for
-/// end-user display.
+/// The `Serialize + Deserialize` impls produce JSON suitable for
+/// crossing the IPC boundary; the UI is expected to pattern-match
+/// on `code` (a string) and use `message` for end-user display.
+/// See `../../specs/ipc.md` §4.4 for the contractual shape:
+/// `{ "code": "...", "message": "...", "context": { ... } }`.
+///
+/// We use `tag = "code"` (NOT `tag = "code", content = "context"`)
+/// so each variant's fields appear at the top level of the JSON
+/// object. That keeps `message` and `context` at the same depth
+/// as `code`, matching the spec and the JS `ipc.ts` wrapper. The
+/// tag (`code`) is snake_case (matching `AppError::code()`) and
+/// the variant fields are camelCase for cross-language ergonomics.
 #[derive(Debug, Error, Serialize, Deserialize, Clone, PartialEq, Eq)]
-#[serde(rename_all = "camelCase", tag = "code", content = "context")]
+#[serde(
+    tag = "code",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
 pub enum AppError {
     /// A requested resource (workspace, session, agent, file) was not found.
     /// `context` typically contains the `id` and the `kind` of resource.
@@ -151,5 +163,97 @@ impl AppError {
             Self::PathOutsideWorkspace { .. } => "path_outside_workspace",
             Self::Internal { .. } => "internal",
         }
+    }
+}
+
+#[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::assertions_on_constants
+)]
+mod tests {
+    //! Wire-format tests for `AppError`. These pin the JSON shape
+    //! that crosses the Tauri / HTTP boundary so the UI's
+    //! `ui/src/lib/ipc.ts` wrapper can rely on `code` and `message`
+    //! living at the top level of the payload (per
+    //! `specs/ipc.md` §4.4). A previous bug used
+    //! `#[serde(tag = "code", content = "context")]`, which nested
+    //! every variant's fields under `context` and made `message`
+    //! unreachable for the UI — resulting in
+    //! `conflict: [object Object]`. The tests below regress that.
+
+    use super::*;
+    use serde_json::json;
+
+    fn assert_top_level_code_and_message(err: &AppError, expected_code: &str) {
+        let v = serde_json::to_value(err).expect("serialize");
+        let obj = v.as_object().expect("object");
+        assert_eq!(
+            obj.get("code").and_then(|v| v.as_str()),
+            Some(expected_code),
+            "code is not a top-level string in {obj:?}",
+        );
+        assert!(
+            obj.contains_key("message") && obj["message"].is_string(),
+            "message is not a top-level string in {obj:?}",
+        );
+    }
+
+    #[test]
+    fn conflict_serializes_with_top_level_message() {
+        let err = AppError::Conflict {
+            message: "session has a running run; abort first".into(),
+        };
+        let v = serde_json::to_value(&err).expect("serialize");
+        assert_eq!(
+            v,
+            json!({
+                "code": "conflict",
+                "message": "session has a running run; abort first",
+            }),
+        );
+        assert_top_level_code_and_message(&err, "conflict");
+    }
+
+    #[test]
+    fn not_found_serializes_with_top_level_kind_and_id() {
+        let err = AppError::NotFound {
+            kind: "workspace".into(),
+            id: "01J".into(),
+        };
+        let v = serde_json::to_value(&err).expect("serialize");
+        assert_eq!(
+            v,
+            json!({
+                "code": "not_found",
+                "kind": "workspace",
+                "id": "01J",
+            }),
+        );
+    }
+
+    #[test]
+    fn invalid_input_serializes_with_top_level_message() {
+        let err = AppError::InvalidInput {
+            message: "bad URL".into(),
+        };
+        let v = serde_json::to_value(&err).expect("serialize");
+        assert_eq!(v, json!({ "code": "invalid_input", "message": "bad URL" }));
+        assert_top_level_code_and_message(&err, "invalid_input");
+    }
+
+    #[test]
+    fn round_trip_via_string_preserves_shape() {
+        // Tauri serializes errors via JSON before they reach JS; the
+        // reverse path is not used by the UI today, but we still
+        // exercise it to lock the on-the-wire contract.
+        let err = AppError::Conflict {
+            message: "x".into(),
+        };
+        let s = serde_json::to_string(&err).expect("serialize");
+        let back: AppError = serde_json::from_str(&s).expect("deserialize");
+        assert_eq!(back, err);
     }
 }
