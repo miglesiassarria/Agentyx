@@ -13,7 +13,7 @@
   let filter = $state('');
   let loading = $state(false);
   let error = $state<string | null>(null);
-  let open = $state(true);
+  let open = $state(false);
 
   $effect(() => {
     if (!sessionId) return;

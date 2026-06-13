@@ -36,7 +36,7 @@ use crate::server::state::ServerState;
 /// `tauri::State<Arc<AppState>>`. Cloning the `Arc` is cheap and
 /// is what each command handler does.
 pub struct AppState {
-    /// Path to `~/.agentyx/`. Source of truth for all per-user
+    /// Path to the config directory. Source of truth for all per-user
     /// files (registry, workspaces, cache).
     pub agentyx_home: PathBuf,
 
@@ -46,7 +46,9 @@ pub struct AppState {
 
     /// Global config (providers, default model, approval mode,
     /// UI prefs, telemetry, update channel). Persists to
-    /// `~/.agentyx/config.toml`. Cheap to clone (`Arc` inside).
+    /// Global config (providers, default model, approval mode,
+    /// UI prefs, telemetry, update channel). Persists to
+    /// the config directory. Cheap to clone (`Arc` inside).
     pub config: Arc<ConfigService>,
 
     /// Built-in agent registry (3 visible + 3 hidden). Loaded
@@ -459,14 +461,25 @@ impl ProviderRegistry {
     }
 }
 
-/// Returns the path to the user's Agentyx home directory
-/// (`~/.agentyx/` on Unix, `%APPDATA%\agentyx` on Windows).
+/// Returns the path to the user's Agentyx home directory.
+///
+/// - **macOS / Linux**: `~/.config/agentix/`
+/// - **Windows**: `%APPDATA%\agentyx`
+///
 /// Creates the directory if it doesn't exist.
 fn agentyx_home() -> AppResult<PathBuf> {
-    let home = dirs::home_dir().ok_or_else(|| agentyx_core::AppError::Internal {
-        message: "could not resolve user home directory".into(),
-    })?;
-    let path = home.join(".agentyx");
+    let path = if cfg!(target_os = "windows") {
+        dirs::data_dir()
+            .ok_or_else(|| agentyx_core::AppError::Internal {
+                message: "could not resolve user data directory".into(),
+            })?
+            .join("agentyx")
+    } else {
+        let home = dirs::home_dir().ok_or_else(|| agentyx_core::AppError::Internal {
+            message: "could not resolve user home directory".into(),
+        })?;
+        home.join(".config").join("agentix")
+    };
     std::fs::create_dir_all(&path).map_err(|e| agentyx_core::AppError::Io {
         op: format!("create_dir_all {}", path.display()),
         reason: e.to_string(),

@@ -18,6 +18,7 @@
 | [0006](0006-sqlite-rusqlite.md) | SQLite con `rusqlite` (bundled) en vez de `sqlx` | accepted | 2026-06-04 |
 | [0007](0007-extra-paths-per-workspace.md) | Modelo `root + extra_paths` por workspace | accepted | 2026-06-05 |
 | [0008](0008-providers-v1-scope.md) | Scope de providers LLM en v1 (Ollama / Groq / Minimax) | accepted | 2026-06-05 |
+| [0009](0009-config-dir-xdg.md) | Config directory en macOS/Linux (`~/.config/agentix`) | accepted | 2026-06-13 |
 
 ## Cómo crear un ADR nuevo
 
