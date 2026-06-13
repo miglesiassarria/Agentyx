@@ -277,10 +277,7 @@ async function httpCallBrowser<T>(command: string, args?: Record<string, unknown
     case 'get_workspace':
       return httpCall<T>('GET', `/api/v1/workspaces/${a.workspaceId}`);
     case 'delete_workspace':
-      return httpCall<T>(
-        'DELETE',
-        `/api/v1/workspaces/${a.workspaceId}?force=${a.force ?? false}`,
-      );
+      return httpCall<T>('DELETE', `/api/v1/workspaces/${a.workspaceId}?force=${a.force ?? false}`);
     case 'detect_workspace_venv':
       return httpCall<T>('GET', `/api/v1/workspaces/${a.workspaceId}/venv`);
     case 'add_extra_path':
@@ -343,11 +340,7 @@ async function httpCallBrowser<T>(command: string, args?: Record<string, unknown
     }
     case 'respond': {
       // permission request respond — the `permissions.respond` API.
-      return httpCall<T>(
-        'POST',
-        `/api/v1/permissions/requests/${a.requestId}/respond`,
-        a.response,
-      );
+      return httpCall<T>('POST', `/api/v1/permissions/requests/${a.requestId}/respond`, a.response);
     }
     // Diffs (F04)
     case 'diff_list_pending':
@@ -424,8 +417,7 @@ export const workspace = {
   open: (rootPath: string, name?: string): Promise<WorkspaceDto> =>
     call('open', { rootPath, name }),
 
-  get: (workspaceId: WorkspaceId): Promise<WorkspaceDto> =>
-    call('get_workspace', { workspaceId }),
+  get: (workspaceId: WorkspaceId): Promise<WorkspaceDto> => call('get_workspace', { workspaceId }),
 
   delete: (workspaceId: WorkspaceId, force = false): Promise<void> =>
     call('delete_workspace', { workspaceId, force }),
@@ -470,8 +462,7 @@ export const config = {
   updateWorkspace: (
     workspaceId: WorkspaceId,
     patch: WorkspaceConfigPatchDto,
-  ): Promise<WorkspaceConfigDto> =>
-    call('config_update_workspace', { workspaceId, patch }),
+  ): Promise<WorkspaceConfigDto> => call('config_update_workspace', { workspaceId, patch }),
 };
 
 // === Providers (F05 test connection) ===
@@ -615,6 +606,5 @@ import type { DiffSummaryDto, DiffPayload } from './ipc-types';
 export const diffs = {
   listPending: (sessionId: SessionId): Promise<DiffSummaryDto[]> =>
     call('diff_list_pending', { sessionId }),
-  getFull: (toolCallId: string): Promise<DiffPayload> =>
-    call('diff_get_full', { toolCallId }),
+  getFull: (toolCallId: string): Promise<DiffPayload> => call('diff_get_full', { toolCallId }),
 };
