@@ -114,6 +114,13 @@ jobs:
           workspaces: crates
       - name: Set up sccache
         uses: mozilla-actions/sccache-action@v0.0.7
+      - name: Cache cargo bin tools
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-deny
+          key: ${{ runner.os }}-cargo-deny-${{ hashFiles('.github/workflows/ci.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-deny-
       - name: Install cargo-deny
         run: cargo install --locked cargo-deny
       - name: cargo deny
@@ -133,6 +140,13 @@ jobs:
           workspaces: crates
       - name: Set up sccache
         uses: mozilla-actions/sccache-action@v0.0.7
+      - name: Cache cargo bin tools
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-audit
+          key: ${{ runner.os }}-cargo-audit-${{ hashFiles('.github/workflows/ci.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-audit-
       - name: Install cargo-audit
         run: cargo install --locked cargo-audit
       - name: cargo audit
