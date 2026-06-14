@@ -2,7 +2,10 @@
 
 **Status**: ready
 **Owner**: @miglesias
-**Last update**: 2026-06-07
+**Last update**: 2026-06-14 (decisión MVP: las write tools entran en
+v0.1; F04 ya no es esqueleto v0.1.x. Implementación llega con
+PR-2 a PR-5 del workstream — ver
+[`../STATUS.md#workstream-en-curso`](../STATUS.md#workstream-en-curso).)
 **Affects**: [`tools`](../domains/tools.md) (`edit_file`, `apply_patch`,
 `write_file`), [`F01`](./F01-chat-streaming.md) (consume los tool
 calls que producen cambios), [`journal`](../domains/journal.md)

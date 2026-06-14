@@ -4,20 +4,28 @@
 > Para roadmap de features: [features/ROADMAP.md](./features/ROADMAP.md).
 > Para índice de ADRs: [adr/README.md](./adr/README.md).
 >
-> Última actualización: 2026-06-14 (ADR-0010 — política de caching de CI
-> documentada; `Swatinem/rust-cache` + `sccache` como steps directos en
-> `ci.yml`, composite action descartada tras regresión en PR #38. Wall-clock
-> del PR baja de ~15 min a ~2m 30s. Sigue todo lo de 2026-06-13: `agents.md`
-> promovido de `draft` → `ready`; ACs 1–12 cubiertos por tests en
-> `crates/agentyx-core/src/{agents,session}/`, ACs 13–20 difieren
-> a v0.1.x con `F-agents-ui`. Sigue todo lo de 2026-06-08: F06
-> smoke manual LAN completo, F02 implementado, F01/F05/F04/F-agents-ui
-> con su status previo):
-> `cargo test --workspace` pasa (276 tests: 71 app + 205 core), vitest
-> pasa (44 tests), `npx tsc --noEmit` pasa. F06 tiene todos sus ACs
-> automatizables cerrados y smoke manual LAN completo (PathPromptDialog
-> UX ✓, SSE real ✓, permission prompt ✓, settings workspace config ✓).
-> F04 y F-agents-ui siguen parciales (no cierran comportamiento completo).
+> Última actualización: 2026-06-14 (**PR `chore/specs-f05-status-sync-and-mvp-scope`**).
+> Cambios:
+> 1. **Decisión MVP**: write tools (`write_file`, `edit_file`,
+>    `apply_patch`, `shell`, `python_run`) entran en v0.1 (antes v0.1.x).
+>    F04 deja de ser esqueleto y pasa a in-scope para v0.1. Ver
+>    [Workstream en curso](#workstream-en-curso) más abajo.
+> 2. **F05**: header de spec draft → ready (15/15 ACs cubiertos por
+>    tests). STATUS.md movido de "Draft" a "Ready". Notas stale sobre
+>    "pendientes AC3, AC9, AC10" eliminadas.
+> 3. Sigue todo lo de 2026-06-13: `agents.md` promovido de
+>    `draft → ready`; ACs 1–12 cubiertos por tests en
+>    `crates/agentyx-core/src/{agents,session}/`, ACs 13–20 difieren
+>    a v0.1.x con `F-agents-ui`.
+> 4. Sigue todo lo de 2026-06-08: F06 smoke manual LAN completo,
+>    F02 implementado, F06 ahora `implemented (full)` (PRs mergeados
+>    AC1-AC10 automatizables + smoke manual).
+> 5. ADR-0010 — política de caching de CI documentada;
+>    `Swatinem/rust-cache` + `sccache` como steps directos en
+>    `ci.yml`, composite action descartada tras regresión en PR #38.
+>    Wall-clock del PR baja de ~15 min a ~2m 30s.
+> 6. `cargo test --workspace` pasa (276 tests: 71 app + 205 core),
+>    vitest pasa (44 tests), `npx tsc --noEmit` pasa.
 >
 > **Disciplina de status**: este archivo se actualiza en el mismo PR
 > que cambia el estado real de cualquier pitch/spec o deja el board
@@ -30,14 +38,7 @@
 ## 🟡 Draft (en construcción)
 - domains/providers.md.
 - domains/journal.md.
-- features/F05-settings.md (UI y backend avanzados; quedan E2E/HTTP de
-  workspace config y cierre de ACs abiertos).
-- domains/providers.md
-- domains/journal.md
-- features/F05-settings.md (UI pendiente; backend promovido a `ready`
-  en este PR)
-- features/F04-file-diffs.md
-- features/F-agents-ui.md
+- features/F-agents-ui.md.
 
 ## 🟢 Ready (AC + contratos listos, pendiente implementación)
 - `agents.md` (promovido `draft → ready` en este PR): 12/20 ACs
@@ -48,18 +49,36 @@
   difieren a v0.1.x con `F-agents-ui`. Hardening menor: renombrar
   tests al patrón `ac<n>_<short>` y añadir tests dedicados para
   AC10/AC11.
+- `domains/tools.md` (movido `review → ready` con decisión de scope
+  2026-06-14): 6/19 ACs cubiertos (AC1, AC2, AC5, AC12, AC13, AC16 —
+  los de read-only). Pendientes los 13 ACs de write/exec tools
+  (AC3, AC4, AC6-AC11, AC14, AC15, AC17, AC18, AC19) que llegan
+  con PR-2 a PR-4 del workstream.
+- `features/F05-settings.md` (movido `draft → ready`): 15/15 ACs
+  cubiertos con 27 tests en
+  `crates/agentyx-core/src/config/service.rs` (5 tests AC9),
+  `crates/agentyx-app/src/commands/secrets.rs` (AC7, AC8),
+  `commands/providers.rs` (AC2, AC3, AC10),
+  `commands/permissions.rs` (AC9 variantes),
+  `commands/config.rs` (AC4, AC5, AC6, AC11, AC12, AC15).
+  UI consolidada en `SettingsView.svelte` con matriz de permisos
+  editable. Verificación visual manual recomendada antes de mover
+  a `implemented` (PR-7 del workstream).
 - features/F-agents-ui.md (UI parcial en código: `AgentChip`,
   `AgentPickerMenu`, `AtMentionPopover`, shortcut cycle. Falta backend
   de `@mention`/child sessions y SessionTree para cerrar ACs).
-- features/F04-file-diffs.md (infra parcial en código: `diff` domain,
-  DTOs, `DiffsSidePanel`, endpoints de lista. Falta write/edit/apply
-  tools reales y payload completo para cerrar ACs).
+- features/F04-file-diffs.md (`ready` desde 2026-06-07): 0/12 ACs
+  cubiertos. Infra parcial en código: `commands/diff.rs` (DTOs +
+  `diff_get_full`/`diff_list_pending`), `ui/src/lib/components/diff/
+  {DiffView,DiffBody,DiffsSidePanel}.svelte`, endpoint
+  `GET /api/v1/diffs/:toolCallId`. Los 12 ACs llegan con **PR-5**
+  del workstream (UI completa: binary notice, truncation, side panel
+  con search y localStorage collapse, E2E Playwright).
 
 ## 🔵 Review (pending approval)
 - domains/agent-loop.md
 - domains/workspace.md
 - domains/permissions.md
-- domains/tools.md
 
 ## 🟢 Approved (listo para implementar)
 - project.md (revisado en PR 1)
@@ -213,9 +232,11 @@
       `f05_ac6_workspace_override_isolated_from_global`,
       `f05_ac11_settings_persist_across_app_restart`,
       `f05_ac12_resolved_snapshot_never_includes_secrets`.
-  Pendientes para `ready` → `implemented`: edición persistente de
-  matriz de permisos (AC9), cobertura E2E de add provider/persistencia
-  completa (AC2, AC10, AC11) y eventos `config.changed.v1` (AC15).
+  Pendientes para `ready` → `implemented`: ninguno a nivel de ACs.
+  Quedan **endurecimientos menores** que se difieren al PR-7 del
+  workstream: verificación visual manual del flujo Settings en app
+  Tauri real (no hay test E2E con WebDriver) y migración de la
+  `SettingsView` a una vista `/settings` con router (PR-7).
   - **PR `feat/f05-permission-matrix-and-config-event`**:
     F05.AC9 + F05.AC15 cerrados.
     - `GlobalConfig.default_tool_decisions: HashMap<String, ToolDecision>`
@@ -245,18 +266,50 @@
     - UI tests: `f05_ac9_permission_matrix_edits_persist helper returns
       stable order` y `f05_ac9_static_default_decision_matches_known_tools`
       en `helpers.test.ts`.
-  Pendientes para `ready` → `implemented` (cubierto por PR3
-  F05 UI + PR2 providers): AC3 (invalid key test connection),
-  AC9 (permission matrix), AC10 (test & add con UI).
+  **F05 cerrado a nivel de ACs (15/15).** Migración de la UI a
+  `/settings` con router formal queda como hardening v0.1.x; el
+  acceso actual desde el sidebar de `WorkspaceView` cumple el
+  flujo MVP.
+
+## 🚧 Workstream en curso (2026-06-14)
+
+> **Decisión humana explícita** del 2026-06-14: las 5 write tools
+> (`write_file`, `edit_file`, `apply_patch`, `shell`, `python_run`)
+> entran en MVP v0.1. F04 deja de ser esqueleto v0.1.x. Esto
+> desbloquea 7 PRs dependientes. Tracking: issue umbrella en GitHub
+> (ver label `area:mvp-write-tools`).
+
+| # | Branch | PR | Resumen | Depende de | Estimación |
+|---|---|---|---|---|---|
+| 1 | `chore/specs-f05-status-sync-and-mvp-scope` | este | Drift F05 + scope MVP + sync STATUS/ROADMAP | — | 1 d |
+| 2 | `feat/write-file-and-edit-file` | tbd | `write_file` + `edit_file` + sandbox check + `DiffPayload` emission al journal + 6 tests (tools AC3, AC4, AC17, AC18) | PR-1 | 3-5 d |
+| 3 | `feat/apply-patch` | tbd | Unified diff parser + atomic apply + `dry_run` + 4 tests (tools AC10, AC11) | PR-2 | 3-4 d |
+| 4 | `feat/shell-and-python-run` | tbd | `shell` con timeout/env filter/abort + `python_run` con venv resolution/PTY + 8 tests (tools AC6, AC7, AC8, AC9, AC19) | PR-1 (paralelo a 2/3) | 5-7 d |
+| 5 | `feat/f04-file-diffs-ui` | tbd | `DiffView` con binary notice + `DiffsSidePanel` con search + localStorage collapse + 12 vitest + E2E Playwright (F04 AC1-AC12) | PR-2, PR-3 | 3-5 d |
+| 6 | `feat/f01-hardening-rate-limit-and-snapshot` | tbd | 429 → retry 1s con backoff en `agent/loop_.rs` + mapeo 429 en 3 providers + tests `f01_ac11_*` + `f01_ac14_*` | PR-1 (paralelo) | 2-3 d |
+| 7 | `docs/sync-write-tools-shipped` | tbd | `tools.md → implemented`, `F04 → implemented`, board STATUS.md final, ROADMAP acceptance de v0.1 con checks nuevos | PR-2, PR-3, PR-4, PR-5 | 1 d |
+
+### Reglas del workstream
+
+1. **PR-1 es docs-only** y debe mergear primero sin tocar código. Cualquier PR del workstream que abra antes de PR-1 debe hacer rebase.
+2. **PR-2 y PR-3 son secuenciales** (PR-3 importa el `DiffPayload` que PR-2 emite al journal).
+3. **PR-4 puede arrancar en paralelo con PR-2** (no comparten código de tools).
+4. **PR-5 espera a PR-2 y PR-3** (necesita write tools reales para tests E2E).
+5. **PR-6 es independiente** del resto; puede mergear en cualquier momento.
+6. **PR-7 es el último** y solo actualiza docs; CI debe estar verde antes de mergear.
+7. Cada PR sigue la plantilla §17.5.1.3 con `## Refs` y `## Spec status changes`.
+8. Categorización de los PRs: **B (implementation)** — añaden código que cumple specs ya diseñadas. No hay spec gap.
 
 ## ⚫ Deprecated
 _(ninguno)_
 
 ## Orden de continuidad para agentes
 
-> Para MVP, trabajar de arriba abajo. No abrir F04 write tools ni
-> subagents reales hasta validar el smoke manual LAN y cerrar F05,
-> salvo instrucción humana.
+> Para MVP, trabajar de arriba abajo. **Desde 2026-06-14**: las
+> write tools están explícitamente dentro del MVP (decisión humana).
+> El subagent runtime (`@general`, child sessions, SessionTree)
+> sigue en v0.1.x con `F-agents-ui` (depende de `agents.md` ACs
+> 13–20), salvo instrucción humana en contra.
 
 ### P0 — cerrar MVP web funcional
 

@@ -1,8 +1,12 @@
 # F05 — Settings
 
-**Status**: draft
+**Status**: ready
 **Owner**: @miglesias
-**Last update**: 2026-06-08 (backend ACs AC2-AC13 cubiertos por tests; Models UI usa selector por provider)
+**Last update**: 2026-06-14 (promovido `draft → ready`: 15/15 ACs cubiertos
+por 27 tests en `crates/agentyx-{core,app}/src/{config,commands}/`.
+UI consolidada en `SettingsView.svelte` con matriz de permisos editable,
+selector de modelo por provider, y keychain OS-backed. Migración a vista
+`/settings` con router formal queda como hardening v0.1.x).
 **Affects**: [`providers`](../domains/providers.md), [`permissions`](../domains/permissions.md),
 [`config`](../domains/config.md), [`workspace`](../domains/workspace.md).
 **Depends on**: [`F02`](./F02-multi-workspace.md) (workspaces existen

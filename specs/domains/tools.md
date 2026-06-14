@@ -1,8 +1,12 @@
 # Tools
 
-**Status**: review
+**Status**: ready
 **Owner**: @miglesias
-**Last update**: 2026-06-05
+**Last update**: 2026-06-14 (promovido `review → ready`: 6/19 ACs
+cubiertos con tests; los 13 ACs de write/exec tools se
+implementan con el workstream 2026-06-14 — ver
+[`../STATUS.md#workstream-en-curso`](../STATUS.md#workstream-en-curso),
+PR-2 a PR-4).
 **Affects**: — (las tools son invocadas por `agent-loop.md` con
 permisos decididos por `permissions.md`).
 **Required by**: `agent-loop.md`, `features/F01-chat-streaming`,
