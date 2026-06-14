@@ -4,8 +4,11 @@
 > Para roadmap de features: [features/ROADMAP.md](./features/ROADMAP.md).
 > Para índice de ADRs: [adr/README.md](./adr/README.md).
 >
-> Última actualización: 2026-06-13 (`agents.md` promovido de
-> `draft` → `ready`; ACs 1–12 cubiertos por tests en
+> Última actualización: 2026-06-14 (ADR-0010 — política de caching de CI
+> documentada; `Swatinem/rust-cache` + `sccache` como steps directos en
+> `ci.yml`, composite action descartada tras regresión en PR #38. Wall-clock
+> del PR baja de ~15 min a ~2m 30s. Sigue todo lo de 2026-06-13: `agents.md`
+> promovido de `draft` → `ready`; ACs 1–12 cubiertos por tests en
 > `crates/agentyx-core/src/{agents,session}/`, ACs 13–20 difieren
 > a v0.1.x con `F-agents-ui`. Sigue todo lo de 2026-06-08: F06
 > smoke manual LAN completo, F02 implementado, F01/F05/F04/F-agents-ui
@@ -76,6 +79,12 @@
 - ADR-0001 a ADR-0006: accepted (sin cambios en PR 1-3).
 - **ADR-0007** (nuevo, PR 3): modelo `root + extra_paths` por workspace.
 - **ADR-0008** (nuevo, PR 3): scope de providers v1 (Ollama / Groq / Minimax).
+- **ADR-0009**: config directory en macOS/Linux (`~/.config/agentix`).
+- **ADR-0010** (nuevo, este PR): política de caching de CI
+  (`Swatinem/rust-cache@v2` + `mozilla-actions/sccache-action@v0.0.7`
+  como steps directos, composite action descartada tras PR #38 cerrada
+  con regresión de sccache). Mejora: wall-clock del PR de ~15 min a
+  ~2m 30s (~6×).
 
 ## ✅ Implemented / Partially Implemented (código en main)
 - **features/F06-web-server-lan.md** — `ready` → `implemented (full: automated ACs + manual LAN smoke all complete)`. PRs:
