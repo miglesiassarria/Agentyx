@@ -2,11 +2,16 @@
 
 > Vista por features. Para vista global: [specs/README.md](../README.md).
 > Para índice de ADRs: [specs/adr/README.md](../adr/README.md).
-> Última actualización: 2026-06-08 (sincronizado tras auditoría MVP:
-> F06 tiene cerrados sus ACs automatizables y ya sirve la raíz desde
-> otro dispositivo LAN; queda smoke manual de flujos browser reales.
-> F04/F-agents-ui pasan a esqueleto parcial/post-MVP salvo decisión
-> humana).
+> Última actualización: 2026-06-14 (decisión humana explícita: write
+> tools (`write_file`, `edit_file`, `apply_patch`, `shell`,
+> `python_run`) entran en MVP v0.1. F04 ya no es esqueleto v0.1.x
+> sino parte del MVP. Workstream de 7 PRs en
+> [`specs/STATUS.md` §Workstream en curso](../STATUS.md#workstream-en-curso).
+> F05 backend promovido a `ready` con 15/15 ACs cubiertos por tests
+> en `crates/agentyx-{app,core}/src/commands/{config,secrets,
+> providers,permissions}.rs` y `crates/agentyx-core/src/config/
+> service.rs`; UI consolidada en `SettingsView.svelte` con matriz
+> de permisos editable.).
 
 ## Agent context
 
@@ -38,10 +43,10 @@
 | ID | Feature | Status | Affects | Depends on | Phase |
 |---|---|---|---|---|---|
 | [F02](F02-multi-workspace.md) | Multi-workspace: list, open, delete, **extra paths**, badge venv pasivo | implemented | workspace, tools, permissions | — | 1 |
-| [F05](F05-settings.md) | Settings: providers activos (Ollama/Groq/Minimax), modelos, keychain entry, approval_mode | partial — P1 | providers, permissions, **config** | F02 | 2 |
-| [F01](F01-chat-streaming.md) | Chat con streaming LLM (provider agnóstico, multi-agent: build/plan) | partial — read-only MVP viable | agent-loop, providers, session, **agents**, **journal** | F02, F05 | 3 |
-| [F06](F06-web-server-lan.md) | Servidor web embebido + UI navegador LAN: `0.0.0.0` opt-in, bearer token, REST + SSE | partial — manual LAN smoke pending | server, ipc, ui, config, session, workspace, permissions | F02, F05, F01 | 4 |
-| [F04](F04-file-diffs.md) | File diffs en UI tras write/edit/apply_patch | skeleton — v0.1.x unless write tools enter MVP | tools, ui | F01, F02 | 5 |
+| [F05](F05-settings.md) | Settings: providers activos (Ollama/Groq/Minimax), modelos, keychain entry, approval_mode | ready — backend full + UI consolidada | providers, permissions, **config** | F02 | 2 |
+| [F01](F01-chat-streaming.md) | Chat con streaming LLM (provider agnóstico, multi-agent: build/plan) | partial — read-only MVP viable, AC11/AC14 hardening pending | agent-loop, providers, session, **agents**, **journal** | F02, F05 | 3 |
+| [F06](F06-web-server-lan.md) | Servidor web embebido + UI navegador LAN: `0.0.0.0` opt-in, bearer token, REST + SSE | implemented (full) | server, ipc, ui, config, session, workspace, permissions | F02, F05, F01 | 4 |
+| [F04](F04-file-diffs.md) | File diffs en UI tras write/edit/apply_patch | draft — in scope for v0.1 MVP (write tools decididos 2026-06-14) | tools, ui | F01, F02 | 5 |
 | [F-agents-ui](F-agents-ui.md) | UI multi-agent: chip/cycle/@mention/SessionTree | partial UI — subagents real v0.1.x | ui, agent-loop, **agents**, session | F01 | 6 |
 
 ### MVP finish line (orden operativo)
@@ -124,12 +129,37 @@
   `permission.requested.v1`.
 - [x] Smoke manual: en navegador LAN, editar config de workspace desde
   Settings.
+- [ ] Pedir al agente que cree un archivo (`write_file`) y verlo en el
+  editor de la app.
+- [ ] Pedir al agente que edite un archivo (`edit_file`) y ver el
+  diff en el side panel.
+- [ ] Aplicar un patch unificado (`apply_patch`) y ver los hunks
+  expandibles en la UI.
+- [ ] Detección de binarios: abrir un diff sobre un PNG/ZIP y ver el
+  `BinaryDiffNotice` en vez de CodeMirror.
+- [ ] Ejecutar `cargo test` (o `npm test`) desde el agente con
+  `shell` y ver stdout/stderr en el `ToolResult` del chat.
+- [ ] El permission prompt de `shell` muestra el comando completo
+  antes de aprobar; "Allow for run" persiste para el resto del run.
+- [ ] `python_run` con un workspace con `.venv/` usa el interpreter
+  del venv; sin venv retorna error claro sugiriendo crear uno.
+- [ ] La matriz de permisos en Settings permite marcar
+  `write_file`/`edit_file`/`shell`/`python_run` como `allow` o
+  `deny` global, y el siguiente run respeta la decisión.
+- [ ] Filtro del side panel de diffs es case-insensitive substring
+  sobre `path`.
+- [ ] Re-abrir la app tras escribir varios archivos → los diffs se
+  re-renderizan desde el journal (cold start).
 
 ### Fuera del corte MVP salvo decisión explícita
 
-- `write_file`, `edit_file`, `apply_patch`, `shell`, `python_run`.
-- Diffs completos de F04 ligados a tools de escritura.
-- `@general` con child sessions reales y SessionTree.
+- ~~`write_file`, `edit_file`, `apply_patch`, `shell`, `python_run`.~~ —
+  **Decidido 2026-06-14**: entran en MVP. Ver PRs #40–#44 del workstream
+  (ver [STATUS.md §Workstream en curso](../STATUS.md#workstream-en-curso)).
+- ~~Diffs completos de F04 ligados a tools de escritura.~~ — **Decidido**:
+  F04 entra en MVP.
+- `@general` con child sessions reales y SessionTree — sigue en v0.1.x
+  (depende de `agents.md` ACs 13–20, difiere a v0.1.x con F-agents-ui).
 
 ---
 
