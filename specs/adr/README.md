@@ -19,6 +19,7 @@
 | [0007](0007-extra-paths-per-workspace.md) | Modelo `root + extra_paths` por workspace | accepted | 2026-06-05 |
 | [0008](0008-providers-v1-scope.md) | Scope de providers LLM en v1 (Ollama / Groq / Minimax) | accepted | 2026-06-05 |
 | [0009](0009-config-dir-xdg.md) | Config directory en macOS/Linux (`~/.config/agentix`) | accepted | 2026-06-13 |
+| [0010](0010-ci-caching-policy.md) | Política de caching de CI: `rust-cache` + `sccache` como steps directos (composite action descartada) | accepted | 2026-06-14 |
 
 ## Cómo crear un ADR nuevo
 
