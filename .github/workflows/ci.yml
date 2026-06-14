@@ -42,13 +42,12 @@ jobs:
         with:
           components: clippy
       - name: Cache Rust deps
-        uses: actions/cache@v4
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            crates/target
-          key: ${{ runner.os }}-rust-${{ hashFiles('crates/Cargo.lock') }}
+          cache-on-failure: true
+          workspaces: crates
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.7
       - name: Install Tauri system deps (Linux)
         run: |
           sudo apt-get update
@@ -62,6 +61,8 @@ jobs:
             libssl-dev
       - name: clippy
         working-directory: crates
+        env:
+          RUSTC_WRAPPER: sccache
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
   rust-test:
@@ -75,14 +76,12 @@ jobs:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache Rust deps
-        if: runner.os != 'Windows'
-        uses: actions/cache@v4
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            crates/target
-          key: ${{ runner.os }}-rust-${{ hashFiles('crates/Cargo.lock') }}
+          cache-on-failure: true
+          workspaces: crates
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.7
       - name: Install system deps (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -98,6 +97,8 @@ jobs:
             libsqlite3-dev
       - name: cargo test
         working-directory: crates
+        env:
+          RUSTC_WRAPPER: sccache
         run: cargo test --workspace --all-features
 
   rust-deny:
@@ -107,13 +108,19 @@ jobs:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache Rust deps
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+          workspaces: crates
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.7
+      - name: Cache cargo bin tools
         uses: actions/cache@v4
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            crates/target
-          key: ${{ runner.os }}-rust-${{ hashFiles('crates/Cargo.lock') }}
+          path: ~/.cargo/bin/cargo-deny
+          key: ${{ runner.os }}-cargo-deny-${{ hashFiles('.github/workflows/ci.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-deny-
       - name: Install cargo-deny
         run: cargo install --locked cargo-deny
       - name: cargo deny
@@ -127,13 +134,19 @@ jobs:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache Rust deps
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+          workspaces: crates
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.7
+      - name: Cache cargo bin tools
         uses: actions/cache@v4
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            crates/target
-          key: ${{ runner.os }}-rust-${{ hashFiles('crates/Cargo.lock') }}
+          path: ~/.cargo/bin/cargo-audit
+          key: ${{ runner.os }}-cargo-audit-${{ hashFiles('.github/workflows/ci.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-audit-
       - name: Install cargo-audit
         run: cargo install --locked cargo-audit
       - name: cargo audit
