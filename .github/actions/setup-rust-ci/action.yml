@@ -1,0 +1,73 @@
+name: setup-rust-ci
+
+description: |
+  Common Rust CI setup for Agentyx: installs the stable Rust toolchain
+  (with optional components), configures Swatinem/rust-cache for the
+  `crates/` workspace, sets up mozilla-actions/sccache, optionally
+  installs the Tauri Linux system dependencies, and optionally caches
+  and installs cargo-nextest.
+
+  Callers must have already run `actions/checkout` so the workspace
+  is on disk. After this step, run cargo commands with
+  `RUSTC_WRAPPER: sccache` in the step's `env:` to benefit from the
+  sccache configuration.
+
+inputs:
+  toolchain-components:
+    description: "Comma-separated list of rustup components to install (e.g. 'rustfmt' or 'clippy')."
+    required: false
+    default: ""
+  install-apt-tauri:
+    description: "If 'true', install the Tauri system dependencies on Linux via apt-get. Adds ~30s to first run; cached by the runner image after that."
+    required: false
+    default: "false"
+  install-nextest:
+    description: "If 'true', cache and install cargo-nextest. Required for jobs that use `cargo nextest run`."
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: ${{ inputs.toolchain-components }}
+
+    - name: Cache Rust deps
+      uses: Swatinem/rust-cache@v2
+      with:
+        cache-on-failure: true
+        workspaces: crates
+
+    - name: Set up sccache
+      uses: mozilla-actions/sccache-action@v0.0.7
+
+    - name: Install Tauri system deps (Linux)
+      if: inputs.install-apt-tauri == 'true' && runner.os == 'Linux'
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libwebkit2gtk-4.1-dev \
+          libgtk-3-dev \
+          libayatana-appindicator3-dev \
+          librsvg2-dev \
+          libsoup-3.0-dev \
+          libjavascriptcoregtk-4.1-dev \
+          libssl-dev \
+          libsqlite3-dev
+
+    - name: Cache cargo-nextest
+      if: inputs.install-nextest == 'true'
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/bin/cargo-nextest
+        key: ${{ runner.os }}-cargo-nextest-${{ hashFiles('.github/actions/setup-rust-ci/action.yml') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-nextest-
+
+    - name: Install cargo-nextest
+      if: inputs.install-nextest == 'true'
+      shell: bash
+      run: cargo install --locked cargo-nextest

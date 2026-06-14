@@ -1,0 +1,26 @@
+# cargo-nextest configuration for Agentyx.
+#
+# Loaded from `crates/.config/nextest.toml` (nextest looks up
+# `<manifest-path>/.config/nextest.toml` first, then the workspace
+# root). Referenced via `cargo nextest run --profile=ci` in CI.
+#
+# See https://nexte.st/docs/configuration/
+
+# Default profile — local development.
+# Mirrors `cargo test` defaults: fail-fast off, all targets.
+
+[profile.default]
+retries = 0
+fail-fast = false
+
+# CI profile — used by `cargo nextest run --profile=ci` in
+# `.github/workflows/ci.yml`.
+#
+# - `fail-fast = true` stops on the first failing test binary so
+#   the matrix job exits quickly and surfaces the root cause fast.
+# - `retries = 0` matches the previous `cargo test` behaviour
+#   (no flake tolerance). Bump to 1-2 if flakes appear in CI.
+
+[profile.ci]
+retries = 0
+fail-fast = true
